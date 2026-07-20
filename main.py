@@ -2255,21 +2255,24 @@ async def api_export_manual_csv(token: str = None, authorization: str = Header(N
     return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
 
 # Serving static dashboard files
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
     try:
-        with open("index.html", "r", encoding="utf-8") as f:
+        file_path = os.path.join(BASE_DIR, "index.html")
+        with open(file_path, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
     except FileNotFoundError:
         return HTMLResponse(content="<h3>index.html not found</h3>", status_code=404)
 
 @app.get("/style.css")
 async def get_style():
-    return FileResponse("style.css", media_type="text/css")
+    return FileResponse(os.path.join(BASE_DIR, "style.css"), media_type="text/css")
 
 @app.get("/script.js")
 async def get_script():
-    return FileResponse("script.js", media_type="application/javascript")
+    return FileResponse(os.path.join(BASE_DIR, "script.js"), media_type="application/javascript")
 
 if __name__ == "__main__":
     host = os.getenv("HOST", "127.0.0.1")
