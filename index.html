@@ -440,11 +440,23 @@
                         </div>
                         <div class="config-item checkbox-input-group">
                             <div class="checkbox-row">
-                                <input type="checkbox" id="checkbox-auto-sl" checked>
-                                <label for="checkbox-auto-sl" class="rule-label">Auto Net Profit/Loss SL
+                                <input type="checkbox" id="checkbox-target">
+                                <label for="checkbox-target" class="rule-label">Auto Target (PnL INR)
                                     <div class="tooltip-container">
                                         <span>ⓘ</span>
-                                        <span class="tooltip-text">Enables absolute monetary stop-loss value check on the total net PnL of open legs.</span>
+                                        <span class="tooltip-text">Auto square off once the total net profit reaches this currency value in rupees.</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <input type="number" id="input-auto-target-val" class="rule-input font-mono" value="5000">
+                        </div>
+                        <div class="config-item checkbox-input-group">
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="checkbox-sl">
+                                <label for="checkbox-sl" class="rule-label">Auto Stop Loss (PnL INR)
+                                    <div class="tooltip-container">
+                                        <span>ⓘ</span>
+                                        <span class="tooltip-text">Auto square off once the total net loss hits this negative currency value in rupees.</span>
                                     </div>
                                 </label>
                             </div>
@@ -591,6 +603,6 @@
         </section>
     </div>
     
-    <script src="script.js"></script>
+    <script src="script.js?v=1.2"></script>
 </body>
 </html>
