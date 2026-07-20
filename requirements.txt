@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+websockets
+python-dotenv
+pydantic
+smartapi-python
+pyotp
+logzero
+websocket-client
+
