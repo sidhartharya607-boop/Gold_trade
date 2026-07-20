@@ -158,6 +158,16 @@ function updateDashboard(data) {
         }
     }
 
+    // Update Dynamic Symbol Names
+    const petalSymbolNameEl = document.getElementById("petal-symbol-name");
+    const miniSymbolNameEl = document.getElementById("mini-symbol-name");
+    if (petalSymbolNameEl && data.petal_symbol) {
+        petalSymbolNameEl.innerText = data.petal_symbol;
+    }
+    if (miniSymbolNameEl && data.mini_symbol) {
+        miniSymbolNameEl.innerText = data.mini_symbol;
+    }
+
     // 1. Live LTP Price & Tick Flashing
     const currentPetal = data.gold_petal_ltp;
     const currentMini = data.gold_mini_ltp;
@@ -1279,3 +1289,23 @@ function updateTopWorkflowBanner(data) {
         }
     }
 }
+
+// Global toggle handler for collapsible control/data cards
+window.toggleCard = function(cardId) {
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    const content = card.querySelector(".card-content");
+    const arrow = card.querySelector(".toggle-arrow");
+    
+    if (content.style.display === "none" || !content.style.display) {
+        if (cardId === "card-logs") {
+            content.style.display = "block";
+        } else {
+            content.style.display = "flex";
+        }
+        if (arrow) arrow.style.transform = "rotate(180deg)";
+    } else {
+        content.style.display = "none";
+        if (arrow) arrow.style.transform = "rotate(0deg)";
+    }
+};

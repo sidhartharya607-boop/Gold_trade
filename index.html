@@ -109,7 +109,7 @@
             <!-- Card 1: Gold Petal -->
             <div class="metric-card double-card" id="card-petal">
                 <div class="metric-header">
-                    <span class="symbol-name">GOLD_PETAL</span>
+                    <span class="symbol-name" id="petal-symbol-name">GOLD_PETAL</span>
                     <div class="tooltip-container">
                         <span>ⓘ</span>
                         <span class="tooltip-text">Gold Petal contract on MCX. Price is per 10 grams (Multiplier = 10x).</span>
@@ -158,7 +158,7 @@
             <!-- Card 2: Gold Mini -->
             <div class="metric-card double-card" id="card-mini">
                 <div class="metric-header">
-                    <span class="symbol-name">GOLD_MINI</span>
+                    <span class="symbol-name" id="mini-symbol-name">GOLD_MINI</span>
                     <div class="tooltip-container">
                         <span>ⓘ</span>
                         <span class="tooltip-text">Gold Mini contract on MCX. Price is per 10 grams (Multiplier = 1x).</span>
@@ -245,271 +245,9 @@
             </div>
         </main>
 
-        <!-- Dynamic Workstation Controls -->
-        <section class="control-board">
-            <!-- Left Side: Order Execution -->
-            <div class="control-card execution-panel">
-                <h2>Manual Trade Entry & Exit</h2>
-                
-                <div class="direction-selector">
-                    <span class="rule-label">Choose Strategy Direction
-                        <div class="tooltip-container">
-                            <span>ⓘ</span>
-                            <span class="tooltip-text">Choose the trade setup direction. Expansion is buying spread; Contraction is selling spread.</span>
-                        </div>
-                    </span>
-                    <div class="toggle-buttons">
-                        <label class="dir-btn">
-                            <input type="radio" name="trade-direction" value="Expansion" checked>
-                            <span class="dir-btn-label">Spread Expansion<br><small>Buy Petal / Sell Mini</small></span>
-                        </label>
-                        <label class="dir-btn">
-                            <input type="radio" name="trade-direction" value="Contraction">
-                            <span class="dir-btn-label">Spread Contraction<br><small>Sell Petal / Buy Mini</small></span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="config-item" style="margin-top: 0.8rem; margin-bottom: 0.8rem;">
-                    <label for="manual-trigger-diff" class="rule-label">Trigger Diff (Optional)
-                        <div class="tooltip-container">
-                            <span>ⓘ</span>
-                            <span class="tooltip-text">Specify a target difference. E.g., for Expansion: buy if spread &le; diff. For Contraction: sell if spread &ge; diff. Leave empty to enter immediately.</span>
-                        </div>
-                    </label>
-                    <input type="number" id="manual-trigger-diff" class="rule-input font-mono" placeholder="Immediate (e.g. 1500)" style="width: 100%; box-sizing: border-box;" step="any">
-                </div>
-
-                <div class="execution-actions">
-                    <button id="entry-btn" class="action-btn entry-button">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg>
-                        Manual Entry
-                        <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
-                            <span>ⓘ</span>
-                            <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly enter arbitrage positions based on the selected direction.</span>
-                        </div>
-                    </button>
-                    <button id="exit-btn" class="action-btn exit-button" disabled>
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
-                        Square Off (Exit)
-                        <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
-                            <span>ⓘ</span>
-                            <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Reverse active orders to completely close all open legs.</span>
-                        </div>
-                    </button>
-                </div>
-
-                <div class="emergency-section">
-                    <button id="kill-switch-btn" class="kill-switch-button">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                        EMERGENCY KILL SWITCH
-                        <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
-                            <span>ⓘ</span>
-                            <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly square off everything and halt bot executions completely.</span>
-                        </div>
-                    </button>
-                </div>
-            </div>
-
-            <!-- Right Side: Configs & Parameters -->
-            <div class="control-card configs-panel">
-                <h2>Strategy Controls & Safety</h2>
-                
-                <div class="configs-inputs-grid">
-                    <div class="config-item">
-                        <label for="input-entry" class="rule-label">Entry Spread Threshold
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">The spread value (difference) at which the bot will automatically enter trades.</span>
-                            </div>
-                        </label>
-                        <input type="number" id="input-entry" class="rule-input font-mono" value="1000">
-                    </div>
-                    <div class="config-item">
-                        <label for="input-target" class="rule-label">Target Spread Threshold
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">The target spread value at which the bot will automatically book profits and close positions.</span>
-                            </div>
-                        </label>
-                        <input type="number" id="input-target" class="rule-input font-mono" value="1150">
-                    </div>
-                    <div class="config-item">
-                        <label for="input-sl" class="rule-label">Stop-Loss Spread Threshold
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">The maximum risk spread limit at which the bot automatically exits the position.</span>
-                            </div>
-                        </label>
-                        <input type="number" id="input-sl" class="rule-input font-mono" value="600">
-                    </div>
-                    <div class="config-item">
-                        <label for="input-capital" class="rule-label">Trading Capital (INR)
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">Initial capital used to compute portfolio balance and percentage returns.</span>
-                            </div>
-                        </label>
-                        <input type="number" id="input-capital" class="rule-input font-mono" value="500000">
-                    </div>
-                    
-                    <div class="config-item">
-                        <label for="input-quantity" class="rule-label">Order Quantity (Lots)
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">The number of contract lots to trade for Leg 1 and Leg 2.</span>
-                            </div>
-                        </label>
-                        <input type="number" id="input-quantity" class="rule-input font-mono" value="1" min="1">
-                    </div>
-                    
-                    <div class="config-item">
-                        <label for="input-spread-buffer" class="rule-label">Spread Buffer / Tolerance
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">Tolerance range for matching entry/exit spread thresholds.</span>
-                            </div>
-                        </label>
-                        <input type="number" id="input-spread-buffer" class="rule-input font-mono" value="0" min="0">
-                    </div>
-                    
-                    <div class="config-item checkbox-input-group">
-                        <div class="checkbox-row" style="margin-top: 1.6rem;">
-                            <input type="checkbox" id="checkbox-contraction-entry">
-                            <label for="checkbox-contraction-entry" class="rule-label">Auto Contraction Entry
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Allows the bot to automatically enter Contraction positions when spread is high.</span>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-                    
-                    <div class="config-item checkbox-input-group">
-                        <div class="checkbox-row" style="margin-top: 1.6rem;">
-                            <input type="checkbox" id="checkbox-spread-exit" checked>
-                            <label for="checkbox-spread-exit" class="rule-label">Auto Spread-Based Exit
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Allows the bot to exit positions automatically based on target/entry spread values.</span>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="config-item checkbox-input-group">
-                        <div class="checkbox-row">
-                            <input type="checkbox" id="checkbox-target">
-                            <label for="checkbox-target" class="rule-label">Auto Target (PnL INR)
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Auto square off once the total net profit reaches this currency value in rupees.</span>
-                                </div>
-                            </label>
-                        </div>
-                        <input type="number" id="input-auto-target-val" class="rule-input font-mono" value="5000">
-                    </div>
-                    <div class="config-item checkbox-input-group">
-                        <div class="checkbox-row">
-                            <input type="checkbox" id="checkbox-sl">
-                            <label for="checkbox-sl" class="rule-label">Auto Stop Loss (PnL INR)
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Auto square off once the total net loss hits this negative currency value in rupees.</span>
-                                </div>
-                            </label>
-                        </div>
-                        <input type="number" id="input-auto-sl-val" class="rule-input font-mono" value="-3000">
-                    </div>
-                    <div class="config-item checkbox-input-group">
-                        <div class="checkbox-row">
-                            <input type="checkbox" id="checkbox-squareoff">
-                            <label for="checkbox-squareoff" class="rule-label">Auto Square Off (Time)
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Specify a time (24hr HH:MM format) to force-close any open positions automatically.</span>
-                                </div>
-                            </label>
-                        </div>
-                        <input type="text" id="input-auto-squareoff-time" class="rule-input font-mono" value="23:30" placeholder="HH:MM">
-                    </div>
-                </div>
-                
-                <div class="broker-configs-section" style="border-top: 1px dashed var(--border-color); padding-top: 0.85rem; margin-top: 0.75rem;">
-                    <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem;">
-                        <span class="rule-label" style="font-weight: 700; color: #1e293b;">Select Active Broker:</span>
-                        <select id="select-broker" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; width: 130px; font-weight: 600; cursor: pointer; border-radius: 6px;">
-                            <option value="AngelOne">Angel One API</option>
-                            <option value="Simulation">Simulation Mode</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Angel One Config Fields -->
-                    <div id="angelone-fields" class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
-                        <div class="config-item">
-                            <label for="input-angelone-client-id" class="rule-label">Client ID</label>
-                            <input type="text" id="input-angelone-client-id" class="rule-input font-mono" placeholder="Client ID">
-                        </div>
-                        <div class="config-item">
-                            <label for="input-angelone-password" class="rule-label">Password / PIN</label>
-                            <input type="password" id="input-angelone-password" class="rule-input font-mono" placeholder="Password">
-                        </div>
-                        <div class="config-item">
-                            <label for="input-angelone-totp" class="rule-label">TOTP Secret</label>
-                            <input type="password" id="input-angelone-totp" class="rule-input font-mono" placeholder="TOTP Secret">
-                        </div>
-                        <div class="config-item">
-                            <label for="input-angelone-api-key" class="rule-label">API Key</label>
-                            <input type="text" id="input-angelone-api-key" class="rule-input font-mono" value="e72eCDuy" placeholder="API Key">
-                        </div>
-                        <div class="config-item">
-                            <label for="input-angelone-petal-symbol" class="rule-label">Leg 1 Symbol</label>
-                            <input type="text" id="input-angelone-petal-symbol" class="rule-input font-mono" value="GOLDPETAL26FEBFUT">
-                        </div>
-                        <div class="config-item">
-                            <label for="input-angelone-petal-token" class="rule-label">Leg 1 Token</label>
-                            <input type="text" id="input-angelone-petal-token" class="rule-input font-mono" value="250000">
-                        </div>
-                        <div class="config-item">
-                            <label for="input-angelone-mini-symbol" class="rule-label">Leg 2 Symbol</label>
-                            <input type="text" id="input-angelone-mini-symbol" class="rule-input font-mono" value="GOLDMINI26FEBFUT">
-                        </div>
-                        <div class="config-item">
-                            <label for="input-angelone-mini-token" class="rule-label">Leg 2 Token</label>
-                            <input type="text" id="input-angelone-mini-token" class="rule-input font-mono" value="250001">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="safety-bottom-row">
-                    <div class="toggles-container" style="display: flex; gap: 1.5rem;">
-                        <div class="toggle-group">
-                            <span class="rule-label">Paper Trading (Locked ON)</span>
-                            <label class="switch">
-                                <input type="checkbox" id="input-paper-mode" checked disabled>
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                        <div class="toggle-group">
-                            <span class="rule-label">Auto Trading</span>
-                            <label class="switch">
-                                <input type="checkbox" id="input-auto-trading">
-                                <span class="slider"></span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="action-buttons-group">
-                        <button id="update-params-btn" class="update-button">Save Parameters</button>
-                        <button id="download-btn" class="metallic-button">Download Logic</button>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-
-        <!-- Bottom Data Board -->
-        <section class="data-board">
-            <!-- Active & Pending Manual Trades -->
-            <div class="data-card manual-trades-panel" style="grid-column: span 2;">
+        <!-- Section 1: Active & Pending Manual Trades (Now at the top) -->
+        <section class="manual-trades-section" style="margin-bottom: 1.25rem; width: 100%;">
+            <div class="data-card manual-trades-panel" style="width: 100%;">
                 <div class="panel-header">
                     <h2>Active & Pending Manual Trades</h2>
                     <button id="export-manual-csv-btn" class="csv-export-button">
@@ -540,17 +278,276 @@
                     </table>
                 </div>
             </div>
+        </section>
 
-            <!-- Left Side: Trade History -->
-            <div class="data-card trade-history-panel">
-                <div class="panel-header">
+        <!-- Section 2: Dynamic Workstation Controls (Collapsible) -->
+        <section class="control-board" style="margin-bottom: 1.25rem;">
+            <!-- Left Side: Order Execution -->
+            <div class="control-card execution-panel collapsible-card" id="card-execution">
+                <div class="card-header-toggle" onclick="toggleCard('card-execution')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">Manual Trade Entry & Exit</h2>
+                    <span class="toggle-arrow" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                </div>
+                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
+                    <div class="direction-selector">
+                        <span class="rule-label">Choose Strategy Direction
+                            <div class="tooltip-container">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text">Choose the trade setup direction. Expansion is buying spread; Contraction is selling spread.</span>
+                            </div>
+                        </span>
+                        <div class="toggle-buttons">
+                            <label class="dir-btn">
+                                <input type="radio" name="trade-direction" value="Expansion" checked>
+                                <span class="dir-btn-label">Spread Expansion<br><small>Buy Petal / Sell Mini</small></span>
+                            </label>
+                            <label class="dir-btn">
+                                <input type="radio" name="trade-direction" value="Contraction">
+                                <span class="dir-btn-label">Spread Contraction<br><small>Sell Petal / Buy Mini</small></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="config-item" style="margin-top: 0.8rem; margin-bottom: 0.8rem;">
+                        <label for="manual-trigger-diff" class="rule-label">Trigger Diff (Optional)
+                            <div class="tooltip-container">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text">Specify a target difference. E.g., for Expansion: buy if spread &le; diff. For Contraction: sell if spread &ge; diff. Leave empty to enter immediately.</span>
+                            </div>
+                        </label>
+                        <input type="number" id="manual-trigger-diff" class="rule-input font-mono" placeholder="Immediate (e.g. 1500)" style="width: 100%; box-sizing: border-box;" step="any">
+                    </div>
+
+                    <div class="execution-actions">
+                        <button id="entry-btn" class="action-btn entry-button">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg>
+                            Manual Entry
+                            <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly enter arbitrage positions based on the selected direction.</span>
+                            </div>
+                        </button>
+                        <button id="exit-btn" class="action-btn exit-button" disabled>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="9" x2="15" y2="15"></line><line x1="15" y1="9" x2="9" y2="15"></line></svg>
+                            Square Off (Exit)
+                            <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Reverse active orders to completely close all open legs.</span>
+                            </div>
+                        </button>
+                    </div>
+
+                    <div class="emergency-section">
+                        <button id="kill-switch-btn" class="kill-switch-button">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                            EMERGENCY KILL SWITCH
+                            <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly square off everything and halt bot executions completely.</span>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Side: Configs & Parameters -->
+            <div class="control-card configs-panel collapsible-card" id="card-configs">
+                <div class="card-header-toggle" onclick="toggleCard('card-configs')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">Strategy Controls & Safety</h2>
+                    <span class="toggle-arrow" style="font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                </div>
+                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
+                    <div class="configs-inputs-grid">
+                        <div class="config-item">
+                            <label for="input-entry" class="rule-label">Entry Spread Threshold
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">The spread value (difference) at which the bot will automatically enter trades.</span>
+                                </div>
+                            </label>
+                            <input type="number" id="input-entry" class="rule-input font-mono" value="1000">
+                        </div>
+                        <div class="config-item">
+                            <label for="input-target" class="rule-label">Target Spread Threshold
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">The target spread value at which the bot will automatically book profits and close positions.</span>
+                                </div>
+                            </label>
+                            <input type="number" id="input-target" class="rule-input font-mono" value="1150">
+                        </div>
+                        <div class="config-item">
+                            <label for="input-sl" class="rule-label">Stop-Loss Spread Threshold
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">The maximum risk spread limit at which the bot automatically exits the position.</span>
+                                </div>
+                            </label>
+                            <input type="number" id="input-sl" class="rule-input font-mono" value="600">
+                        </div>
+                        <div class="config-item">
+                            <label for="input-capital" class="rule-label">Trading Capital (INR)
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Initial capital used to compute portfolio balance and percentage returns.</span>
+                                </div>
+                            </label>
+                            <input type="number" id="input-capital" class="rule-input font-mono" value="500000">
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="input-quantity" class="rule-label">Order Quantity (Lots)
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">The number of contract lots to trade for Leg 1 and Leg 2.</span>
+                                </div>
+                            </label>
+                            <input type="number" id="input-quantity" class="rule-input font-mono" value="1" min="1">
+                        </div>
+                        
+                        <div class="config-item">
+                            <label for="input-spread-buffer" class="rule-label">Spread Buffer / Tolerance
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Tolerance range for matching entry/exit spread thresholds.</span>
+                                </div>
+                            </label>
+                            <input type="number" id="input-spread-buffer" class="rule-input font-mono" value="0" min="0">
+                        </div>
+                        
+                        <div class="config-item checkbox-input-group">
+                            <div class="checkbox-row" style="margin-top: 1.6rem;">
+                                <input type="checkbox" id="checkbox-contraction-entry">
+                                <label for="checkbox-contraction-entry" class="rule-label">Auto Contraction Entry
+                                    <div class="tooltip-container">
+                                        <span>ⓘ</span>
+                                        <span class="tooltip-text">Allows the bot to automatically enter Contraction positions when spread is high.</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="config-item checkbox-input-group">
+                            <div class="checkbox-row" style="margin-top: 1.6rem;">
+                                <input type="checkbox" id="checkbox-spread-exit" checked>
+                                <label for="checkbox-spread-exit" class="rule-label">Auto Spread-Based Exit
+                                    <div class="tooltip-container">
+                                        <span>ⓘ</span>
+                                        <span class="tooltip-text">Allows the bot to exit positions automatically based on target/entry spread values.</span>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="config-item checkbox-input-group">
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="checkbox-auto-sl" checked>
+                                <label for="checkbox-auto-sl" class="rule-label">Auto Net Profit/Loss SL
+                                    <div class="tooltip-container">
+                                        <span>ⓘ</span>
+                                        <span class="tooltip-text">Enables absolute monetary stop-loss value check on the total net PnL of open legs.</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <input type="number" id="input-auto-sl-val" class="rule-input font-mono" value="-3000">
+                        </div>
+                        <div class="config-item checkbox-input-group">
+                            <div class="checkbox-row">
+                                <input type="checkbox" id="checkbox-squareoff">
+                                <label for="checkbox-squareoff" class="rule-label">Auto Square Off (Time)
+                                    <div class="tooltip-container">
+                                        <span>ⓘ</span>
+                                        <span class="tooltip-text">Specify a time (24hr HH:MM format) to force-close any open positions automatically.</span>
+                                    </div>
+                                </label>
+                            </div>
+                            <input type="text" id="input-auto-squareoff-time" class="rule-input font-mono" value="23:30" placeholder="HH:MM">
+                        </div>
+                    </div>
+                    
+                    <div class="broker-configs-section" style="border-top: 1px dashed var(--border-color); padding-top: 0.85rem; margin-top: 0.75rem;">
+                        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem;">
+                            <span class="rule-label" style="font-weight: 700; color: #1e293b;">Select Active Broker:</span>
+                            <select id="select-broker" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; width: 130px; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                                <option value="AngelOne">Angel One API</option>
+                                <option value="Simulation">Simulation Mode</option>
+                            </select>
+                        </div>
+                        
+                        <!-- Angel One Config Fields -->
+                        <div id="angelone-fields" class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
+                            <div class="config-item">
+                                <label for="input-angelone-client-id" class="rule-label">Client ID</label>
+                                <input type="text" id="input-angelone-client-id" class="rule-input font-mono" placeholder="Client ID">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-angelone-password" class="rule-label">Password / PIN</label>
+                                <input type="password" id="input-angelone-password" class="rule-input font-mono" placeholder="Password">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-angelone-totp" class="rule-label">TOTP Secret</label>
+                                <input type="password" id="input-angelone-totp" class="rule-input font-mono" placeholder="TOTP Secret">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-angelone-api-key" class="rule-label">API Key</label>
+                                <input type="text" id="input-angelone-api-key" class="rule-input font-mono" value="e72eCDuy" placeholder="API Key">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-angelone-petal-symbol" class="rule-label">Leg 1 Symbol</label>
+                                <input type="text" id="input-angelone-petal-symbol" class="rule-input font-mono" value="GOLDPETAL26FEBFUT">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-angelone-petal-token" class="rule-label">Leg 1 Token</label>
+                                <input type="text" id="input-angelone-petal-token" class="rule-input font-mono" value="250000">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-angelone-mini-symbol" class="rule-label">Leg 2 Symbol</label>
+                                <input type="text" id="input-angelone-mini-symbol" class="rule-input font-mono" value="GOLDMINI26FEBFUT">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-angelone-mini-token" class="rule-label">Leg 2 Token</label>
+                                <input type="text" id="input-angelone-mini-token" class="rule-input font-mono" value="250001">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="safety-bottom-row">
+                        <div class="toggles-container" style="display: flex; gap: 1.5rem;">
+                            <div class="toggle-group">
+                                <span class="rule-label">Paper Trading (Locked ON)</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="input-paper-mode" checked disabled>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="toggle-group">
+                                <span class="rule-label">Auto Trading</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="input-auto-trading">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="action-buttons-group">
+                            <button id="update-params-btn" class="update-button">Save Parameters</button>
+                            <button id="download-btn" class="metallic-button">Download Logic</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Bottom Data Board (History only Export, Terminal collapsible) -->
+        <section class="data-board">
+            <!-- Left Side: Trade History (Only Export, hidden table) -->
+            <div class="data-card trade-history-panel" style="height: fit-content; padding-bottom: 0.25rem;">
+                <div class="panel-header" style="border-bottom: none;">
                     <h2>Trade History</h2>
                     <button id="export-csv-btn" class="csv-export-button">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                         Export CSV
                     </button>
                 </div>
-                <div class="table-container">
+                <div class="table-container" style="display: none;">
                     <table class="history-table">
                         <thead>
                             <tr>
@@ -572,18 +569,23 @@
                 </div>
             </div>
 
-            <!-- Right Side: Log Console Terminal -->
-            <div class="data-card logs-panel">
-                <div class="panel-header">
-                    <h2>Execution Terminal</h2>
-                    <div class="terminal-dots">
-                        <span class="dot-red"></span>
-                        <span class="dot-yellow"></span>
-                        <span class="dot-green"></span>
+            <!-- Right Side: Log Console Terminal (Collapsible) -->
+            <div class="data-card logs-panel collapsible-card" id="card-logs" style="height: fit-content;">
+                <div class="panel-header-toggle" onclick="toggleCard('card-logs')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; padding: 0.65rem 1rem; background-color: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <h2>Execution Terminal</h2>
+                        <div class="terminal-dots">
+                            <span class="dot-red"></span>
+                            <span class="dot-yellow"></span>
+                            <span class="dot-green"></span>
+                        </div>
                     </div>
+                    <span class="toggle-arrow" style="font-size: 0.75rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
                 </div>
-                <div id="logs-container" class="console-body">
-                    <div class="log-line system-msg">[SYSTEM] Initializing Quant Station...</div>
+                <div class="card-content" style="display: none;">
+                    <div id="logs-container" class="console-body" style="border-top: none; border-radius: 0;">
+                        <div class="log-line system-msg">[SYSTEM] Initializing Quant Station...</div>
+                    </div>
                 </div>
             </div>
         </section>
