@@ -360,6 +360,33 @@ class TradingSystem:
             self.groww_client = None
 
     def resolve_scrip_token_via_api(self, symbol: str) -> str:
+        if not symbol:
+            return ""
+        sym_clean = symbol.strip().upper()
+        
+        # 1. Check local cached MCX tokens (Fast & Zero Rate Limit)
+        if hasattr(self, "mcx_tokens_cache") and self.mcx_tokens_cache:
+            # Exact match
+            if sym_clean in self.mcx_tokens_cache:
+                token = self.mcx_tokens_cache[sym_clean]
+                self.log(f"[SCRIP FINDER] Auto-resolved '{symbol}' -> '{sym_clean}' (Token: {token}) from Scrip Master cache.")
+                return token
+            
+            # Year normalization (e.g., 2026 -> 26)
+            sym_short = sym_clean.replace("2026", "26").replace("2025", "25").replace("2024", "24")
+            if sym_short in self.mcx_tokens_cache:
+                token = self.mcx_tokens_cache[sym_short]
+                self.log(f"[SCRIP FINDER] Auto-resolved '{symbol}' -> '{sym_short}' (Token: {token}) from Scrip Master cache.")
+                return token
+
+            # Check for FUT suffix or prefix matches in cache
+            for cached_sym, cached_tok in self.mcx_tokens_cache.items():
+                c_upper = cached_sym.upper()
+                if c_upper == f"{sym_short}FUT" or c_upper == f"{sym_clean}FUT" or c_upper.startswith(sym_short):
+                    self.log(f"[SCRIP FINDER] Auto-resolved '{symbol}' -> '{cached_sym}' (Token: {cached_tok}) from Scrip Master cache.")
+                    return cached_tok
+
+        # 2. Fallback to SmartAPI searchScrip if client is initialized
         if not self.smart_connect:
             return ""
         try:
@@ -1244,6 +1271,8 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                     "status": "Open",
                     "entry_time": time.strftime("%H:%M:%S"),
                     "entry_date": time.strftime("%Y-%m-%d"),
+                    "petal_symbol": system_state.petal_symbol,
+                    "mini_symbol": system_state.mini_symbol,
                     "petal_entry_price": petal_price,
                     "mini_entry_price": mini_price,
                     "entry_spread": entry_spread,
@@ -1773,6 +1802,8 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
             "status": "Pending",
             "entry_time": time.strftime("%H:%M:%S"),
             "entry_date": time.strftime("%Y-%m-%d"),
+            "petal_symbol": system_state.petal_symbol,
+            "mini_symbol": system_state.mini_symbol,
             "petal_entry_price": 0.0,
             "mini_entry_price": 0.0,
             "entry_spread": 0.0,
@@ -2134,13 +2165,21 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     # Reset tokens for re-resolution if the symbol has changed on the UI
     if system_state.petal_symbol != payload.petal_symbol:
         system_state.petal_symbol = payload.petal_symbol
-        system_state.petal_token = "250000"
+        resolved_tok = system_state.resolve_scrip_token_via_api(payload.petal_symbol)
+        if resolved_tok:
+            system_state.petal_token = resolved_tok
+        else:
+            system_state.petal_token = payload.petal_token
     else:
         system_state.petal_token = payload.petal_token
 
     if system_state.mini_symbol != payload.mini_symbol:
         system_state.mini_symbol = payload.mini_symbol
-        system_state.mini_token = "250001"
+        resolved_tok = system_state.resolve_scrip_token_via_api(payload.mini_symbol)
+        if resolved_tok:
+            system_state.mini_token = resolved_tok
+        else:
+            system_state.mini_token = payload.mini_token
     else:
         system_state.mini_token = payload.mini_token
     
@@ -2250,7 +2289,7 @@ async def api_export_manual_csv(token: str = None, authorization: str = Header(N
     
     # Headers
     writer.writerow([
-        "Manual Trade ID", "Entry Date", "Direction", "Status", "Quantity", "Trigger Diff Target", 
+        "Manual Trade ID", "Entry Date", "Leg 1 Symbol", "Leg 2 Symbol", "Direction", "Status", "Quantity", "Trigger Diff Target", 
         "Entry Time", "Actual Entry Spread", "Expected Entry Spread", "Entry Slippage", 
         "Petal Entry Price", "Mini Entry Price", "Petal Entry Type", "Mini Entry Type", 
         "Exit Time", "Exit Date", "Actual Exit Spread", "Expected Exit Spread", "Exit Slippage",
@@ -2263,6 +2302,8 @@ async def api_export_manual_csv(token: str = None, authorization: str = Header(N
         writer.writerow([
             trade.get("id"),
             trade.get("entry_date"),
+            trade.get("petal_symbol", system_state.petal_symbol),
+            trade.get("mini_symbol", system_state.mini_symbol),
             trade.get("direction"),
             trade.get("status"),
             trade.get("quantity"),

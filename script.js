@@ -561,10 +561,19 @@ function updateDashboard(data) {
             }
             
             const tradeTime = trade.entry_time || "--";
+            const petalSym = trade.petal_symbol || data.petal_symbol || "GOLDPETAL";
+            const miniSym = trade.mini_symbol || data.mini_symbol || "GOLDMINI";
+            const symbolsContent = `
+                <div style="font-size: 0.7rem; line-height: 1.3;">
+                    <div>L1: <strong class="font-mono" style="color: var(--text-primary);">${petalSym}</strong></div>
+                    <div>L2: <strong class="font-mono" style="color: var(--text-secondary);">${miniSym}</strong></div>
+                </div>
+            `;
             
             tr.innerHTML = `
                 <td class="font-mono">${trade.id}</td>
                 <td>${tradeTime}</td>
+                <td>${symbolsContent}</td>
                 <td><strong>${trade.direction}</strong></td>
                 <td class="font-mono">${trade.quantity}</td>
                 <td>${triggerColContent}</td>
