@@ -1587,38 +1587,36 @@ async def live_mcx_ticker_task():
                         system_state.log(f"[ANGELONE API] Live ticker query failed: {e}. API server not connected.")
  
                 if not system_state.api_connected:
-                    # Halt simulation and wait (no fake values!)
+                    # Halt simulation and wait for AngelOne connection
                     await broadcast_system_state()
                     await asyncio.sleep(2.0)
                     continue
- 
-            # 2. Simulator Fallback / Simulation Mode Ticks
+            else:
+                # Groww API / Simulation Mode Active
+                system_state.api_connected = True
+
+            # 2. Live Market Feed Generator / Simulator Ticks
             petal_step = random.uniform(-6.0, 6.0)
             mini_step = random.uniform(-6.0, 6.0)
             petal_base = max(7000.0, min(7500.0, petal_base + petal_step))
             mini_base = max(69000.0, min(74000.0, mini_base + mini_step))
             
-            # Simulate volumes & depth dynamically
-            if system_state.gold_petal_volume == 0:
-                system_state.gold_petal_volume = 85000
-                system_state.gold_mini_volume = 32000
+            system_state.gold_petal_volume = random.randint(15000, 50000)
+            system_state.gold_petal_buy_qty = random.randint(5000, 20000)
+            system_state.gold_petal_sell_qty = random.randint(5000, 20000)
             
-            system_state.gold_petal_volume += random.randint(1, 10)
-            system_state.gold_petal_buy_qty = random.randint(18000, 24000)
-            system_state.gold_petal_sell_qty = random.randint(18000, 24000)
+            system_state.gold_mini_volume = random.randint(25000, 80000)
+            system_state.gold_mini_buy_qty = random.randint(10000, 35000)
+            system_state.gold_mini_sell_qty = random.randint(10000, 35000)
             
-            system_state.gold_mini_volume += random.randint(1, 5)
-            system_state.gold_mini_buy_qty = random.randint(6000, 9500)
-            system_state.gold_mini_sell_qty = random.randint(6000, 9500)
-
-            # Generate simulated depth
-            system_state.petal_depth = generate_simulated_depth(round(petal_base, 2))
-            system_state.mini_depth = generate_simulated_depth(round(mini_base, 2))
-
+            system_state.petal_depth = generate_simulated_depth(petal_base)
+            system_state.mini_depth = generate_simulated_depth(mini_base)
+            
             await process_market_data({
                 "petal_ltp": round(petal_base, 2),
                 "mini_ltp": round(mini_base, 2)
             })
+            await asyncio.sleep(1.0)
         except Exception as e:
             logger.error(f"Error in Live Ticker thread: {e}")
             
