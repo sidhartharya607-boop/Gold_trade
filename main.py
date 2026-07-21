@@ -322,8 +322,8 @@ class TradingSystem:
                     self.smart_connect = None
                     return
                     
-                self.log(f"[ANGELONE API] Authenticating client {self.client_id}...")
-                totp = pyotp.TOTP(self.totp_secret).now()
+                totp_clean = self.totp_secret.strip().replace(" ", "").upper()
+                totp = pyotp.TOTP(totp_clean).now()
                 session = self.smart_connect.generateSession(self.client_id, self.password, totp)
                 if session.get("status") == True:
                     self.log("[ANGELONE API] Authentication successful.")
