@@ -366,23 +366,26 @@ class TradingSystem:
         
         # 1. Check local cached MCX tokens (Fast & Zero Rate Limit)
         if hasattr(self, "mcx_tokens_cache") and self.mcx_tokens_cache:
-            # Exact match
-            if sym_clean in self.mcx_tokens_cache:
-                token = self.mcx_tokens_cache[sym_clean]
-                self.log(f"[SCRIP FINDER] Auto-resolved '{symbol}' -> '{sym_clean}' (Token: {token}) from Scrip Master cache.")
-                return token
+            candidates = [
+                sym_clean,
+                sym_clean.removesuffix("FUT"),
+                sym_clean.replace("2026", "26").replace("2025", "25").replace("2024", "24"),
+                sym_clean.replace("2026", "26").removesuffix("FUT"),
+                sym_clean.replace("GOLDMINI", "GOLDM").replace("2026", "26").removesuffix("FUT"),
+                sym_clean.replace("GOLDM", "GOLDMINI").replace("2026", "26").removesuffix("FUT")
+            ]
             
-            # Year normalization (e.g., 2026 -> 26)
-            sym_short = sym_clean.replace("2026", "26").replace("2025", "25").replace("2024", "24")
-            if sym_short in self.mcx_tokens_cache:
-                token = self.mcx_tokens_cache[sym_short]
-                self.log(f"[SCRIP FINDER] Auto-resolved '{symbol}' -> '{sym_short}' (Token: {token}) from Scrip Master cache.")
-                return token
+            for cand in candidates:
+                if cand in self.mcx_tokens_cache:
+                    token = self.mcx_tokens_cache[cand]
+                    self.log(f"[SCRIP FINDER] Auto-resolved '{symbol}' -> '{cand}' (Token: {token}) from Scrip Master cache.")
+                    return token
 
-            # Check for FUT suffix or prefix matches in cache
+            # Check for partial prefix/contains matches in cache
+            base_search = sym_clean.replace("2026", "26").removesuffix("FUT")
             for cached_sym, cached_tok in self.mcx_tokens_cache.items():
                 c_upper = cached_sym.upper()
-                if c_upper == f"{sym_short}FUT" or c_upper == f"{sym_clean}FUT" or c_upper.startswith(sym_short):
+                if c_upper == base_search or c_upper.startswith(base_search) or base_search in c_upper:
                     self.log(f"[SCRIP FINDER] Auto-resolved '{symbol}' -> '{cached_sym}' (Token: {cached_tok}) from Scrip Master cache.")
                     return cached_tok
 
@@ -390,16 +393,17 @@ class TradingSystem:
         if not self.smart_connect:
             return ""
         try:
-            self.log(f"[API LOOKUP] Searching token for '{symbol}' on MCX...")
-            res = self.smart_connect.searchScrip(exchange="MCX", searchscrip=symbol)
-            if res and res.get("status") == True:
+            search_query = sym_clean.removesuffix("FUT").replace("2026", "26")
+            self.log(f"[API LOOKUP] Searching token for '{search_query}' on MCX...")
+            res = self.smart_connect.searchScrip(exchange="MCX", searchscrip=search_query)
+            if res and isinstance(res, dict) and res.get("status") == True:
                 data = res.get("data", [])
                 
                 # Flexible matching helper
                 def find_match(items):
                     for item in items:
                         ts = item.get("tradingsymbol", "")
-                        if ts == symbol or ts == f"{symbol}FUT" or ts.startswith(symbol):
+                        if ts == symbol or ts == search_query or ts.startswith(search_query):
                             return item.get("symboltoken", ""), ts
                     return "", ""
                 
@@ -412,16 +416,11 @@ class TradingSystem:
                     
                 if token:
                     self.log(f"[API LOOKUP] Auto-resolved '{symbol}' -> '{actual_symbol}' (Token: {token})")
-                    # Update local properties to match the exact broker symbol
-                    if symbol == self.petal_symbol:
-                        self.petal_symbol = actual_symbol
-                    elif symbol == self.mini_symbol:
-                        self.mini_symbol = actual_symbol
                     return token
                     
             self.log(f"[API LOOKUP] Search returned no direct matches for '{symbol}' on MCX.")
         except Exception as e:
-            self.log(f"[API LOOKUP] Search failed for '{symbol}': {e}")
+            self.log(f"[API LOOKUP] Search failed for '{symbol}': Rate limit error ({e}).")
         return ""
 
 
@@ -1640,8 +1639,11 @@ async def search_active_mcx_tokens():
                 symbol = item.get("symbol", "")
                 token = item.get("token", "")
                 if exch == "MCX" and symbol and token:
-                    # Cache all MCX tokens
-                    system_state.mcx_tokens_cache[symbol] = token
+                    # Cache all MCX tokens with and without FUT suffix
+                    sym_u = symbol.upper()
+                    system_state.mcx_tokens_cache[sym_u] = token
+                    system_state.mcx_tokens_cache[sym_u.removesuffix("FUT")] = token
+                    system_state.mcx_tokens_cache[f"{sym_u.removesuffix('FUT')}FUT"] = token
                     if symbol.startswith("GOLDPETAL") or symbol.startswith("GOLDM"):
                         results.append({
                             "symbol": symbol,
