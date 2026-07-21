@@ -438,7 +438,7 @@ function updateDashboard(data) {
         autoTradingInput.checked = data.auto_trading_enabled;
     }
     
-    if (document.activeElement !== selectBroker && data.broker !== undefined) {
+    if (!selectBroker.dataset.isDirty && document.activeElement !== selectBroker && data.broker !== undefined) {
         selectBroker.value = data.broker;
         if (data.broker === "AngelOne") {
             if (angeloneFields) angeloneFields.style.display = "grid";
@@ -928,6 +928,7 @@ function saveParameters() {
             // Clear dirty flags
             inputsToTrack.forEach(input => { if (input) delete input.dataset.isDirty; });
             checkboxesToTrack.forEach(cb => { if (cb) delete cb.dataset.isDirty; });
+            if (selectBroker) delete selectBroker.dataset.isDirty;
             
             const mode = paperMode ? "Paper Mode" : "Live Mode";
             const autoState = autoTrading ? "ON" : "OFF";
@@ -939,7 +940,9 @@ function saveParameters() {
 // Track user modifications (dirty fields)
 const inputsToTrack = [
     entryInput, targetInput, slInput, capitalInput, quantityInput,
-    inputSpreadBuffer, inputAutoTargetVal, inputAutoSlVal, inputAutoSquareoffTime
+    inputSpreadBuffer, inputAutoTargetVal, inputAutoSlVal, inputAutoSquareoffTime,
+    growwClientId, growwApiKey, growwSecret, growwPetalSymbol, growwMiniSymbol,
+    angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken
 ];
 inputsToTrack.forEach(input => {
     if (input) {
@@ -972,6 +975,7 @@ checkboxSpreadExit.addEventListener("change", saveParameters);
 inputSpreadBuffer.addEventListener("change", saveParameters);
 
 selectBroker.addEventListener("change", () => {
+    selectBroker.dataset.isDirty = "true";
     if (selectBroker.value === "AngelOne") {
         if (angeloneFields) angeloneFields.style.display = "grid";
         if (growwFields) growwFields.style.display = "none";
