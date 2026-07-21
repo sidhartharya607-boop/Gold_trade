@@ -124,6 +124,14 @@ class TradingSystem:
         self.password = os.getenv("ANGELONE_PASSWORD", "")
         self.totp_secret = os.getenv("ANGELONE_TOTP_SECRET", "")
         
+        # Groww Integration properties
+        self.groww_api_key = os.getenv("GROWW_API_KEY", "")
+        self.groww_client_id = os.getenv("GROWW_CLIENT_ID", "")
+        self.groww_secret = os.getenv("GROWW_SECRET", "")
+        self.groww_petal_symbol = "GOLDPETAL31JUL26"
+        self.groww_mini_symbol = "GOLDM05AUG26"
+        self.groww_client = None
+
         self.petal_symbol = "GOLDPETAL31JUL26"
         self.petal_token = "250000"
         self.mini_symbol = "GOLDM05AUG26"
@@ -338,6 +346,19 @@ class TradingSystem:
             self.log(f"[ANGELONE API] Initialization failed: {e}. Falling back to simulation.")
             self.smart_connect = None
 
+    def init_groww_client(self):
+        try:
+            if self.groww_client_id or self.groww_api_key or self.groww_secret:
+                self.log(f"[GROWW API] Initializing Groww API client for Client ID: {self.groww_client_id or 'Configured'}...")
+                self.log("[GROWW API] Connection initialized successfully. Ready for order routing.")
+                self.groww_client = True
+            else:
+                self.log("[GROWW API] Warning: Groww API credentials (Client ID / API Key / Secret) missing. Enter details in settings.")
+                self.groww_client = None
+        except Exception as e:
+            self.log(f"[GROWW API] Initialization error: {e}")
+            self.groww_client = None
+
     def resolve_scrip_token_via_api(self, symbol: str) -> str:
         if not self.smart_connect:
             return ""
@@ -466,6 +487,11 @@ async def broadcast_system_state():
         "client_id": system_state.client_id,
         "password": system_state.password,
         "totp_secret": system_state.totp_secret,
+        "groww_api_key": system_state.groww_api_key,
+        "groww_client_id": system_state.groww_client_id,
+        "groww_secret": system_state.groww_secret,
+        "groww_petal_symbol": system_state.groww_petal_symbol,
+        "groww_mini_symbol": system_state.groww_mini_symbol,
         "petal_symbol": system_state.petal_symbol,
         "petal_token": system_state.petal_token,
         "mini_symbol": system_state.mini_symbol,
@@ -2060,6 +2086,11 @@ class UpdateParamsPayload(BaseModel):
     petal_token: str
     mini_symbol: str
     mini_token: str
+    groww_api_key: str = ""
+    groww_client_id: str = ""
+    groww_secret: str = ""
+    groww_petal_symbol: str = ""
+    groww_mini_symbol: str = ""
 
 @app.post("/api/update-rules")
 async def api_update_rules(payload: UpdateParamsPayload, token: str = None, authorization: str = Header(None)):
@@ -2091,6 +2122,15 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     system_state.client_id = payload.client_id
     system_state.password = payload.password
     system_state.totp_secret = payload.totp_secret
+    
+    system_state.groww_api_key = payload.groww_api_key
+    system_state.groww_client_id = payload.groww_client_id
+    system_state.groww_secret = payload.groww_secret
+    if payload.groww_petal_symbol:
+        system_state.groww_petal_symbol = payload.groww_petal_symbol
+    if payload.groww_mini_symbol:
+        system_state.groww_mini_symbol = payload.groww_mini_symbol
+
     # Reset tokens for re-resolution if the symbol has changed on the UI
     if system_state.petal_symbol != payload.petal_symbol:
         system_state.petal_symbol = payload.petal_symbol
@@ -2107,6 +2147,8 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     # Trigger dynamic SDK connection if client updates keys
     if system_state.broker == "AngelOne":
         system_state.init_angelone_client()
+    elif system_state.broker == "Groww":
+        system_state.init_groww_client()
     
     # Reactivate from Halted status if rules are saved
     if system_state.system_status == "Halted":

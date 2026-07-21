@@ -86,6 +86,13 @@ const angelonePetalToken = document.getElementById("input-angelone-petal-token")
 const angeloneMiniSymbol = document.getElementById("input-angelone-mini-symbol");
 const angeloneMiniToken = document.getElementById("input-angelone-mini-token");
 
+const growwFields = document.getElementById("groww-fields");
+const growwClientId = document.getElementById("input-groww-client-id");
+const growwApiKey = document.getElementById("input-groww-api-key");
+const growwSecret = document.getElementById("input-groww-secret");
+const growwPetalSymbol = document.getElementById("input-groww-petal-symbol");
+const growwMiniSymbol = document.getElementById("input-groww-mini-symbol");
+
 // Helper to log console logs locally before connection is established
 function logLocalMessage(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -434,9 +441,14 @@ function updateDashboard(data) {
     if (document.activeElement !== selectBroker && data.broker !== undefined) {
         selectBroker.value = data.broker;
         if (data.broker === "AngelOne") {
-            angeloneFields.style.display = "grid";
+            if (angeloneFields) angeloneFields.style.display = "grid";
+            if (growwFields) growwFields.style.display = "none";
+        } else if (data.broker === "Groww") {
+            if (angeloneFields) angeloneFields.style.display = "none";
+            if (growwFields) growwFields.style.display = "grid";
         } else {
-            angeloneFields.style.display = "none";
+            if (angeloneFields) angeloneFields.style.display = "none";
+            if (growwFields) growwFields.style.display = "none";
         }
     }
     syncInputField(angeloneClientId, data.client_id);
@@ -447,6 +459,12 @@ function updateDashboard(data) {
     syncInputField(angelonePetalToken, data.petal_token);
     syncInputField(angeloneMiniSymbol, data.mini_symbol);
     syncInputField(angeloneMiniToken, data.mini_token);
+
+    syncInputField(growwClientId, data.groww_client_id);
+    syncInputField(growwApiKey, data.groww_api_key);
+    syncInputField(growwSecret, data.groww_secret);
+    syncInputField(growwPetalSymbol, data.groww_petal_symbol);
+    syncInputField(growwMiniSymbol, data.groww_mini_symbol);
 
     // Render dynamic depth-based spreads
     const depthBuySpreadEl = document.getElementById("depth-buy-spread");
@@ -848,10 +866,16 @@ function saveParameters() {
     const passwordVal = angelonePassword.value.trim();
     const totpVal = angeloneTotp.value.trim();
     const apiKeyVal = angeloneApiKey.value.trim();
-    const petalSymbol = angelonePetalSymbol.value.trim();
-    const petalToken = angelonePetalToken.value.trim();
-    const miniSymbol = angeloneMiniSymbol.value.trim();
-    const miniToken = angeloneMiniToken.value.trim();
+    const petalSymbol = angelonePetalSymbol ? angelonePetalSymbol.value.trim() : "";
+    const petalToken = angelonePetalToken ? angelonePetalToken.value.trim() : "";
+    const miniSymbol = angeloneMiniSymbol ? angeloneMiniSymbol.value.trim() : "";
+    const miniToken = angeloneMiniToken ? angeloneMiniToken.value.trim() : "";
+
+    const growwClientIdVal = growwClientId ? growwClientId.value.trim() : "";
+    const growwApiKeyVal = growwApiKey ? growwApiKey.value.trim() : "";
+    const growwSecretVal = growwSecret ? growwSecret.value.trim() : "";
+    const growwPetalSymbolVal = growwPetalSymbol ? growwPetalSymbol.value.trim() : "";
+    const growwMiniSymbolVal = growwMiniSymbol ? growwMiniSymbol.value.trim() : "";
 
     const tradeQtyVal = parseInt(quantityInput.value) || 1;
 
@@ -892,7 +916,12 @@ function saveParameters() {
         petal_symbol: petalSymbol,
         petal_token: petalToken,
         mini_symbol: miniSymbol,
-        mini_token: miniToken
+        mini_token: miniToken,
+        groww_client_id: growwClientIdVal,
+        groww_api_key: growwApiKeyVal,
+        groww_secret: growwSecretVal,
+        groww_petal_symbol: growwPetalSymbolVal,
+        groww_mini_symbol: growwMiniSymbolVal
     })
     .then(data => {
         if (data && data.status === "SUCCESS") {
@@ -944,9 +973,14 @@ inputSpreadBuffer.addEventListener("change", saveParameters);
 
 selectBroker.addEventListener("change", () => {
     if (selectBroker.value === "AngelOne") {
-        angeloneFields.style.display = "grid";
+        if (angeloneFields) angeloneFields.style.display = "grid";
+        if (growwFields) growwFields.style.display = "none";
+    } else if (selectBroker.value === "Groww") {
+        if (angeloneFields) angeloneFields.style.display = "none";
+        if (growwFields) growwFields.style.display = "grid";
     } else {
-        angeloneFields.style.display = "none";
+        if (angeloneFields) angeloneFields.style.display = "none";
+        if (growwFields) growwFields.style.display = "none";
     }
 });
 
