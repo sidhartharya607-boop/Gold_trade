@@ -360,6 +360,25 @@ class TradingSystem:
             self.log(f"[GROWW API] Initialization error: {e}")
             self.groww_client = None
 
+    def get_symbol_from_token(self, token: str, default_symbol: str) -> str:
+        if not token:
+            return default_symbol
+        if hasattr(self, "mcx_tokens_cache") and self.mcx_tokens_cache:
+            for cached_sym, cached_tok in self.mcx_tokens_cache.items():
+                if cached_tok == token:
+                    return cached_sym
+        return default_symbol
+
+    def get_mcx_lot_size(self, symbol: str) -> int:
+        sym_u = symbol.upper()
+        if sym_u.startswith("GOLDPETAL"):
+            return 1
+        elif sym_u.startswith("GOLDM"):
+            return 10
+        elif sym_u.startswith("GOLD"):
+            return 100
+        return 1
+
     def resolve_scrip_token_via_api(self, symbol: str) -> str:
         if not symbol:
             return ""
@@ -725,16 +744,25 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             return {"success": False, "status": "FAILED", "reason": "AngelOne client not initialized"}
             
         async def place_real_market_order(symbol: str, token: str, action: str, order_qty: int):
+            # Reverse resolve the exact database trading symbol corresponding to the token
+            correct_symbol = system_state.get_symbol_from_token(token, symbol)
+            
+            # Apply correct MCX lot size multiplier (e.g. 10 for GOLDM, 1 for GOLDPETAL)
+            lot_multiplier = system_state.get_mcx_lot_size(correct_symbol)
+            final_qty = order_qty * lot_multiplier
+            
+            system_state.log(f"[LIVE ORDER PARAMETERS] Symbol: {correct_symbol}, Token: {token}, Action: {action}, Multiplier: {lot_multiplier}, Target Qty: {order_qty} -> Final API Qty: {final_qty}")
+            
             order_params = {
                 "variety": "NORMAL",
-                "tradingsymbol": symbol,
+                "tradingsymbol": correct_symbol,
                 "symboltoken": token,
                 "transactiontype": action,
                 "exchange": "MCX",
                 "ordertype": "MARKET",
                 "producttype": "CARRYFORWARD",
                 "duration": "DAY",
-                "quantity": str(order_qty)
+                "quantity": str(final_qty)
             }
             try:
                 loop = asyncio.get_running_loop()
