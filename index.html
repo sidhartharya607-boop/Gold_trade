@@ -31,6 +31,10 @@
                         <span id="realized-pnl-badge" class="badge-value font-mono">0.00</span>
                     </div>
                 </div>
+                <!-- Mode Badge -->
+                <div id="trading-mode-badge" style="font-size: 0.65rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 6px; letter-spacing: 0.05em; text-transform: uppercase; background-color: rgba(59, 130, 246, 0.15); color: #3b82f6;">
+                    PAPER MODE
+                </div>
                 <!-- Status Badge -->
                 <div id="status-badge" class="status-badge status-active">
                     <span class="status-dot"></span>
@@ -552,9 +556,9 @@
                     <div class="safety-bottom-row">
                         <div class="toggles-container" style="display: flex; gap: 1.5rem;">
                             <div class="toggle-group">
-                                <span class="rule-label">Paper Trading (Locked ON)</span>
+                                <span class="rule-label">Paper Trading Mode</span>
                                 <label class="switch">
-                                    <input type="checkbox" id="input-paper-mode" checked disabled>
+                                    <input type="checkbox" id="input-paper-mode" checked>
                                     <span class="slider"></span>
                                 </label>
                             </div>

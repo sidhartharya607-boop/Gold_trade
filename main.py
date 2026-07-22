@@ -324,6 +324,7 @@ class TradingSystem:
                     
                 totp_clean = self.totp_secret.strip().replace(" ", "").upper()
                 totp = pyotp.TOTP(totp_clean).now()
+                self.log(f"[ANGELONE API] Generated 6-digit TOTP passcode: '{totp}' for Client ID: '{self.client_id}'")
                 session = self.smart_connect.generateSession(self.client_id, self.password, totp)
                 if session.get("status") == True:
                     self.log("[ANGELONE API] Authentication successful.")
@@ -2137,7 +2138,7 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     system_state.auto_contraction_enabled = payload.auto_contraction_enabled
     system_state.auto_spread_exit_enabled = payload.auto_spread_exit_enabled
     
-    system_state.paper_trading_mode = True  # Forced to True for virtual trading safety
+    system_state.paper_trading_mode = payload.paper_trading_mode
     system_state.auto_trading_enabled = payload.auto_trading_enabled
     system_state.auto_target_enabled = payload.auto_target_enabled
     system_state.auto_target_val = payload.auto_target_val

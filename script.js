@@ -434,6 +434,20 @@ function updateDashboard(data) {
     if (document.activeElement !== paperModeInput) {
         paperModeInput.checked = data.paper_trading_mode;
     }
+    
+    // Update Mode Badge (LIVE REAL TRADING vs PAPER MODE)
+    const tradingModeBadge = document.getElementById("trading-mode-badge");
+    if (tradingModeBadge) {
+        if (data.paper_trading_mode) {
+            tradingModeBadge.innerText = "PAPER MODE";
+            tradingModeBadge.style.backgroundColor = "rgba(59, 130, 246, 0.15)";
+            tradingModeBadge.style.color = "#3b82f6";
+        } else {
+            tradingModeBadge.innerText = "LIVE REAL TRADING";
+            tradingModeBadge.style.backgroundColor = "rgba(239, 68, 68, 0.15)";
+            tradingModeBadge.style.color = "#ef4444";
+        }
+    }
     if (document.activeElement !== autoTradingInput && data.auto_trading_enabled !== undefined) {
         autoTradingInput.checked = data.auto_trading_enabled;
     }
