@@ -399,6 +399,17 @@ class TradingSystem:
                 return self.mcx_official_symbols[token]
         return default_symbol
 
+    def resolve_dhan_token(self, symbol: str) -> str:
+        if not symbol:
+            return ""
+        sym_u = symbol.upper()
+        token = self.dhan_tokens_cache.get(sym_u)
+        if not token:
+            token = self.dhan_tokens_cache.get(sym_u.removesuffix("FUT"))
+        if not token:
+            token = self.dhan_tokens_cache.get(f"{sym_u.removesuffix('FUT')}FUT")
+        return token or ""
+
     def get_mcx_lot_size(self, symbol: str) -> int:
         sym_u = symbol.upper()
         if sym_u.startswith("GOLDPETAL"):
@@ -1748,10 +1759,91 @@ async def live_mcx_ticker_task():
                     await broadcast_system_state()
                     await asyncio.sleep(2.0)
                     continue
+
+            elif system_state.broker == "Dhan":
+                if not system_state.dhan_client:
+                    system_state.api_connected = False
+                else:
+                    try:
+                        loop = asyncio.get_running_loop()
+                        petal_tok_int = int(system_state.petal_token) if system_state.petal_token.isdigit() else 0
+                        mini_tok_int = int(system_state.mini_token) if system_state.mini_token.isdigit() else 0
+                        
+                        if not petal_tok_int or not mini_tok_int:
+                            system_state.petal_token = system_state.resolve_dhan_token(system_state.petal_symbol)
+                            system_state.mini_token = system_state.resolve_dhan_token(system_state.mini_symbol)
+                            petal_tok_int = int(system_state.petal_token) if system_state.petal_token.isdigit() else 0
+                            mini_tok_int = int(system_state.mini_token) if system_state.mini_token.isdigit() else 0
+                            
+                        if petal_tok_int and mini_tok_int:
+                            market_quotes = await loop.run_in_executor(
+                                None,
+                                lambda: system_state.dhan_client.quote_data(
+                                    securities={"MCX_COMM": [petal_tok_int, mini_tok_int]}
+                                )
+                            )
+                            if isinstance(market_quotes, dict) and market_quotes.get("status") == "success":
+                                data_block = market_quotes.get("data", {})
+                                if isinstance(data_block, dict):
+                                    mcx_block = data_block.get("MCX_COMM", {})
+                                    if isinstance(mcx_block, dict):
+                                        petal_quote = mcx_block.get(str(petal_tok_int)) or mcx_block.get(petal_tok_int) or {}
+                                        mini_quote = mcx_block.get(str(mini_tok_int)) or mcx_block.get(mini_tok_int) or {}
+                                        
+                                        petal_ltp = float(petal_quote.get("last_price", 0.0))
+                                        mini_ltp = float(mini_quote.get("last_price", 0.0))
+                                        
+                                        if petal_ltp > 0 and mini_ltp > 0:
+                                            system_state.api_connected = True
+                                            system_state.gold_petal_volume = int(petal_quote.get("volume", 0))
+                                            
+                                            depth_raw = petal_quote.get("depth", {})
+                                            
+                                            def format_dhan_depth(dhan_depth):
+                                                if not isinstance(dhan_depth, dict):
+                                                    return {"buy": [], "sell": []}
+                                                res = {"buy": [], "sell": []}
+                                                for side in ["buy", "sell"]:
+                                                    lst = dhan_depth.get(side, [])
+                                                    if isinstance(lst, list):
+                                                        for level in lst[:5]:
+                                                            if isinstance(level, dict):
+                                                                res[side].append({
+                                                                    "price": str(level.get("price", 0.0)),
+                                                                    "quantity": str(level.get("quantity", 0)),
+                                                                    "orders": str(level.get("orders", 0))
+                                                                })
+                                                return res
+                                                
+                                            system_state.petal_depth = format_dhan_depth(depth_raw)
+                                            system_state.mini_depth = format_dhan_depth(mini_quote.get("depth", {}))
+                                            
+                                            system_state.gold_petal_buy_qty = sum(int(x.get("quantity", 0)) for x in system_state.petal_depth["buy"])
+                                            system_state.gold_petal_sell_qty = sum(int(x.get("quantity", 0)) for x in system_state.petal_depth["sell"])
+                                            system_state.gold_mini_volume = int(mini_quote.get("volume", 0))
+                                            system_state.gold_mini_buy_qty = sum(int(x.get("quantity", 0)) for x in system_state.mini_depth["buy"])
+                                            system_state.gold_mini_sell_qty = sum(int(x.get("quantity", 0)) for x in system_state.mini_depth["sell"])
+                                            
+                                            await process_market_data({
+                                                "petal_ltp": petal_ltp,
+                                                "mini_ltp": mini_ltp
+                                            })
+                                            await asyncio.sleep(1.0)
+                                            continue
+                                            
+                        system_state.api_connected = False
+                    except Exception as e:
+                        system_state.api_connected = False
+                        system_state.log(f"[DHAN API] Live ticker query failed: {e}.")
+                        
+                if not system_state.api_connected:
+                    await broadcast_system_state()
+                    await asyncio.sleep(2.0)
+                    continue
             else:
                 # Groww API / Simulation Mode Active
                 system_state.api_connected = True
-
+ 
             # 2. Live Market Feed Generator / Simulator Ticks
             petal_step = random.uniform(-6.0, 6.0)
             mini_step = random.uniform(-6.0, 6.0)
@@ -2371,26 +2463,33 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     if payload.dhan_mini_symbol:
         system_state.dhan_mini_symbol = payload.dhan_mini_symbol
 
-    # Reset tokens for re-resolution if the symbol has changed on the UI
-    if system_state.petal_symbol != payload.petal_symbol:
-        system_state.petal_symbol = payload.petal_symbol
-        resolved_tok = system_state.resolve_scrip_token_via_api(payload.petal_symbol)
-        if resolved_tok:
-            system_state.petal_token = resolved_tok
+    if system_state.broker == "Dhan":
+        system_state.petal_symbol = system_state.dhan_petal_symbol
+        system_state.mini_symbol = system_state.dhan_mini_symbol
+        system_state.petal_token = system_state.resolve_dhan_token(system_state.petal_symbol)
+        system_state.mini_token = system_state.resolve_dhan_token(system_state.mini_symbol)
+        system_state.log(f"[DHAN AUTO-RESOLVE] Leg 1: {system_state.petal_symbol} -> Token: {system_state.petal_token}, Leg 2: {system_state.mini_symbol} -> Token: {system_state.mini_token}")
+    else:
+        # Reset tokens for re-resolution if the symbol has changed on the UI
+        if system_state.petal_symbol != payload.petal_symbol:
+            system_state.petal_symbol = payload.petal_symbol
+            resolved_tok = system_state.resolve_scrip_token_via_api(payload.petal_symbol)
+            if resolved_tok:
+                system_state.petal_token = resolved_tok
+            else:
+                system_state.petal_token = payload.petal_token
         else:
             system_state.petal_token = payload.petal_token
-    else:
-        system_state.petal_token = payload.petal_token
 
-    if system_state.mini_symbol != payload.mini_symbol:
-        system_state.mini_symbol = payload.mini_symbol
-        resolved_tok = system_state.resolve_scrip_token_via_api(payload.mini_symbol)
-        if resolved_tok:
-            system_state.mini_token = resolved_tok
+        if system_state.mini_symbol != payload.mini_symbol:
+            system_state.mini_symbol = payload.mini_symbol
+            resolved_tok = system_state.resolve_scrip_token_via_api(payload.mini_symbol)
+            if resolved_tok:
+                system_state.mini_token = resolved_tok
+            else:
+                system_state.mini_token = payload.mini_token
         else:
             system_state.mini_token = payload.mini_token
-    else:
-        system_state.mini_token = payload.mini_token
     
     # Trigger dynamic SDK connection if client updates keys
     if system_state.broker == "AngelOne":
