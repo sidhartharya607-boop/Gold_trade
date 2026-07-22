@@ -139,6 +139,7 @@ class TradingSystem:
         
         self.smart_connect = None
         self.mcx_tokens_cache = {}
+        self.mcx_official_symbols = {}
         
         # Volume & Depth attributes
         self.gold_petal_volume = 0
@@ -363,10 +364,9 @@ class TradingSystem:
     def get_symbol_from_token(self, token: str, default_symbol: str) -> str:
         if not token:
             return default_symbol
-        if hasattr(self, "mcx_tokens_cache") and self.mcx_tokens_cache:
-            for cached_sym, cached_tok in self.mcx_tokens_cache.items():
-                if cached_tok == token:
-                    return cached_sym
+        if hasattr(self, "mcx_official_symbols") and self.mcx_official_symbols:
+            if token in self.mcx_official_symbols:
+                return self.mcx_official_symbols[token]
         return default_symbol
 
     def get_mcx_lot_size(self, symbol: str) -> int:
@@ -784,12 +784,28 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
         mini_order_id = await place_real_market_order(system_state.mini_symbol, system_state.mini_token, mini_action, required_mini)
         
         if not petal_order_id and not mini_order_id:
-            system_state.log("[LIVE ORDER ERROR] Both market order placements failed.")
+            system_state.log("[LIVE ORDER ERROR] Both market order placements failed to return IDs.")
             record_failed_attempt(direction, "FAILED", "Market order placements failed", is_entry)
             return {"success": False, "status": "FAILED", "reason": "Market order placements failed"}
             
-        petal_filled = not petal_order_id
-        mini_filled = not mini_order_id
+        # Instant rollback if one order fails to place on the broker API
+        if petal_order_id and not mini_order_id:
+            system_state.log("[EMERGENCY ROLLBACK] Leg 2 (Mini) failed to place. Reversing Leg 1 (Petal) instantly...")
+            rollback_action = "SELL" if petal_action == "BUY" else "BUY"
+            await place_real_market_order(system_state.petal_symbol, system_state.petal_token, rollback_action, required_petal)
+            record_failed_attempt(direction, "FAILED", "Leg 2 failed to place. Leg 1 rolled back.", is_entry)
+            return {"success": False, "status": "FAILED", "reason": "Leg 2 failed to place"}
+            
+        if mini_order_id and not petal_order_id:
+            system_state.log("[EMERGENCY ROLLBACK] Leg 1 (Petal) failed to place. Reversing Leg 2 (Mini) instantly...")
+            rollback_action = "SELL" if mini_action == "BUY" else "BUY"
+            await place_real_market_order(system_state.mini_symbol, system_state.mini_token, rollback_action, required_mini)
+            record_failed_attempt(direction, "FAILED", "Leg 1 failed to place. Leg 2 rolled back.", is_entry)
+            return {"success": False, "status": "FAILED", "reason": "Leg 1 failed to place"}
+
+        # Both placed successfully, check status loop
+        petal_filled = False
+        mini_filled = False
         
         petal_fill_price = petal_price
         mini_fill_price = mini_price
@@ -807,7 +823,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             # Query status
             status_map = await check_real_orders_status([petal_order_id, mini_order_id])
             
-            if petal_order_id and not petal_filled:
+            if not petal_filled:
                 status = status_map.get(petal_order_id)
                 if status == "COMPLETE":
                     petal_filled = True
@@ -817,7 +833,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                     system_state.log(f"[LIVE ORDER CANCEL/REJECT] Leg 1: GOLDPETAL order {status.lower()}")
                     break
                     
-            if mini_order_id and not mini_filled:
+            if not mini_filled:
                 status = status_map.get(mini_order_id)
                 if status == "COMPLETE":
                     mini_filled = True
@@ -841,9 +857,9 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             record_failed_attempt(direction, "CANCELLED", "Timeout - no legs filled", is_entry)
             return {"success": False, "status": "CANCELLED", "reason": "Timeout - no legs filled"}
             
-        # Emergency rollback if partial fill failed to complete
+        # Emergency rollback if partial fill occurred (only one leg filled)
         if petal_filled and not mini_filled:
-            system_state.log("[EMERGENCY ROLLBACK] Leg 1 filled, Leg 2 failed. Reversing Leg 1...")
+            system_state.log("[EMERGENCY ROLLBACK] Leg 1 (Petal) filled, Leg 2 (Mini) failed. Reversing Leg 1...")
             if petal_order_id:
                 await cancel_real_order(petal_order_id)
             rollback_action = "SELL" if petal_action == "BUY" else "BUY"
@@ -852,7 +868,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 2 failure"}
             
         if mini_filled and not petal_filled:
-            system_state.log("[EMERGENCY ROLLBACK] Leg 2 filled, Leg 1 failed. Reversing Leg 2...")
+            system_state.log("[EMERGENCY ROLLBACK] Leg 2 (Mini) filled, Leg 1 (Petal) failed. Reversing Leg 2...")
             if mini_order_id:
                 await cancel_real_order(mini_order_id)
             rollback_action = "SELL" if mini_action == "BUY" else "BUY"
@@ -1673,6 +1689,7 @@ async def search_active_mcx_tokens():
                     system_state.mcx_tokens_cache[sym_u] = token
                     system_state.mcx_tokens_cache[sym_u.removesuffix("FUT")] = token
                     system_state.mcx_tokens_cache[f"{sym_u.removesuffix('FUT')}FUT"] = token
+                    system_state.mcx_official_symbols[token] = sym_u
                     if symbol.startswith("GOLDPETAL") or symbol.startswith("GOLDM"):
                         results.append({
                             "symbol": symbol,
