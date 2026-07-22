@@ -374,7 +374,7 @@ class TradingSystem:
         if sym_u.startswith("GOLDPETAL"):
             return 1
         elif sym_u.startswith("GOLDM"):
-            return 1
+            return 100
         elif sym_u.startswith("GOLD"):
             return 100
         return 1
