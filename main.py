@@ -1834,8 +1834,21 @@ async def live_mcx_ticker_task():
                                             })
                                             await asyncio.sleep(1.0)
                                             continue
-                                            
-                        system_state.api_connected = False
+                                        else:
+                                            system_state.log(f"[DHAN API] Leg 1 LTP: {petal_ltp}, Leg 2 LTP: {mini_ltp}. Both must be > 0. Quotes: {market_quotes}")
+                                            system_state.api_connected = False
+                                    else:
+                                        system_state.log(f"[DHAN API] MCX_COMM segment block missing in response data: {data_block}")
+                                        system_state.api_connected = False
+                                else:
+                                    system_state.log(f"[DHAN API] Data block missing or invalid in response: {market_quotes}")
+                                    system_state.api_connected = False
+                            else:
+                                system_state.log(f"[DHAN API] Quote response status failed or unexpected: {market_quotes}")
+                                system_state.api_connected = False
+                        else:
+                            system_state.log(f"[DHAN API] Resolved Token ID is empty or invalid (Leg 1: {petal_tok_int}, Leg 2: {mini_tok_int})")
+                            system_state.api_connected = False
                     except Exception as e:
                         system_state.api_connected = False
                         system_state.log(f"[DHAN API] Live ticker query failed: {e}.")
