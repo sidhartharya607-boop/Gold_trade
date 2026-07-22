@@ -136,7 +136,9 @@ class TradingSystem:
         self.dhan_client_id = os.getenv("DHAN_CLIENT_ID", "")
         self.dhan_access_token = os.getenv("DHAN_ACCESS_TOKEN", "")
         self.dhan_petal_symbol = "GOLDPETAL31AUG26FUT"
+        self.dhan_petal_token = ""
         self.dhan_mini_symbol = "GOLDM04SEP26FUT"
+        self.dhan_mini_token = ""
         self.dhan_client = None
         self.dhan_tokens_cache = {}
         self.dhan_official_symbols = {}
@@ -582,7 +584,9 @@ async def broadcast_system_state():
         "dhan_client_id": system_state.dhan_client_id,
         "dhan_access_token": system_state.dhan_access_token,
         "dhan_petal_symbol": system_state.dhan_petal_symbol,
+        "dhan_petal_token": system_state.dhan_petal_token,
         "dhan_mini_symbol": system_state.dhan_mini_symbol,
+        "dhan_mini_token": system_state.dhan_mini_token,
         "petal_symbol": system_state.petal_symbol,
         "petal_token": system_state.petal_token,
         "mini_symbol": system_state.mini_symbol,
@@ -2424,7 +2428,9 @@ class UpdateParamsPayload(BaseModel):
     dhan_client_id: str = ""
     dhan_access_token: str = ""
     dhan_petal_symbol: str = ""
+    dhan_petal_token: str = ""
     dhan_mini_symbol: str = ""
+    dhan_mini_token: str = ""
 
 @app.post("/api/update-rules")
 async def api_update_rules(payload: UpdateParamsPayload, token: str = None, authorization: str = Header(None)):
@@ -2469,15 +2475,27 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     system_state.dhan_access_token = payload.dhan_access_token
     if payload.dhan_petal_symbol:
         system_state.dhan_petal_symbol = payload.dhan_petal_symbol
+    if payload.dhan_petal_token:
+        system_state.dhan_petal_token = payload.dhan_petal_token
     if payload.dhan_mini_symbol:
         system_state.dhan_mini_symbol = payload.dhan_mini_symbol
+    if payload.dhan_mini_token:
+        system_state.dhan_mini_token = payload.dhan_mini_token
 
     if system_state.broker == "Dhan":
         system_state.petal_symbol = system_state.dhan_petal_symbol
         system_state.mini_symbol = system_state.dhan_mini_symbol
-        system_state.petal_token = system_state.resolve_dhan_token(system_state.petal_symbol)
-        system_state.mini_token = system_state.resolve_dhan_token(system_state.mini_symbol)
-        system_state.log(f"[DHAN AUTO-RESOLVE] Leg 1: {system_state.petal_symbol} -> Token: {system_state.petal_token}, Leg 2: {system_state.mini_symbol} -> Token: {system_state.mini_token}")
+        if system_state.dhan_petal_token:
+            system_state.petal_token = system_state.dhan_petal_token
+        else:
+            system_state.petal_token = system_state.resolve_dhan_token(system_state.petal_symbol)
+            
+        if system_state.dhan_mini_token:
+            system_state.mini_token = system_state.dhan_mini_token
+        else:
+            system_state.mini_token = system_state.resolve_dhan_token(system_state.mini_symbol)
+            
+        system_state.log(f"[DHAN RESOLVE] Leg 1: {system_state.petal_symbol} -> Token: {system_state.petal_token}, Leg 2: {system_state.mini_symbol} -> Token: {system_state.mini_token}")
     else:
         # Reset tokens for re-resolution if the symbol has changed on the UI
         if system_state.petal_symbol != payload.petal_symbol:
