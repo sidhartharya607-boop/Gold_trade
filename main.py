@@ -375,7 +375,14 @@ class TradingSystem:
             if self.dhan_client_id and self.dhan_access_token:
                 self.log(f"[DHAN API] Initializing Dhan client for Client ID: {self.dhan_client_id}...")
                 from dhanhq import dhanhq
-                self.dhan_client = dhanhq(client_id=self.dhan_client_id, access_token=self.dhan_access_token)
+                try:
+                    # Positional argument style (legacy / standard for many versions)
+                    self.dhan_client = dhanhq(self.dhan_client_id, self.dhan_access_token)
+                except TypeError:
+                    # DhanContext style (newer versions)
+                    from dhanhq import DhanContext
+                    context = DhanContext(client_id=self.dhan_client_id, access_token=self.dhan_access_token)
+                    self.dhan_client = dhanhq(context)
                 self.log("[DHAN API] Connection initialized successfully. Ready for order routing.")
             else:
                 self.log("[DHAN API] Warning: Dhan API credentials (Client ID / Access Token) missing. Enter details in settings.")
