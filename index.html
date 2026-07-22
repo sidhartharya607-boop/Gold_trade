@@ -487,6 +487,7 @@
                             <span class="rule-label" style="font-weight: 700; color: #1e293b;">Select Active Broker:</span>
                             <select id="select-broker" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; width: 140px; font-weight: 600; cursor: pointer; border-radius: 6px;">
                                 <option value="AngelOne">Angel One API</option>
+                                <option value="Dhan">Dhan API</option>
                                 <option value="Groww">Groww API</option>
                                 <option value="Simulation">Simulation Mode</option>
                             </select>
@@ -525,6 +526,26 @@
                             <div class="config-item">
                                 <label for="input-angelone-mini-token" class="rule-label">Leg 2 Token</label>
                                 <input type="text" id="input-angelone-mini-token" class="rule-input font-mono" value="250001">
+                            </div>
+                        </div>
+
+                        <!-- Dhan Config Fields -->
+                        <div id="dhan-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
+                            <div class="config-item">
+                                <label for="input-dhan-client-id" class="rule-label">Client ID / User ID</label>
+                                <input type="text" id="input-dhan-client-id" class="rule-input font-mono" placeholder="Dhan Client ID">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-dhan-access-token" class="rule-label">Access Token</label>
+                                <input type="password" id="input-dhan-access-token" class="rule-input font-mono" placeholder="Dhan Access Token">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-dhan-petal-symbol" class="rule-label">Leg 1 Symbol</label>
+                                <input type="text" id="input-dhan-petal-symbol" class="rule-input font-mono" value="GOLDPETAL31AUG26FUT">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-dhan-mini-symbol" class="rule-label">Leg 2 Symbol</label>
+                                <input type="text" id="input-dhan-mini-symbol" class="rule-input font-mono" value="GOLDM04SEP26FUT">
                             </div>
                         </div>
 

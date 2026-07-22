@@ -93,6 +93,12 @@ const growwSecret = document.getElementById("input-groww-secret");
 const growwPetalSymbol = document.getElementById("input-groww-petal-symbol");
 const growwMiniSymbol = document.getElementById("input-groww-mini-symbol");
 
+const dhanFields = document.getElementById("dhan-fields");
+const dhanClientId = document.getElementById("input-dhan-client-id");
+const dhanAccessToken = document.getElementById("input-dhan-access-token");
+const dhanPetalSymbol = document.getElementById("input-dhan-petal-symbol");
+const dhanMiniSymbol = document.getElementById("input-dhan-mini-symbol");
+
 // Helper to log console logs locally before connection is established
 function logLocalMessage(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -456,12 +462,19 @@ function updateDashboard(data) {
         selectBroker.value = data.broker;
         if (data.broker === "AngelOne") {
             if (angeloneFields) angeloneFields.style.display = "grid";
+            if (dhanFields) dhanFields.style.display = "none";
+            if (growwFields) growwFields.style.display = "none";
+        } else if (data.broker === "Dhan") {
+            if (angeloneFields) angeloneFields.style.display = "none";
+            if (dhanFields) dhanFields.style.display = "grid";
             if (growwFields) growwFields.style.display = "none";
         } else if (data.broker === "Groww") {
             if (angeloneFields) angeloneFields.style.display = "none";
+            if (dhanFields) dhanFields.style.display = "none";
             if (growwFields) growwFields.style.display = "grid";
         } else {
             if (angeloneFields) angeloneFields.style.display = "none";
+            if (dhanFields) dhanFields.style.display = "none";
             if (growwFields) growwFields.style.display = "none";
         }
     }
@@ -473,6 +486,11 @@ function updateDashboard(data) {
     syncInputField(angelonePetalToken, data.petal_token);
     syncInputField(angeloneMiniSymbol, data.mini_symbol);
     syncInputField(angeloneMiniToken, data.mini_token);
+
+    syncInputField(dhanClientId, data.dhan_client_id);
+    syncInputField(dhanAccessToken, data.dhan_access_token);
+    syncInputField(dhanPetalSymbol, data.dhan_petal_symbol);
+    syncInputField(dhanMiniSymbol, data.dhan_mini_symbol);
 
     syncInputField(growwClientId, data.groww_client_id);
     syncInputField(growwApiKey, data.groww_api_key);
@@ -894,6 +912,11 @@ function saveParameters() {
     const miniSymbol = angeloneMiniSymbol ? angeloneMiniSymbol.value.trim() : "";
     const miniToken = angeloneMiniToken ? angeloneMiniToken.value.trim() : "";
 
+    const dhanClientIdVal = dhanClientId ? dhanClientId.value.trim() : "";
+    const dhanAccessTokenVal = dhanAccessToken ? dhanAccessToken.value.trim() : "";
+    const dhanPetalSymbolVal = dhanPetalSymbol ? dhanPetalSymbol.value.trim() : "";
+    const dhanMiniSymbolVal = dhanMiniSymbol ? dhanMiniSymbol.value.trim() : "";
+
     const growwClientIdVal = growwClientId ? growwClientId.value.trim() : "";
     const growwApiKeyVal = growwApiKey ? growwApiKey.value.trim() : "";
     const growwSecretVal = growwSecret ? growwSecret.value.trim() : "";
@@ -940,6 +963,10 @@ function saveParameters() {
         petal_token: petalToken,
         mini_symbol: miniSymbol,
         mini_token: miniToken,
+        dhan_client_id: dhanClientIdVal,
+        dhan_access_token: dhanAccessTokenVal,
+        dhan_petal_symbol: dhanPetalSymbolVal,
+        dhan_mini_symbol: dhanMiniSymbolVal,
         groww_client_id: growwClientIdVal,
         groww_api_key: growwApiKeyVal,
         groww_secret: growwSecretVal,
@@ -1001,12 +1028,19 @@ selectBroker.addEventListener("change", () => {
     selectBroker.dataset.isDirty = "true";
     if (selectBroker.value === "AngelOne") {
         if (angeloneFields) angeloneFields.style.display = "grid";
+        if (dhanFields) dhanFields.style.display = "none";
+        if (growwFields) growwFields.style.display = "none";
+    } else if (selectBroker.value === "Dhan") {
+        if (angeloneFields) angeloneFields.style.display = "none";
+        if (dhanFields) dhanFields.style.display = "grid";
         if (growwFields) growwFields.style.display = "none";
     } else if (selectBroker.value === "Groww") {
         if (angeloneFields) angeloneFields.style.display = "none";
+        if (dhanFields) dhanFields.style.display = "none";
         if (growwFields) growwFields.style.display = "grid";
     } else {
         if (angeloneFields) angeloneFields.style.display = "none";
+        if (dhanFields) dhanFields.style.display = "none";
         if (growwFields) growwFields.style.display = "none";
     }
 });

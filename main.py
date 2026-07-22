@@ -132,6 +132,15 @@ class TradingSystem:
         self.groww_mini_symbol = "GOLDM05AUG26"
         self.groww_client = None
 
+        # Dhan Integration properties
+        self.dhan_client_id = os.getenv("DHAN_CLIENT_ID", "")
+        self.dhan_access_token = os.getenv("DHAN_ACCESS_TOKEN", "")
+        self.dhan_petal_symbol = "GOLDPETAL31AUG26FUT"
+        self.dhan_mini_symbol = "GOLDM04SEP26FUT"
+        self.dhan_client = None
+        self.dhan_tokens_cache = {}
+        self.dhan_official_symbols = {}
+
         self.petal_symbol = "GOLDPETAL31JUL26"
         self.petal_token = "250000"
         self.mini_symbol = "GOLDM05AUG26"
@@ -361,6 +370,20 @@ class TradingSystem:
             self.log(f"[GROWW API] Initialization error: {e}")
             self.groww_client = None
 
+    def init_dhan_client(self):
+        try:
+            if self.dhan_client_id and self.dhan_access_token:
+                self.log(f"[DHAN API] Initializing Dhan client for Client ID: {self.dhan_client_id}...")
+                from dhanhq import dhanhq
+                self.dhan_client = dhanhq(client_id=self.dhan_client_id, access_token=self.dhan_access_token)
+                self.log("[DHAN API] Connection initialized successfully. Ready for order routing.")
+            else:
+                self.log("[DHAN API] Warning: Dhan API credentials (Client ID / Access Token) missing. Enter details in settings.")
+                self.dhan_client = None
+        except Exception as e:
+            self.log(f"[DHAN API] Initialization error: {e}")
+            self.dhan_client = None
+
     def get_symbol_from_token(self, token: str, default_symbol: str) -> str:
         if not token:
             return default_symbol
@@ -538,6 +561,10 @@ async def broadcast_system_state():
         "groww_secret": system_state.groww_secret,
         "groww_petal_symbol": system_state.groww_petal_symbol,
         "groww_mini_symbol": system_state.groww_mini_symbol,
+        "dhan_client_id": system_state.dhan_client_id,
+        "dhan_access_token": system_state.dhan_access_token,
+        "dhan_petal_symbol": system_state.dhan_petal_symbol,
+        "dhan_mini_symbol": system_state.dhan_mini_symbol,
         "petal_symbol": system_state.petal_symbol,
         "petal_token": system_state.petal_token,
         "mini_symbol": system_state.mini_symbol,
@@ -639,6 +666,44 @@ async def cancel_real_order(order_id: str, variety: str = "NORMAL"):
     except Exception as e:
         system_state.log(f"[LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
 
+async def check_dhan_orders_status(order_ids: List[str]) -> Dict[str, str]:
+    if not system_state.dhan_client:
+        return {}
+    try:
+        loop = asyncio.get_running_loop()
+        response = await loop.run_in_executor(
+            None,
+            lambda: system_state.dhan_client.get_order_list()
+        )
+        if isinstance(response, dict) and response.get("status") == "success":
+            order_list = response.get("data", [])
+            status_map = {}
+            for o in order_list:
+                oid = str(o.get("orderId", ""))
+                if oid in order_ids:
+                    raw_status = o.get("orderStatus", "").upper()
+                    if raw_status == "TRADED":
+                        status_map[oid] = "COMPLETE"
+                    else:
+                        status_map[oid] = raw_status
+            return status_map
+    except Exception as e:
+        system_state.log(f"[DHAN LIVE ORDER STATUS] Error checking order book: {e}")
+    return {}
+
+async def cancel_dhan_order(order_id: str):
+    if not system_state.dhan_client:
+        return
+    try:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: system_state.dhan_client.cancel_order(order_id)
+        )
+        system_state.log(f"[DHAN LIVE ORDER] Cancelled order {order_id}")
+    except Exception as e:
+        system_state.log(f"[DHAN LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
+
 def record_failed_attempt(direction: str, status: str, reason: str, is_entry: bool):
     system_state.trade_counter += 1
     t_time = get_ist_time_str("%H:%M:%S")
@@ -737,51 +802,92 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             "mini_order_type": "MARKET"
         }
     else:
-        # Live MCX Broker Execution using AngelOne SmartAPI
-        if not ANGELONE_SDK_AVAILABLE or not system_state.smart_connect:
-            system_state.log("[ANGELONE API] Error: Client not initialized. Cannot place live orders.")
-            record_failed_attempt(direction, "FAILED", "AngelOne client not initialized", is_entry)
-            return {"success": False, "status": "FAILED", "reason": "AngelOne client not initialized"}
-            
-        async def place_real_market_order(symbol: str, token: str, action: str, order_qty: int):
-            # Reverse resolve the exact database trading symbol corresponding to the token
-            correct_symbol = system_state.get_symbol_from_token(token, symbol)
-            
-            # Apply correct MCX lot size multiplier (e.g. 10 for GOLDM, 1 for GOLDPETAL)
-            lot_multiplier = system_state.get_mcx_lot_size(correct_symbol)
-            final_qty = order_qty * lot_multiplier
-            
-            system_state.log(f"[LIVE ORDER PARAMETERS] Symbol: {correct_symbol}, Token: {token}, Action: {action}, Multiplier: {lot_multiplier}, Target Qty: {order_qty} -> Final API Qty: {final_qty}")
-            
-            order_params = {
-                "variety": "NORMAL",
-                "tradingsymbol": correct_symbol,
-                "symboltoken": token,
-                "transactiontype": action,
-                "exchange": "MCX",
-                "ordertype": "MARKET",
-                "producttype": "CARRYFORWARD",
-                "duration": "DAY",
-                "quantity": str(final_qty)
-            }
-            try:
-                loop = asyncio.get_running_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: system_state.smart_connect.placeOrder(order_params)
-                )
-                if isinstance(response, str):
-                    return response
-                elif isinstance(response, dict):
-                    return response.get("data", {}).get("orderid", "")
-                return str(response)
-            except Exception as e:
-                system_state.log(f"[LIVE MARKET ORDER ERROR] Failed to place order for {symbol}: {e}")
-                return ""
+        # Determine the broker methods dynamically
+        if system_state.broker == "Dhan":
+            if not system_state.dhan_client:
+                system_state.log("[DHAN API] Error: Client not initialized. Cannot place live orders.")
+                record_failed_attempt(direction, "FAILED", "Dhan client not initialized", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "Dhan client not initialized"}
+                
+            async def place_order_func(symbol: str, token: str, action: str, order_qty: int):
+                correct_symbol = symbol
+                if token in system_state.dhan_official_symbols:
+                    correct_symbol = system_state.dhan_official_symbols[token]
+                lot_multiplier = system_state.get_mcx_lot_size(correct_symbol)
+                final_qty = order_qty * lot_multiplier
+                system_state.log(f"[DHAN LIVE ORDER] Symbol: {correct_symbol}, Token: {token}, Action: {action}, Multiplier: {lot_multiplier}, Qty: {final_qty}")
+                try:
+                    loop = asyncio.get_running_loop()
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda: system_state.dhan_client.place_order(
+                            security_id=token,
+                            exchange_segment="MCX_COMM",
+                            transaction_type=action,
+                            quantity=final_qty,
+                            order_type="MARKET",
+                            product_type="MARGIN",
+                            price=0.0,
+                            validity="DAY"
+                        )
+                    )
+                    system_state.log(f"[DHAN RESPONSE] {response}")
+                    if isinstance(response, dict):
+                        data_block = response.get("data", {})
+                        if isinstance(data_block, dict):
+                            return str(data_block.get("orderId") or data_block.get("orderid") or "")
+                    return ""
+                except Exception as e:
+                    system_state.log(f"[DHAN LIVE ORDER ERROR] Failed to place order for {symbol}: {e}")
+                    return ""
+
+            cancel_order_func = cancel_dhan_order
+            check_status_func = check_dhan_orders_status
+
+        else:
+            # Default to AngelOne API
+            if not ANGELONE_SDK_AVAILABLE or not system_state.smart_connect:
+                system_state.log("[ANGELONE API] Error: Client not initialized. Cannot place live orders.")
+                record_failed_attempt(direction, "FAILED", "AngelOne client not initialized", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "AngelOne client not initialized"}
+                
+            async def place_order_func(symbol: str, token: str, action: str, order_qty: int):
+                correct_symbol = system_state.get_symbol_from_token(token, symbol)
+                lot_multiplier = system_state.get_mcx_lot_size(correct_symbol)
+                final_qty = order_qty * lot_multiplier
+                system_state.log(f"[LIVE ORDER PARAMETERS] Symbol: {correct_symbol}, Token: {token}, Action: {action}, Multiplier: {lot_multiplier}, Target Qty: {order_qty} -> Final API Qty: {final_qty}")
+                order_params = {
+                    "variety": "NORMAL",
+                    "tradingsymbol": correct_symbol,
+                    "symboltoken": token,
+                    "transactiontype": action,
+                    "exchange": "MCX",
+                    "ordertype": "MARKET",
+                    "producttype": "CARRYFORWARD",
+                    "duration": "DAY",
+                    "quantity": str(final_qty)
+                }
+                try:
+                    loop = asyncio.get_running_loop()
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda: system_state.smart_connect.placeOrder(order_params)
+                    )
+                    if isinstance(response, str):
+                        return response
+                    elif isinstance(response, dict):
+                        return response.get("data", {}).get("orderid", "")
+                    return str(response)
+                except Exception as e:
+                    system_state.log(f"[LIVE MARKET ORDER ERROR] Failed to place order for {symbol}: {e}")
+                    return ""
+
+            cancel_order_func = cancel_real_order
+            check_status_func = check_real_orders_status
 
         # Place the market orders concurrently
-        petal_order_id = await place_real_market_order(system_state.petal_symbol, system_state.petal_token, petal_action, required_petal)
-        mini_order_id = await place_real_market_order(system_state.mini_symbol, system_state.mini_token, mini_action, required_mini)
+        petal_order_id = await place_order_func(system_state.petal_symbol, system_state.petal_token, petal_action, required_petal)
+        mini_order_id = await place_order_func(system_state.mini_symbol, system_state.mini_token, mini_action, required_mini)
         
         if not petal_order_id and not mini_order_id:
             system_state.log("[LIVE ORDER ERROR] Both market order placements failed to return IDs.")
@@ -792,14 +898,14 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
         if petal_order_id and not mini_order_id:
             system_state.log("[EMERGENCY ROLLBACK] Leg 2 (Mini) failed to place. Reversing Leg 1 (Petal) instantly...")
             rollback_action = "SELL" if petal_action == "BUY" else "BUY"
-            await place_real_market_order(system_state.petal_symbol, system_state.petal_token, rollback_action, required_petal)
+            await place_order_func(system_state.petal_symbol, system_state.petal_token, rollback_action, required_petal)
             record_failed_attempt(direction, "FAILED", "Leg 2 failed to place. Leg 1 rolled back.", is_entry)
             return {"success": False, "status": "FAILED", "reason": "Leg 2 failed to place"}
             
         if mini_order_id and not petal_order_id:
             system_state.log("[EMERGENCY ROLLBACK] Leg 1 (Petal) failed to place. Reversing Leg 2 (Mini) instantly...")
             rollback_action = "SELL" if mini_action == "BUY" else "BUY"
-            await place_real_market_order(system_state.mini_symbol, system_state.mini_token, rollback_action, required_mini)
+            await place_order_func(system_state.mini_symbol, system_state.mini_token, rollback_action, required_mini)
             record_failed_attempt(direction, "FAILED", "Leg 1 failed to place. Leg 2 rolled back.", is_entry)
             return {"success": False, "status": "FAILED", "reason": "Leg 1 failed to place"}
 
@@ -821,7 +927,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             elapsed += interval
             
             # Query status
-            status_map = await check_real_orders_status([petal_order_id, mini_order_id])
+            status_map = await check_status_func([petal_order_id, mini_order_id])
             
             if not petal_filled:
                 status = status_map.get(petal_order_id)
@@ -850,9 +956,9 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
         if not petal_filled and not mini_filled:
             # Market orders usually execute instantly, but if stuck in pending (rare), cancel them.
             if petal_order_id:
-                await cancel_real_order(petal_order_id)
+                await cancel_order_func(petal_order_id)
             if mini_order_id:
-                await cancel_real_order(mini_order_id)
+                await cancel_order_func(mini_order_id)
             system_state.log("[LIVE TIMEOUT] Both orders timed out without fill. Orders cancelled.")
             record_failed_attempt(direction, "CANCELLED", "Timeout - no legs filled", is_entry)
             return {"success": False, "status": "CANCELLED", "reason": "Timeout - no legs filled"}
@@ -861,18 +967,18 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
         if petal_filled and not mini_filled:
             system_state.log("[EMERGENCY ROLLBACK] Leg 1 (Petal) filled, Leg 2 (Mini) failed. Reversing Leg 1...")
             if petal_order_id:
-                await cancel_real_order(petal_order_id)
+                await cancel_order_func(petal_order_id)
             rollback_action = "SELL" if petal_action == "BUY" else "BUY"
-            await place_real_market_order(system_state.petal_symbol, system_state.petal_token, rollback_action, required_petal)
+            await place_order_func(system_state.petal_symbol, system_state.petal_token, rollback_action, required_petal)
             record_failed_attempt(direction, "FAILED", "Leg 1 filled, Leg 2 failed. Rolled back.", is_entry)
             return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 2 failure"}
             
         if mini_filled and not petal_filled:
             system_state.log("[EMERGENCY ROLLBACK] Leg 2 (Mini) filled, Leg 1 (Petal) failed. Reversing Leg 2...")
             if mini_order_id:
-                await cancel_real_order(mini_order_id)
+                await cancel_order_func(mini_order_id)
             rollback_action = "SELL" if mini_action == "BUY" else "BUY"
-            await place_real_market_order(system_state.mini_symbol, system_state.mini_token, rollback_action, required_mini)
+            await place_order_func(system_state.mini_symbol, system_state.mini_token, rollback_action, required_mini)
             record_failed_attempt(direction, "FAILED", "Leg 2 filled, Leg 1 failed. Rolled back.", is_entry)
             return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 1 failure"}
             
@@ -1670,11 +1776,15 @@ async def live_mcx_ticker_task():
 async def search_active_mcx_tokens():
     import urllib.request
     import json
+    import csv
+    
+    # 1. Angel One Scrip Master Download
     url = "https://margincalculator.angelone.in/OpenAPI_File/files/OpenAPIScripMaster.json"
     system_state.log("[SCRIP FINDER] Fetching active MCX contracts from Angel One Scrip Master...")
+    
     try:
         loop = asyncio.get_running_loop()
-        def download_and_parse():
+        def download_and_parse_angelone():
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=10) as response:
                 data = json.loads(response.read().decode('utf-8'))
@@ -1684,7 +1794,6 @@ async def search_active_mcx_tokens():
                 symbol = item.get("symbol", "")
                 token = item.get("token", "")
                 if exch == "MCX" and symbol and token:
-                    # Cache all MCX tokens with and without FUT suffix
                     sym_u = symbol.upper()
                     system_state.mcx_tokens_cache[sym_u] = token
                     system_state.mcx_tokens_cache[sym_u.removesuffix("FUT")] = token
@@ -1699,16 +1808,52 @@ async def search_active_mcx_tokens():
                         })
             return results
 
-        mcx_symbols = await loop.run_in_executor(None, download_and_parse)
+        mcx_symbols = await loop.run_in_executor(None, download_and_parse_angelone)
         system_state.log(f"[SCRIP FINDER] Cached MCX tokens. Found {len(mcx_symbols)} active Gold contracts:")
         mcx_symbols.sort(key=lambda x: x["symbol"])
         for res in mcx_symbols[:30]:
             system_state.log(f"-> Symbol: {res['symbol']} | Token: {res['token']} | Expiry: {res['expiry']}")
             
-        if system_state.broker == "AngelOne":
-            system_state.init_angelone_client()
     except Exception as e:
-        system_state.log(f"[SCRIP FINDER] Error searching scrip master: {e}")
+        system_state.log(f"[SCRIP FINDER] Error searching Angel One scrip master: {e}")
+
+    # 2. Dhan Scrip Master Download
+    try:
+        loop = asyncio.get_running_loop()
+        def download_and_parse_dhan():
+            dhan_url = "https://images.dhan.co/api-data/api-scrip-master.csv"
+            system_state.log("[SCRIP FINDER] Fetching active MCX contracts from Dhan Scrip Master...")
+            req = urllib.request.Request(dhan_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=20) as response:
+                lines = (line.decode('utf-8') for line in response)
+                reader = csv.DictReader(lines)
+                count = 0
+                for row in reader:
+                    exch = row.get("SEM_EXM_EXCH_ID", "").strip()
+                    segment = row.get("SEM_SEGMENT", "").strip()
+                    symbol = row.get("SEM_TRADING_SYMBOL", "").strip()
+                    token = row.get("SEM_SMST_SECURITY_ID", "").strip()
+                    if (exch == "MCX" or segment == "M") and symbol and token:
+                        sym_u = symbol.upper()
+                        system_state.dhan_tokens_cache[sym_u] = token
+                        system_state.dhan_tokens_cache[sym_u.removesuffix("FUT")] = token
+                        system_state.dhan_tokens_cache[f"{sym_u.removesuffix('FUT')}FUT"] = token
+                        system_state.dhan_official_symbols[token] = sym_u
+                        count += 1
+                return count
+
+        dhan_count = await loop.run_in_executor(None, download_and_parse_dhan)
+        system_state.log(f"[SCRIP FINDER] Cached {dhan_count} Dhan MCX symbols successfully.")
+    except Exception as e:
+        system_state.log(f"[SCRIP FINDER] Error searching Dhan scrip master: {e}")
+
+    # Initialize clients based on selected broker
+    if system_state.broker == "AngelOne":
+        system_state.init_angelone_client()
+    elif system_state.broker == "Dhan":
+        system_state.init_dhan_client()
+    elif system_state.broker == "Groww":
+        system_state.init_groww_client()
 
 # Start background task on startup
 @app.on_event("startup")
@@ -2168,6 +2313,10 @@ class UpdateParamsPayload(BaseModel):
     groww_secret: str = ""
     groww_petal_symbol: str = ""
     groww_mini_symbol: str = ""
+    dhan_client_id: str = ""
+    dhan_access_token: str = ""
+    dhan_petal_symbol: str = ""
+    dhan_mini_symbol: str = ""
 
 @app.post("/api/update-rules")
 async def api_update_rules(payload: UpdateParamsPayload, token: str = None, authorization: str = Header(None)):
@@ -2208,6 +2357,13 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     if payload.groww_mini_symbol:
         system_state.groww_mini_symbol = payload.groww_mini_symbol
 
+    system_state.dhan_client_id = payload.dhan_client_id
+    system_state.dhan_access_token = payload.dhan_access_token
+    if payload.dhan_petal_symbol:
+        system_state.dhan_petal_symbol = payload.dhan_petal_symbol
+    if payload.dhan_mini_symbol:
+        system_state.dhan_mini_symbol = payload.dhan_mini_symbol
+
     # Reset tokens for re-resolution if the symbol has changed on the UI
     if system_state.petal_symbol != payload.petal_symbol:
         system_state.petal_symbol = payload.petal_symbol
@@ -2232,6 +2388,8 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     # Trigger dynamic SDK connection if client updates keys
     if system_state.broker == "AngelOne":
         system_state.init_angelone_client()
+    elif system_state.broker == "Dhan":
+        system_state.init_dhan_client()
     elif system_state.broker == "Groww":
         system_state.init_groww_client()
     
