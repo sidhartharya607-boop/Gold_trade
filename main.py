@@ -1927,6 +1927,7 @@ async def search_active_mcx_tokens():
                 lines = (line.decode('utf-8') for line in response)
                 reader = csv.DictReader(lines)
                 count = 0
+                results_dhan = []
                 for row in reader:
                     exch = row.get("SEM_EXM_EXCH_ID", "").strip()
                     segment = row.get("SEM_SEGMENT", "").strip()
@@ -1938,11 +1939,19 @@ async def search_active_mcx_tokens():
                         system_state.dhan_tokens_cache[sym_u.removesuffix("FUT")] = token
                         system_state.dhan_tokens_cache[f"{sym_u.removesuffix('FUT')}FUT"] = token
                         system_state.dhan_official_symbols[token] = sym_u
+                        if sym_u.startswith("GOLDPETAL") or sym_u.startswith("GOLDM"):
+                            results_dhan.append({
+                                "symbol": sym_u,
+                                "token": token
+                            })
                         count += 1
-                return count
+                return count, results_dhan
 
-        dhan_count = await loop.run_in_executor(None, download_and_parse_dhan)
-        system_state.log(f"[SCRIP FINDER] Cached {dhan_count} Dhan MCX symbols successfully.")
+        dhan_count, dhan_results = await loop.run_in_executor(None, download_and_parse_dhan)
+        system_state.log(f"[SCRIP FINDER] Cached {dhan_count} Dhan MCX symbols successfully. Gold contracts found:")
+        dhan_results.sort(key=lambda x: x["symbol"])
+        for res in dhan_results[:40]:
+            system_state.log(f"-> Dhan Symbol: {res['symbol']} | Token: {res['token']}")
     except Exception as e:
         system_state.log(f"[SCRIP FINDER] Error searching Dhan scrip master: {e}")
 
