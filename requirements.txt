@@ -7,4 +7,4 @@ smartapi-python
 pyotp
 logzero
 websocket-client
-
+aiohttp
