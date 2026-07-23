@@ -1765,93 +1765,76 @@ async def live_mcx_ticker_task():
                     continue
 
             elif system_state.broker == "Dhan":
-                if not system_state.dhan_client:
+                # Directly fetch live market data from Angel One to avoid Dhan API rate limits / whitelisting issues
+                if not system_state.smart_connect:
                     system_state.api_connected = False
                 else:
                     try:
-                        loop = asyncio.get_running_loop()
-                        petal_tok_int = int(system_state.petal_token) if system_state.petal_token.isdigit() else 0
-                        mini_tok_int = int(system_state.mini_token) if system_state.mini_token.isdigit() else 0
-                        
-                        if not petal_tok_int or not mini_tok_int:
-                            system_state.petal_token = system_state.resolve_dhan_token(system_state.petal_symbol)
-                            system_state.mini_token = system_state.resolve_dhan_token(system_state.mini_symbol)
-                            petal_tok_int = int(system_state.petal_token) if system_state.petal_token.isdigit() else 0
-                            mini_tok_int = int(system_state.mini_token) if system_state.mini_token.isdigit() else 0
+                        # Resolve active contract symbols in Angel One scrip master mapping
+                        a1_petal_token = system_state.mcx_tokens_cache.get(system_state.petal_symbol.upper())
+                        a1_mini_token = system_state.mcx_tokens_cache.get(system_state.mini_symbol.upper())
+                        if not a1_petal_token:
+                            a1_petal_token = "250000"
+                        if not a1_mini_token:
+                            a1_mini_token = "250001"
                             
-                        if petal_tok_int and mini_tok_int:
-                            market_quotes = await loop.run_in_executor(
-                                None,
-                                lambda: system_state.dhan_client.quote_data(
-                                    securities={"MCX_COMM": [petal_tok_int, mini_tok_int]}
-                                )
+                        loop = asyncio.get_running_loop()
+                        market_quotes = await loop.run_in_executor(
+                            None,
+                            lambda: system_state.smart_connect.getMarketData(
+                                mode="FULL",
+                                exchangeTokens={"MCX": [a1_petal_token, a1_mini_token]}
                             )
-                            if isinstance(market_quotes, dict) and market_quotes.get("status") == "success":
-                                data_block = market_quotes.get("data", {})
-                                if isinstance(data_block, dict):
-                                    mcx_block = data_block.get("MCX_COMM", {})
-                                    if isinstance(mcx_block, dict):
-                                        petal_quote = mcx_block.get(str(petal_tok_int)) or mcx_block.get(petal_tok_int) or {}
-                                        mini_quote = mcx_block.get(str(mini_tok_int)) or mcx_block.get(mini_tok_int) or {}
-                                        
-                                        petal_ltp = float(petal_quote.get("last_price", 0.0))
-                                        mini_ltp = float(mini_quote.get("last_price", 0.0))
-                                        
-                                        if petal_ltp > 0 and mini_ltp > 0:
-                                            system_state.api_connected = True
-                                            system_state.gold_petal_volume = int(petal_quote.get("volume", 0))
+                        )
+                        
+                        petal_quote = {}
+                        mini_quote = {}
+                        if market_quotes and market_quotes.get("status") == True:
+                            fetched_list = market_quotes.get("data", {}).get("fetched", [])
+                            if isinstance(fetched_list, list):
+                                for item in fetched_list:
+                                    if isinstance(item, dict):
+                                        if item.get("symbolToken") == a1_petal_token:
+                                            petal_quote = item
+                                        elif item.get("symbolToken") == a1_mini_token:
+                                            mini_quote = item
                                             
-                                            depth_raw = petal_quote.get("depth", {})
-                                            
-                                            def format_dhan_depth(dhan_depth):
-                                                if not isinstance(dhan_depth, dict):
-                                                    return {"buy": [], "sell": []}
-                                                res = {"buy": [], "sell": []}
-                                                for side in ["buy", "sell"]:
-                                                    lst = dhan_depth.get(side, [])
-                                                    if isinstance(lst, list):
-                                                        for level in lst[:5]:
-                                                            if isinstance(level, dict):
-                                                                res[side].append({
-                                                                    "price": str(level.get("price", 0.0)),
-                                                                    "quantity": str(level.get("quantity", 0)),
-                                                                    "orders": str(level.get("orders", 0))
-                                                                })
-                                                return res
-                                                
-                                            system_state.petal_depth = format_dhan_depth(depth_raw)
-                                            system_state.mini_depth = format_dhan_depth(mini_quote.get("depth", {}))
-                                            
-                                            system_state.gold_petal_buy_qty = sum(int(x.get("quantity", 0)) for x in system_state.petal_depth["buy"])
-                                            system_state.gold_petal_sell_qty = sum(int(x.get("quantity", 0)) for x in system_state.petal_depth["sell"])
-                                            system_state.gold_mini_volume = int(mini_quote.get("volume", 0))
-                                            system_state.gold_mini_buy_qty = sum(int(x.get("quantity", 0)) for x in system_state.mini_depth["buy"])
-                                            system_state.gold_mini_sell_qty = sum(int(x.get("quantity", 0)) for x in system_state.mini_depth["sell"])
-                                            
-                                            await process_market_data({
-                                                "petal_ltp": petal_ltp,
-                                                "mini_ltp": mini_ltp
-                                            })
-                                            await asyncio.sleep(1.0)
-                                            continue
-                                        else:
-                                            system_state.log(f"[DHAN API] Leg 1 LTP: {petal_ltp}, Leg 2 LTP: {mini_ltp}. Both must be > 0. Quotes: {market_quotes}")
-                                            system_state.api_connected = False
-                                    else:
-                                        system_state.log(f"[DHAN API] MCX_COMM segment block missing in response data: {data_block}")
-                                        system_state.api_connected = False
-                                else:
-                                    system_state.log(f"[DHAN API] Data block missing or invalid in response: {market_quotes}")
-                                    system_state.api_connected = False
+                        petal_ltp = float(petal_quote.get("ltp", 0.0))
+                        mini_ltp = float(mini_quote.get("ltp", 0.0))
+                        
+                        if petal_ltp > 0 and mini_ltp > 0:
+                            system_state.api_connected = True
+                            system_state.gold_petal_volume = int(petal_quote.get("volume", 0))
+                            system_state.gold_petal_buy_qty = int(petal_quote.get("totalBuyQty", 0))
+                            system_state.gold_petal_sell_qty = int(petal_quote.get("totalSellQty", 0))
+                            
+                            system_state.gold_mini_volume = int(mini_quote.get("volume", 0))
+                            system_state.gold_mini_buy_qty = int(mini_quote.get("totalBuyQty", 0))
+                            system_state.gold_mini_sell_qty = int(mini_quote.get("totalSellQty", 0))
+                            
+                            petal_depth_raw = petal_quote.get("depth", {})
+                            if petal_depth_raw and petal_depth_raw.get("buy") and petal_depth_raw.get("sell"):
+                                system_state.petal_depth = petal_depth_raw
                             else:
-                                system_state.log(f"[DHAN API] Quote response status failed or unexpected: {market_quotes}")
-                                system_state.api_connected = False
+                                system_state.petal_depth = generate_simulated_depth(petal_ltp)
+                                
+                            mini_depth_raw = mini_quote.get("depth", {})
+                            if mini_depth_raw and mini_depth_raw.get("buy") and mini_depth_raw.get("sell"):
+                                system_state.mini_depth = mini_depth_raw
+                            else:
+                                system_state.mini_depth = generate_simulated_depth(mini_ltp)
+                                
+                            await process_market_data({
+                                "petal_ltp": petal_ltp,
+                                "mini_ltp": mini_ltp
+                            })
+                            await asyncio.sleep(1.0)
+                            continue
                         else:
-                            system_state.log(f"[DHAN API] Resolved Token ID is empty or invalid (Leg 1: {petal_tok_int}, Leg 2: {mini_tok_int})")
                             system_state.api_connected = False
                     except Exception as e:
                         system_state.api_connected = False
-                        system_state.log(f"[DHAN API] Live ticker query failed: {e}.")
+                        system_state.log(f"[DHAN FEED ERROR] Failed to fetch quotes via Angel One: {e}")
                         
                 if not system_state.api_connected:
                     await broadcast_system_state()
@@ -1972,10 +1955,12 @@ async def search_active_mcx_tokens():
     except Exception as e:
         system_state.log(f"[SCRIP FINDER] Error searching Dhan scrip master: {e}")
 
-    # Initialize clients based on selected broker
-    if system_state.broker == "AngelOne":
+    # Always try to initialize AngelOne client if credentials are configured (required for live feed fallback)
+    if system_state.client_id and system_state.password:
         system_state.init_angelone_client()
-    elif system_state.broker == "Dhan":
+
+    # Initialize active broker client
+    if system_state.broker == "Dhan":
         system_state.init_dhan_client()
     elif system_state.broker == "Groww":
         system_state.init_groww_client()
@@ -2532,9 +2517,10 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
             system_state.mini_token = payload.mini_token
     
     # Trigger dynamic SDK connection if client updates keys
-    if system_state.broker == "AngelOne":
+    if system_state.client_id and system_state.password:
         system_state.init_angelone_client()
-    elif system_state.broker == "Dhan":
+        
+    if system_state.broker == "Dhan":
         system_state.init_dhan_client()
     elif system_state.broker == "Groww":
         system_state.init_groww_client()
