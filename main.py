@@ -8,14 +8,20 @@ import asyncio
 import aiohttp
 import logging
 from io import StringIO
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, HTTPException, Request, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, StreamingResponse
 from pydantic import BaseModel
+import websockets
+import hmac
+import hashlib
+import base64
+import contextvars
+import pyotp
 import websockets
 
 try:
@@ -492,7 +498,84 @@ class TradingSystem:
 system_state = TradingSystem()
 
 # Token verification helper
+# ContextVar for thread-safe authentication status
+auth_status_var = contextvars.ContextVar("auth_status", default=False)
+
+# Simple memory-based rate limiting for login attempts
+FAILED_LOGIN_ATTEMPTS = {}  # IP -> (attempts, lock_until)
+
+def is_login_rate_limited(ip_address: str) -> bool:
+    if ip_address in FAILED_LOGIN_ATTEMPTS:
+        attempts, lock_until = FAILED_LOGIN_ATTEMPTS[ip_address]
+        if lock_until > time.time():
+            return True
+        elif time.time() >= lock_until and attempts >= 5:
+            # Lock has expired, reset attempts
+            FAILED_LOGIN_ATTEMPTS[ip_address] = (0, 0.0)
+    return False
+
+def record_failed_login(ip_address: str):
+    if ip_address not in FAILED_LOGIN_ATTEMPTS:
+        FAILED_LOGIN_ATTEMPTS[ip_address] = (1, 0.0)
+    else:
+        attempts, _ = FAILED_LOGIN_ATTEMPTS[ip_address]
+        attempts += 1
+        lock_until = 0.0
+        if attempts >= 5:
+            lock_until = time.time() + 300  # Lock for 5 minutes (300 seconds)
+        FAILED_LOGIN_ATTEMPTS[ip_address] = (attempts, lock_until)
+
+def record_successful_login(ip_address: str):
+    if ip_address in FAILED_LOGIN_ATTEMPTS:
+        del FAILED_LOGIN_ATTEMPTS[ip_address]
+
+# Session signing & verification
+SESSION_SECRET = os.getenv("SESSION_SECRET", "super_secret_gold_arbitrage_key_2026")
+
+def sign_session_token(username: str) -> str:
+    timestamp = int(time.time())
+    payload = f"{username}:{timestamp}"
+    signature = hmac.new(
+        SESSION_SECRET.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
+    token_str = f"{payload}:{signature}"
+    return base64.b64encode(token_str.encode("utf-8")).decode("utf-8")
+
+def verify_session_token(token: str) -> bool:
+    try:
+        decoded = base64.b64decode(token.encode("utf-8")).decode("utf-8")
+        parts = decoded.split(":")
+        if len(parts) != 3:
+            return False
+        username, timestamp_str, signature = parts
+        timestamp = int(timestamp_str)
+        
+        # Check session expiration: 7 days (604800 seconds)
+        if time.time() - timestamp > 604800:
+            return False
+            
+        expected_username = os.getenv("ADMIN_USERNAME", "admin")
+        if username != expected_username:
+            return False
+            
+        payload = f"{username}:{timestamp_str}"
+        expected_signature = hmac.new(
+            SESSION_SECRET.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+        return hmac.compare_digest(signature, expected_signature)
+    except Exception:
+        return False
+
+# Token verification helper (used by route functions)
 def verify_token(token: str = None, authorization: str = Header(None)):
+    # Check context first
+    if auth_status_var.get():
+        return
+        
     auth_token = os.getenv("AUTH_TOKEN", "secret_arbitrage_token_2026")
     provided_token = None
     if token:
@@ -502,6 +585,67 @@ def verify_token(token: str = None, authorization: str = Header(None)):
         
     if provided_token != auth_token:
         raise HTTPException(status_code=401, detail="Invalid Authentication Token")
+
+# FastAPI HTTP Middleware for Authentication
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    path = request.url.path
+    
+    # 1. Allow public files/endpoints
+    if path in ["/api/login", "/style.css", "/script.js", "/favicon.ico"]:
+        return await call_next(request)
+        
+    # 2. Allow WS routes to authenticate themselves
+    if path.startswith("/ws/"):
+        return await call_next(request)
+        
+    is_authenticated = False
+    
+    # 3. Check session cookie
+    cookie_token = request.cookies.get("session_token")
+    if cookie_token and verify_session_token(cookie_token):
+        is_authenticated = True
+        
+    # 4. Check query token or Bearer authorization header
+    if not is_authenticated:
+        token_param = request.query_params.get("token")
+        auth_header = request.headers.get("authorization")
+        auth_token = os.getenv("AUTH_TOKEN", "secret_arbitrage_token_2026")
+        
+        provided_token = None
+        if token_param:
+            provided_token = token_param
+        elif auth_header and auth_header.startswith("Bearer "):
+            provided_token = auth_header.split(" ")[1]
+            
+        if provided_token == auth_token:
+            is_authenticated = True
+            
+    # Set context auth status
+    auth_status_token = auth_status_var.set(is_authenticated)
+    
+    try:
+        if not is_authenticated:
+            # For API endpoints, return JSON error
+            if path.startswith("/api/"):
+                return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+            
+            # For pages, render the login.html interface
+            try:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                file_path = os.path.join(base_dir, "login.html")
+                with open(file_path, "r", encoding="utf-8") as f:
+                    return HTMLResponse(content=f.read(), status_code=200)
+            except FileNotFoundError:
+                return HTMLResponse(content="<h3>login.html not found</h3>", status_code=404)
+                
+        # Proceed with request
+        response = await call_next(request)
+        return response
+    finally:
+        # Reset context variable to avoid leakage
+        auth_status_var.reset(auth_status_token)
+
 
 # ----------------- WebSocket Connection Manager -----------------
 class ConnectionManager:
@@ -1990,8 +2134,15 @@ async def startup_event():
 @app.websocket("/ws/live-data")
 async def live_data_endpoint(websocket: WebSocket):
     token = websocket.query_params.get("token")
-    auth_token = os.getenv("AUTH_TOKEN", "secret_arbitrage_token_2026")
-    if token != auth_token:
+    cookie_token = websocket.cookies.get("session_token")
+    
+    is_valid = False
+    if token and token == os.getenv("AUTH_TOKEN", "secret_arbitrage_token_2026"):
+        is_valid = True
+    elif cookie_token and verify_session_token(cookie_token):
+        is_valid = True
+        
+    if not is_valid:
         await websocket.close(code=3000)
         return
         
@@ -2073,6 +2224,63 @@ async def live_data_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+# REST endpoints for Authentication
+class LoginPayload(BaseModel):
+    username: str
+    password: str
+    otp: str
+
+@app.post("/api/login")
+async def api_login(payload: LoginPayload, request: Request):
+    ip_address = request.client.host if request.client else "unknown"
+    
+    # Check rate limiting
+    if is_login_rate_limited(ip_address):
+        raise HTTPException(status_code=429, detail="Too many failed login attempts. Locked out for 5 minutes.")
+        
+    expected_username = os.getenv("ADMIN_USERNAME", "admin")
+    expected_password = os.getenv("ADMIN_PASSWORD", "goldarbitrage2026")
+    
+    if payload.username != expected_username or payload.password != expected_password:
+        record_failed_login(ip_address)
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+        
+    # Verify TOTP code (if secret is configured)
+    totp_secret = os.getenv("TOTP_SECRET", "").strip()
+    if totp_secret:
+        # Some users might have spaces in their key, clean it
+        totp_secret_clean = "".join(totp_secret.split())
+        try:
+            totp = pyotp.TOTP(totp_secret_clean)
+            if not totp.verify(payload.otp):
+                record_failed_login(ip_address)
+                raise HTTPException(status_code=401, detail="Invalid 2FA OTP code")
+        except Exception as e:
+            logger.error(f"Error checking TOTP OTP code: {e}")
+            raise HTTPException(status_code=500, detail="Internal server error verifying 2FA OTP")
+            
+    # Success
+    record_successful_login(ip_address)
+    token = sign_session_token(payload.username)
+    response = JSONResponse(content={"status": "success", "message": "Logged in successfully"})
+    
+    cookie_secure = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        samesite="strict",
+        max_age=604800,  # 7 days
+        secure=cookie_secure
+    )
+    return response
+
+@app.post("/api/logout")
+async def api_logout():
+    response = JSONResponse(content={"status": "success", "message": "Logged out successfully"})
+    response.delete_cookie(key="session_token")
+    return response
 
 # REST manual position entry endpoint
 class EntryPayload(BaseModel):

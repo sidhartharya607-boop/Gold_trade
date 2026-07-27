@@ -1,9 +1,28 @@
-// Frontend Script for Spread Arbitrage Quant Workstation
-
-const AUTH_TOKEN = "secret_arbitrage_token_2026";
+const customToken = localStorage.getItem("api_token");
 const host = window.location.host || "localhost:7890";
 const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-const WS_URL = `${protocol}//${host}/ws/live-data?token=${AUTH_TOKEN}`;
+const WS_URL = customToken ? `${protocol}//${host}/ws/live-data?token=${customToken}` : `${protocol}//${host}/ws/live-data`;
+
+function getAuthTokenParam() {
+    const token = localStorage.getItem("api_token");
+    return token ? `?token=${token}` : "";
+}
+
+// Client-side logout trigger
+async function logout() {
+    try {
+        const httpProtocol = window.location.protocol;
+        const url = `${httpProtocol}//${host}/api/logout`;
+        const response = await fetch(url, { method: "POST" });
+        if (response.ok) {
+            localStorage.removeItem("api_token");
+            window.location.reload();
+        }
+    } catch (err) {
+        console.error("Error logging out:", err);
+        window.location.reload();
+    }
+}
 
 let socket = null;
 let reconnectTimeout = null;
@@ -142,16 +161,19 @@ function connect() {
         let closeReason = "Connection disconnected.";
         if (event.code === 3000) {
             closeReason = "Unauthorized token key verification failed.";
+            logLocalMessage(`[SYSTEM] Stream offline. ${closeReason}`);
+            setTimeout(() => {
+                window.location.reload();
+            }, 1000);
+            return;
         }
         logLocalMessage(`[SYSTEM] Stream offline. ${closeReason}`);
         
-        if (event.code !== 3000) {
-            logLocalMessage(`[SYSTEM] Reconnecting in ${(reconnectDelay / 1000).toFixed(1)}s...`);
-            reconnectTimeout = setTimeout(() => {
-                reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
-                connect();
-            }, reconnectDelay);
-        }
+        logLocalMessage(`[SYSTEM] Reconnecting in ${(reconnectDelay / 1000).toFixed(1)}s...`);
+        reconnectTimeout = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
+            connect();
+        }, reconnectDelay);
     };
 
     socket.onerror = (error) => {
@@ -805,7 +827,7 @@ function syncCheckboxField(element, checked) {
 // API Post requests dispatcher
 function postAction(endpoint, payload = {}) {
     const httpProtocol = window.location.protocol;
-    const url = `${httpProtocol}//${host}/api/${endpoint}?token=${AUTH_TOKEN}`;
+    const url = `${httpProtocol}//${host}/api/${endpoint}${getAuthTokenParam()}`;
     
     return fetch(url, {
         method: "POST",
@@ -814,9 +836,14 @@ function postAction(endpoint, payload = {}) {
         },
         body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : null
     })
-    .then(response => {
+    .then(async response => {
+        if (response.status === 401) {
+            window.location.reload();
+            return;
+        }
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData.detail || `Server error: ${response.status}`);
         }
         return response.json();
     })
@@ -1057,7 +1084,7 @@ selectBroker.addEventListener("change", () => {
 downloadBtn.addEventListener("click", () => {
     logLocalMessage("[SYSTEM] Downloading strategy parameters file...");
     const httpProtocol = window.location.protocol;
-    const url = `${httpProtocol}//${host}/api/download-logic?token=${AUTH_TOKEN}`;
+    const url = `${httpProtocol}//${host}/api/download-logic${getAuthTokenParam()}`;
     
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -1071,7 +1098,7 @@ downloadBtn.addEventListener("click", () => {
 exportCsvBtn.addEventListener("click", () => {
     logLocalMessage("[SYSTEM] Exporting trade history records to CSV...");
     const httpProtocol = window.location.protocol;
-    const url = `${httpProtocol}//${host}/api/export-csv?token=${AUTH_TOKEN}`;
+    const url = `${httpProtocol}//${host}/api/export-csv${getAuthTokenParam()}`;
     
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -1087,7 +1114,7 @@ if (exportManualCsvBtn) {
     exportManualCsvBtn.addEventListener("click", () => {
         logLocalMessage("[SYSTEM] Exporting active & pending manual trades to CSV...");
         const httpProtocol = window.location.protocol;
-        const url = `${httpProtocol}//${host}/api/export-manual-csv?token=${AUTH_TOKEN}`;
+        const url = `${httpProtocol}//${host}/api/export-manual-csv${getAuthTokenParam()}`;
         
         const anchor = document.createElement("a");
         anchor.href = url;

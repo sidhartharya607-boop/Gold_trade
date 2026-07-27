@@ -1420,3 +1420,43 @@ body {
     font-style: italic;
     font-size: 0.65rem;
 }
+
+/* Logout Button Styling */
+.logout-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.65rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--accent-red);
+    background-color: var(--accent-red-bg);
+    border: 1px solid rgba(239, 68, 68, 0.15);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    outline: none;
+    margin-left: 0.5rem;
+}
+
+.logout-btn:hover {
+    color: #FFFFFF;
+    background-color: var(--accent-red);
+    border-color: var(--accent-red-hover);
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.18);
+    transform: translateY(-0.5px);
+}
+
+.logout-btn:active {
+    transform: translateY(0.5px);
+    box-shadow: none;
+}
+
+.logout-btn svg {
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+
+.logout-btn:hover svg {
+    transform: translateX(1px);
+}
