@@ -122,7 +122,7 @@ class TradingSystem:
         self.trade_quantity = 1
         
         # Multi-Broker Configurations
-        self.broker = "AngelOne"
+        self.broker = "Groww"
         
         # Angel One Integration properties
         self.api_key = os.getenv("ANGELONE_API_KEY", "e72eCDuy")
@@ -153,6 +153,11 @@ class TradingSystem:
         self.petal_token = "250000"
         self.mini_symbol = "GOLDM05AUG26"
         self.mini_token = "250001"
+        
+        self.angelone_petal_symbol = "GOLDPETAL31JUL26"
+        self.angelone_petal_token = "250000"
+        self.angelone_mini_symbol = "GOLDM05AUG26"
+        self.angelone_mini_token = "250001"
         
         self.smart_connect = None
         self.mcx_tokens_cache = {}
@@ -367,12 +372,13 @@ class TradingSystem:
 
     def init_groww_client(self):
         try:
-            if self.groww_client_id or self.groww_api_key or self.groww_secret:
-                self.log(f"[GROWW API] Initializing Groww API client for Client ID: {self.groww_client_id or 'Configured'}...")
+            if self.groww_secret:
+                self.log(f"[GROWW API] Initializing Groww API client using Auth Token...")
+                from growwapi import GrowwAPI
+                self.groww_client = GrowwAPI(self.groww_secret)
                 self.log("[GROWW API] Connection initialized successfully. Ready for order routing.")
-                self.groww_client = True
             else:
-                self.log("[GROWW API] Warning: Groww API credentials (Client ID / API Key / Secret) missing. Enter details in settings.")
+                self.log("[GROWW API] Warning: Groww API Auth Token (Secret Key / Token) missing. Enter details in settings.")
                 self.groww_client = None
         except Exception as e:
             self.log(f"[GROWW API] Initialization error: {e}")
@@ -735,6 +741,10 @@ async def broadcast_system_state():
         "petal_token": system_state.petal_token,
         "mini_symbol": system_state.mini_symbol,
         "mini_token": system_state.mini_token,
+        "angelone_petal_symbol": system_state.angelone_petal_symbol,
+        "angelone_petal_token": system_state.angelone_petal_token,
+        "angelone_mini_symbol": system_state.angelone_mini_symbol,
+        "angelone_mini_token": system_state.angelone_mini_token,
         "gold_petal_volume": system_state.gold_petal_volume,
         "gold_petal_buy_qty": system_state.gold_petal_buy_qty,
         "gold_petal_sell_qty": system_state.gold_petal_sell_qty,
@@ -869,6 +879,51 @@ async def cancel_dhan_order(order_id: str):
         system_state.log(f"[DHAN LIVE ORDER] Cancelled order {order_id}")
     except Exception as e:
         system_state.log(f"[DHAN LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
+
+async def check_groww_orders_status(order_ids: List[str]) -> Dict[str, str]:
+    if not system_state.groww_client:
+        return {}
+    try:
+        loop = asyncio.get_running_loop()
+        status_map = {}
+        for oid in order_ids:
+            response = await loop.run_in_executor(
+                None,
+                lambda: system_state.groww_client.get_order_status(order_id=oid)
+            )
+            if isinstance(response, dict):
+                raw_status = response.get("order_status", "").upper()
+                if raw_status in ["SUCCESS", "COMPLETE", "TRADED"]:
+                    status_map[oid] = "COMPLETE"
+                elif raw_status == "OPEN":
+                    status_map[oid] = "OPEN"
+                elif raw_status in ["FAILED", "REJECTED"]:
+                    status_map[oid] = "REJECTED"
+                elif raw_status == "CANCELLED":
+                    status_map[oid] = "CANCELLED"
+                else:
+                    status_map[oid] = raw_status
+        return status_map
+    except Exception as e:
+        system_state.log(f"[GROWW LIVE ORDER STATUS] Error checking order book: {e}")
+    return {}
+
+async def cancel_groww_order(order_id: str):
+    if not system_state.groww_client:
+        return
+    try:
+        from growwapi import GrowwAPI
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: system_state.groww_client.cancel_order(
+                order_id=order_id,
+                segment=GrowwAPI.SEGMENT_COMMODITY
+            )
+        )
+        system_state.log(f"[GROWW LIVE ORDER] Cancelled order {order_id}")
+    except Exception as e:
+        system_state.log(f"[GROWW LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
 
 def record_failed_attempt(direction: str, status: str, reason: str, is_entry: bool):
     system_state.trade_counter += 1
@@ -1009,6 +1064,45 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
 
             cancel_order_func = cancel_dhan_order
             check_status_func = check_dhan_orders_status
+
+        elif system_state.broker == "Groww":
+            if not system_state.groww_client:
+                system_state.log("[GROWW API] Error: Client not initialized. Cannot place live orders.")
+                record_failed_attempt(direction, "FAILED", "Groww client not initialized", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "Groww client not initialized"}
+                
+            async def place_order_func(symbol: str, token: str, action: str, order_qty: int):
+                from growwapi import GrowwAPI
+                lot_multiplier = system_state.get_mcx_lot_size(symbol)
+                final_qty = order_qty * lot_multiplier
+                system_state.log(f"[GROWW LIVE ORDER] Symbol: {symbol}, Action: {action}, Multiplier: {lot_multiplier}, Qty: {final_qty}")
+                try:
+                    trans_type = GrowwAPI.TRANSACTION_TYPE_BUY if action.upper() == "BUY" else GrowwAPI.TRANSACTION_TYPE_SELL
+                    loop = asyncio.get_running_loop()
+                    response = await loop.run_in_executor(
+                        None,
+                        lambda: system_state.groww_client.place_order(
+                            trading_symbol=symbol,
+                            quantity=final_qty,
+                            validity=GrowwAPI.VALIDITY_DAY,
+                            exchange=GrowwAPI.EXCHANGE_MCX,
+                            segment=GrowwAPI.SEGMENT_COMMODITY,
+                            product=GrowwAPI.PRODUCT_NRML,
+                            order_type=GrowwAPI.ORDER_TYPE_MARKET,
+                            transaction_type=trans_type,
+                            price=0.0
+                        )
+                    )
+                    system_state.log(f"[GROWW RESPONSE] {response}")
+                    if isinstance(response, dict):
+                        return str(response.get("groww_order_id") or "")
+                    return ""
+                except Exception as e:
+                    system_state.log(f"[GROWW LIVE ORDER ERROR] Failed to place order for {symbol}: {e}")
+                    return ""
+
+            cancel_order_func = cancel_groww_order
+            check_status_func = check_groww_orders_status
 
         else:
             # Default to AngelOne API
@@ -1915,8 +2009,17 @@ async def live_mcx_ticker_task():
                 else:
                     try:
                         # Resolve active contract symbols in Angel One scrip master mapping
-                        a1_petal_token = system_state.mcx_tokens_cache.get(system_state.petal_symbol.upper())
-                        a1_mini_token = system_state.mcx_tokens_cache.get(system_state.mini_symbol.upper())
+                        a1_petal_token = getattr(system_state, "angelone_petal_token", None)
+                        a1_mini_token = getattr(system_state, "angelone_mini_token", None)
+                        
+                        a1_petal_symbol = getattr(system_state, "angelone_petal_symbol", "")
+                        a1_mini_symbol = getattr(system_state, "angelone_mini_symbol", "")
+                        
+                        if not a1_petal_token and a1_petal_symbol:
+                            a1_petal_token = system_state.mcx_tokens_cache.get(a1_petal_symbol.upper())
+                        if not a1_mini_token and a1_mini_symbol:
+                            a1_mini_token = system_state.mcx_tokens_cache.get(a1_mini_symbol.upper())
+                            
                         if not a1_petal_token:
                             a1_petal_token = "250000"
                         if not a1_mini_token:
@@ -1984,8 +2087,80 @@ async def live_mcx_ticker_task():
                     await broadcast_system_state()
                     await asyncio.sleep(2.0)
                     continue
+            elif system_state.broker == "Groww":
+                if not system_state.groww_client:
+                    system_state.api_connected = False
+                else:
+                    try:
+                        from growwapi import GrowwAPI
+                        
+                        loop = asyncio.get_running_loop()
+                        
+                        # Fetch quote for Petal (Leg 1)
+                        petal_quote = await loop.run_in_executor(
+                            None,
+                            lambda: system_state.groww_client.get_quote(
+                                exchange=GrowwAPI.EXCHANGE_MCX,
+                                segment=GrowwAPI.SEGMENT_COMMODITY,
+                                trading_symbol=system_state.petal_symbol
+                            )
+                        )
+                        
+                        # Fetch quote for Mini (Leg 2)
+                        mini_quote = await loop.run_in_executor(
+                            None,
+                            lambda: system_state.groww_client.get_quote(
+                                exchange=GrowwAPI.EXCHANGE_MCX,
+                                segment=GrowwAPI.SEGMENT_COMMODITY,
+                                trading_symbol=system_state.mini_symbol
+                            )
+                        )
+                        
+                        petal_ltp = float(petal_quote.get("last_price", 0.0) if petal_quote else 0.0)
+                        mini_ltp = float(mini_quote.get("last_price", 0.0) if mini_quote else 0.0)
+                        
+                        if petal_ltp > 0 and mini_ltp > 0:
+                            system_state.api_connected = True
+                            
+                            system_state.gold_petal_volume = int(petal_quote.get("volume", 0))
+                            system_state.gold_petal_buy_qty = int(petal_quote.get("total_buy_quantity", 0))
+                            system_state.gold_petal_sell_qty = int(petal_quote.get("total_sell_quantity", 0))
+                            
+                            system_state.gold_mini_volume = int(mini_quote.get("volume", 0))
+                            system_state.gold_mini_buy_qty = int(mini_quote.get("total_buy_quantity", 0))
+                            system_state.gold_mini_sell_qty = int(mini_quote.get("total_sell_quantity", 0))
+                            
+                            # Parse depth
+                            petal_depth_raw = petal_quote.get("depth", {})
+                            if petal_depth_raw and petal_depth_raw.get("buy") and petal_depth_raw.get("sell"):
+                                system_state.petal_depth = petal_depth_raw
+                            else:
+                                system_state.petal_depth = generate_simulated_depth(petal_ltp)
+                                
+                            mini_depth_raw = mini_quote.get("depth", {})
+                            if mini_depth_raw and mini_depth_raw.get("buy") and mini_depth_raw.get("sell"):
+                                system_state.mini_depth = mini_depth_raw
+                            else:
+                                system_state.mini_depth = generate_simulated_depth(mini_ltp)
+                                
+                            await process_market_data({
+                                "petal_ltp": petal_ltp,
+                                "mini_ltp": mini_ltp
+                            })
+                            await asyncio.sleep(1.0)
+                            continue
+                        else:
+                            system_state.api_connected = False
+                    except Exception as e:
+                        system_state.api_connected = False
+                        system_state.log(f"[GROWW FEED ERROR] Failed to fetch quotes via Groww: {e}")
+                        
+                if not system_state.api_connected:
+                    await broadcast_system_state()
+                    await asyncio.sleep(2.0)
+                    continue
             else:
-                # Groww API / Simulation Mode Active
+                # Simulation Mode Active
                 system_state.api_connected = True
  
             # 2. Live Market Feed Generator / Simulator Ticks
@@ -2688,6 +2863,27 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     if payload.dhan_mini_token:
         system_state.dhan_mini_token = payload.dhan_mini_token
 
+    # Always save Angel One specific symbols and resolve/store tokens
+    system_state.angelone_petal_symbol = payload.petal_symbol
+    system_state.angelone_mini_symbol = payload.mini_symbol
+    if payload.petal_token:
+        system_state.angelone_petal_token = payload.petal_token
+    else:
+        resolved_tok = system_state.resolve_scrip_token_via_api(payload.petal_symbol)
+        if resolved_tok:
+            system_state.angelone_petal_token = resolved_tok
+        else:
+            system_state.angelone_petal_token = payload.petal_token
+
+    if payload.mini_token:
+        system_state.angelone_mini_token = payload.mini_token
+    else:
+        resolved_tok = system_state.resolve_scrip_token_via_api(payload.mini_symbol)
+        if resolved_tok:
+            system_state.angelone_mini_token = resolved_tok
+        else:
+            system_state.angelone_mini_token = payload.mini_token
+
     if system_state.broker == "Dhan":
         system_state.petal_symbol = system_state.dhan_petal_symbol
         system_state.mini_symbol = system_state.dhan_mini_symbol
@@ -2702,27 +2898,17 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
             system_state.mini_token = system_state.resolve_dhan_token(system_state.mini_symbol)
             
         system_state.log(f"[DHAN RESOLVE] Leg 1: {system_state.petal_symbol} -> Token: {system_state.petal_token}, Leg 2: {system_state.mini_symbol} -> Token: {system_state.mini_token}")
+    elif system_state.broker == "Groww":
+        system_state.petal_symbol = system_state.groww_petal_symbol
+        system_state.mini_symbol = system_state.groww_mini_symbol
+        system_state.petal_token = ""
+        system_state.mini_token = ""
     else:
-        # Reset tokens for re-resolution if the symbol has changed on the UI
-        if system_state.petal_symbol != payload.petal_symbol:
-            system_state.petal_symbol = payload.petal_symbol
-            resolved_tok = system_state.resolve_scrip_token_via_api(payload.petal_symbol)
-            if resolved_tok:
-                system_state.petal_token = resolved_tok
-            else:
-                system_state.petal_token = payload.petal_token
-        else:
-            system_state.petal_token = payload.petal_token
-
-        if system_state.mini_symbol != payload.mini_symbol:
-            system_state.mini_symbol = payload.mini_symbol
-            resolved_tok = system_state.resolve_scrip_token_via_api(payload.mini_symbol)
-            if resolved_tok:
-                system_state.mini_token = resolved_tok
-            else:
-                system_state.mini_token = payload.mini_token
-        else:
-            system_state.mini_token = payload.mini_token
+        # Default to Angel One (or Simulation)
+        system_state.petal_symbol = system_state.angelone_petal_symbol
+        system_state.petal_token = system_state.angelone_petal_token
+        system_state.mini_symbol = system_state.angelone_mini_symbol
+        system_state.mini_token = system_state.angelone_mini_token
     
     # Trigger dynamic SDK connection if client updates keys
     if system_state.client_id and system_state.password:
