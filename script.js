@@ -489,7 +489,7 @@ function updateDashboard(data) {
             if (dhanFields) dhanFields.style.display = "none";
             if (growwFields) growwFields.style.display = "none";
         } else if (data.broker === "Dhan") {
-            if (angeloneFields) angeloneFields.style.display = "none";
+            if (angeloneFields) angeloneFields.style.display = "grid";
             if (dhanFields) dhanFields.style.display = "grid";
             if (growwFields) growwFields.style.display = "none";
         } else if (data.broker === "Groww") {
@@ -506,10 +506,10 @@ function updateDashboard(data) {
     syncInputField(angelonePassword, data.password);
     syncInputField(angeloneTotp, data.totp_secret);
     syncInputField(angeloneApiKey, data.api_key);
-    syncInputField(angelonePetalSymbol, data.petal_symbol);
-    syncInputField(angelonePetalToken, data.petal_token);
-    syncInputField(angeloneMiniSymbol, data.mini_symbol);
-    syncInputField(angeloneMiniToken, data.mini_token);
+    syncInputField(angelonePetalSymbol, data.angelone_petal_symbol !== undefined ? data.angelone_petal_symbol : data.petal_symbol);
+    syncInputField(angelonePetalToken, data.angelone_petal_token !== undefined ? data.angelone_petal_token : data.petal_token);
+    syncInputField(angeloneMiniSymbol, data.angelone_mini_symbol !== undefined ? data.angelone_mini_symbol : data.mini_symbol);
+    syncInputField(angeloneMiniToken, data.angelone_mini_token !== undefined ? data.angelone_mini_token : data.mini_token);
 
     syncInputField(dhanClientId, data.dhan_client_id);
     syncInputField(dhanAccessToken, data.dhan_access_token);
@@ -1066,7 +1066,7 @@ selectBroker.addEventListener("change", () => {
         if (dhanFields) dhanFields.style.display = "none";
         if (growwFields) growwFields.style.display = "none";
     } else if (selectBroker.value === "Dhan") {
-        if (angeloneFields) angeloneFields.style.display = "none";
+        if (angeloneFields) angeloneFields.style.display = "grid";
         if (dhanFields) dhanFields.style.display = "grid";
         if (growwFields) growwFields.style.display = "none";
     } else if (selectBroker.value === "Groww") {
