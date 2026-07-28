@@ -64,6 +64,7 @@ const exitBtn = document.getElementById("exit-btn");
 const killSwitchBtn = document.getElementById("kill-switch-btn");
 const exportCsvBtn = document.getElementById("export-csv-btn");
 const exportManualCsvBtn = document.getElementById("export-manual-csv-btn");
+const exportDepthSpreadBtn = document.getElementById("export-depth-spread-btn");
 const downloadBtn = document.getElementById("download-btn");
 const updateParamsBtn = document.getElementById("update-params-btn");
 
@@ -110,7 +111,9 @@ const growwClientId = document.getElementById("input-groww-client-id");
 const growwApiKey = document.getElementById("input-groww-api-key");
 const growwSecret = document.getElementById("input-groww-secret");
 const growwPetalSymbol = document.getElementById("input-groww-petal-symbol");
+const growwPetalDropdown = document.getElementById("select-groww-petal-dropdown");
 const growwMiniSymbol = document.getElementById("input-groww-mini-symbol");
+const growwMiniDropdown = document.getElementById("select-groww-mini-dropdown");
 
 const dhanFields = document.getElementById("dhan-fields");
 const dhanClientId = document.getElementById("input-dhan-client-id");
@@ -1093,6 +1096,42 @@ downloadBtn.addEventListener("click", () => {
     anchor.click();
     document.body.removeChild(anchor);
 });
+
+// Handle Depth Spread History CSV Export
+if (exportDepthSpreadBtn) {
+    exportDepthSpreadBtn.addEventListener("click", () => {
+        logLocalMessage("[SYSTEM] Exporting depth spread history records to CSV...");
+        const httpProtocol = window.location.protocol;
+        const url = `${httpProtocol}//${host}/api/export-depth-spread${getAuthTokenParam()}`;
+        
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "depth_spread_history.csv";
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        logLocalMessage("[SYSTEM] Depth spread history CSV downloaded.");
+    });
+}
+
+// Handle Groww symbol dropdown selectors
+if (growwPetalDropdown) {
+    growwPetalDropdown.addEventListener("change", () => {
+        if (growwPetalDropdown.value !== "") {
+            growwPetalSymbol.value = growwPetalDropdown.value;
+            saveParameters();
+        }
+    });
+}
+
+if (growwMiniDropdown) {
+    growwMiniDropdown.addEventListener("change", () => {
+        if (growwMiniDropdown.value !== "") {
+            growwMiniSymbol.value = growwMiniDropdown.value;
+            saveParameters();
+        }
+    });
+}
 
 // Handle Trade History CSV Export
 exportCsvBtn.addEventListener("click", () => {

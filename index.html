@@ -578,11 +578,27 @@
                             </div>
                             <div class="config-item">
                                 <label for="input-groww-petal-symbol" class="rule-label">Leg 1 Symbol</label>
-                                <input type="text" id="input-groww-petal-symbol" class="rule-input font-mono" value="GOLDPETAL31JUL26">
+                                <div style="display: flex; gap: 0.25rem; align-items: center;">
+                                    <input type="text" id="input-groww-petal-symbol" class="rule-input font-mono" style="flex: 1; min-width: 0;" value="GOLDPETAL31JUL26FUT">
+                                    <select id="select-groww-petal-dropdown" class="rule-input font-mono" style="width: 100px; padding: 0.25rem; font-size: 0.75rem; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
+                                        <option value="">-- Quick --</option>
+                                        <option value="GOLDPETAL31JUL26FUT">31JUL26</option>
+                                        <option value="GOLDPETAL31AUG26FUT">31AUG26</option>
+                                        <option value="GOLDPETAL30NOV26FUT">30NOV26</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="config-item">
                                 <label for="input-groww-mini-symbol" class="rule-label">Leg 2 Symbol</label>
-                                <input type="text" id="input-groww-mini-symbol" class="rule-input font-mono" value="GOLDM05AUG26">
+                                <div style="display: flex; gap: 0.25rem; align-items: center;">
+                                    <input type="text" id="input-groww-mini-symbol" class="rule-input font-mono" style="flex: 1; min-width: 0;" value="GOLDM05AUG26FUT">
+                                    <select id="select-groww-mini-dropdown" class="rule-input font-mono" style="width: 100px; padding: 0.25rem; font-size: 0.75rem; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
+                                        <option value="">-- Quick --</option>
+                                        <option value="GOLDM05AUG26FUT">05AUG26</option>
+                                        <option value="GOLDM04SEP26FUT">04SEP26</option>
+                                        <option value="GOLDM04DEC26FUT">04DEC26</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -619,10 +635,16 @@
             <div class="data-card trade-history-panel" style="height: fit-content; padding-bottom: 0.25rem;">
                 <div class="panel-header" style="border-bottom: none;">
                     <h2>Trade History</h2>
-                    <button id="export-csv-btn" class="csv-export-button">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                        Export CSV
-                    </button>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button id="export-depth-spread-btn" class="csv-export-button" style="background-color: var(--accent-light, #3b82f6); color: white;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Depth Spread History
+                        </button>
+                        <button id="export-csv-btn" class="csv-export-button">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Export CSV
+                        </button>
+                    </div>
                 </div>
                 <div class="table-container" style="display: none;">
                     <table class="history-table">

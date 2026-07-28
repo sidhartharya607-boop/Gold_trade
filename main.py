@@ -134,9 +134,13 @@ class TradingSystem:
         self.groww_api_key = os.getenv("GROWW_API_KEY", "")
         self.groww_client_id = os.getenv("GROWW_CLIENT_ID", "")
         self.groww_secret = os.getenv("GROWW_SECRET", "")
-        self.groww_petal_symbol = "GOLDPETAL31JUL26"
-        self.groww_mini_symbol = "GOLDM05AUG26"
+        self.groww_petal_symbol = "GOLDPETAL31JUL26FUT"
+        self.groww_mini_symbol = "GOLDM05AUG26FUT"
         self.groww_client = None
+        
+        # Depth spread logging state variables
+        self.last_logged_buy_spread = 0.0
+        self.last_logged_sell_spread = 0.0
 
         # Dhan Integration properties
         self.dhan_client_id = os.getenv("DHAN_CLIENT_ID", "")
@@ -1777,6 +1781,40 @@ async def process_market_data(data: dict):
     avg_mini_buy = get_depth_average_price(system_state.mini_depth, "sell", qty, mini_ltp)
     system_state.depth_sell_spread = (avg_petal_sell * 10.0) - avg_mini_buy
     
+    # Record depth spreads if they change (de-duplicated)
+    if (abs(system_state.depth_buy_spread - system_state.last_logged_buy_spread) > 0.01 or 
+            abs(system_state.depth_sell_spread - system_state.last_logged_sell_spread) > 0.01):
+        
+        system_state.last_logged_buy_spread = system_state.depth_buy_spread
+        system_state.last_logged_sell_spread = system_state.depth_sell_spread
+        
+        try:
+            csv_file = "depth_spread_history.csv"
+            file_exists = os.path.exists(csv_file)
+            with open(csv_file, "a", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                if not file_exists:
+                    writer.writerow([
+                        "Timestamp", 
+                        "Petal_Ask_Avg", 
+                        "Mini_Bid_Avg", 
+                        "Depth_Buy_Spread", 
+                        "Petal_Bid_Avg", 
+                        "Mini_Ask_Avg", 
+                        "Depth_Sell_Spread"
+                    ])
+                writer.writerow([
+                    get_ist_time_str("%Y-%m-%d %H:%M:%S"),
+                    round(avg_petal_buy, 2),
+                    round(avg_mini_sell, 2),
+                    round(system_state.depth_buy_spread, 2),
+                    round(avg_petal_sell, 2),
+                    round(avg_mini_buy, 2),
+                    round(system_state.depth_sell_spread, 2)
+                ])
+        except Exception as csv_err:
+            logger.error(f"Failed to record depth spread to CSV: {csv_err}")
+            
     # Live leg and portfolio P&L calculations (Corrected to physical multipliers: 100x for Petal, 10x for Mini)
     if system_state.is_in_position:
         direction = system_state.position_direction
@@ -3008,6 +3046,37 @@ async def api_export_csv(token: str = None, authorization: str = Header(None)):
     csv_buffer.seek(0)
     headers = {"Content-Disposition": "attachment; filename=trade_history.csv"}
     return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
+
+# REST CSV Depth Spread History exporter endpoint
+@app.get("/api/export-depth-spread")
+async def api_export_depth_spread(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    csv_file = "depth_spread_history.csv"
+    if not os.path.exists(csv_file):
+        # Return empty file with headers
+        csv_buffer = StringIO()
+        writer = csv.writer(csv_buffer)
+        writer.writerow([
+            "Timestamp", 
+            "Petal_Ask_Avg", 
+            "Mini_Bid_Avg", 
+            "Depth_Buy_Spread", 
+            "Petal_Bid_Avg", 
+            "Mini_Ask_Avg", 
+            "Depth_Sell_Spread"
+        ])
+        csv_buffer.seek(0)
+        headers = {"Content-Disposition": "attachment; filename=depth_spread_history.csv"}
+        return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
+        
+    try:
+        with open(csv_file, "r", encoding="utf-8") as f:
+            content = f.read()
+        headers = {"Content-Disposition": "attachment; filename=depth_spread_history.csv"}
+        return StreamingResponse(iter([content]), media_type="text/csv", headers=headers)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # REST CSV Active & Pending Manual Trades exporter endpoint
 @app.get("/api/export-manual-csv")
