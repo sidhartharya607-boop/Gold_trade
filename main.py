@@ -1082,6 +1082,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                 system_state.log(f"[GROWW LIVE ORDER] Symbol: {symbol}, Action: {action}, Multiplier: {lot_multiplier}, Qty: {final_qty}")
                 try:
                     trans_type = GrowwAPI.TRANSACTION_TYPE_BUY if action.upper() == "BUY" else GrowwAPI.TRANSACTION_TYPE_SELL
+                    target_price = petal_price if symbol == system_state.petal_symbol else mini_price
                     loop = asyncio.get_running_loop()
                     response = await loop.run_in_executor(
                         None,
@@ -1092,9 +1093,9 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                             exchange=GrowwAPI.EXCHANGE_MCX,
                             segment=GrowwAPI.SEGMENT_COMMODITY,
                             product=GrowwAPI.PRODUCT_NRML,
-                            order_type=GrowwAPI.ORDER_TYPE_MARKET,
+                            order_type=GrowwAPI.ORDER_TYPE_LIMIT,
                             transaction_type=trans_type,
-                            price=0.0
+                            price=float(target_price)
                         )
                     )
                     system_state.log(f"[GROWW RESPONSE] {response}")
