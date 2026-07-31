@@ -153,6 +153,13 @@ class TradingSystem:
         self.dhan_tokens_cache = {}
         self.dhan_official_symbols = {}
 
+        # Upstox Integration properties
+        self.upstox_client_id = os.getenv("UPSTOX_CLIENT_ID", "")
+        self.upstox_secret = os.getenv("UPSTOX_SECRET", "")
+        self.upstox_access_token = os.getenv("UPSTOX_ACCESS_TOKEN", "")
+        self.upstox_petal_symbol = "MCX_FO|41223"
+        self.upstox_mini_symbol = "MCX_FO|41224"
+
         self.petal_symbol = "GOLDPETAL31JUL26"
         self.petal_token = "250000"
         self.mini_symbol = "GOLDM05AUG26"
@@ -199,6 +206,9 @@ class TradingSystem:
         
         self.manual_trades = []
         self.load_manual_trades()
+        
+        self.month_master = []
+        self.load_month_master()
         
         # Load trade history from persistence file
         self.load_trade_history()
@@ -256,6 +266,27 @@ class TradingSystem:
                 json.dump(self.manual_trades, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save manual trades: {e}")
+
+    def load_month_master(self):
+        try:
+            if os.path.exists("month_master.json"):
+                with open("month_master.json", "r", encoding="utf-8") as f:
+                    self.month_master = json.load(f)
+                self.log(f"[PERSISTENCE] Loaded {len(self.month_master)} month master mappings from month_master.json.")
+            else:
+                self.month_master = []
+                self.log("[PERSISTENCE] No month master file found. Starting fresh.")
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to load month master: {e}")
+            self.month_master = []
+
+    def save_month_master(self):
+        try:
+            with open("month_master.json", "w", encoding="utf-8") as f:
+                json.dump(self.month_master, f, indent=4)
+            self.log("[PERSISTENCE] Saved month master mappings.")
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to save month master: {e}")
 
     def calculate_mcx_charges(self, direction: str, qty: int, petal_entry: float, mini_entry: float, petal_exit: float, mini_exit: float) -> float:
         # GOLDPETAL: 1g size, we trade 100 * qty. GOLDMINI: 100g size (price per 10g), multiplier is 10.
@@ -741,6 +772,11 @@ async def broadcast_system_state():
         "dhan_petal_token": system_state.dhan_petal_token,
         "dhan_mini_symbol": system_state.dhan_mini_symbol,
         "dhan_mini_token": system_state.dhan_mini_token,
+        "upstox_client_id": system_state.upstox_client_id,
+        "upstox_secret": system_state.upstox_secret,
+        "upstox_access_token": system_state.upstox_access_token,
+        "upstox_petal_symbol": system_state.upstox_petal_symbol,
+        "upstox_mini_symbol": system_state.upstox_mini_symbol,
         "petal_symbol": system_state.petal_symbol,
         "petal_token": system_state.petal_token,
         "mini_symbol": system_state.mini_symbol,
@@ -761,6 +797,8 @@ async def broadcast_system_state():
         "total_trades": system_state.total_trades,
         "trade_history": system_state.trade_history,
         "manual_trades": system_state.manual_trades,
+        "month_master": system_state.month_master,
+        "month_master_live": getattr(system_state, "month_master_live", []),
         
         "logs": system_state.logs
     })
@@ -1864,6 +1902,9 @@ async def process_market_data(data: dict):
     # Process pending manual trade triggers
     for trade in system_state.manual_trades:
         if trade.get("status") == "Pending":
+            # Bug Fix: Ensure the pending trade's contract symbols match the active streamed ones
+            if trade.get("petal_symbol") != system_state.petal_symbol or trade.get("mini_symbol") != system_state.mini_symbol:
+                continue
             triggered = False
             if trade.get("direction") == "Expansion":
                 if system_state.depth_buy_spread <= trade.get("trigger_diff", 0.0):
@@ -1952,6 +1993,64 @@ def generate_simulated_depth(ltp: float) -> dict:
         })
     return {"buy": buy_levels, "sell": sell_levels}
 
+def calculate_month_master_live_stats(quotes_map: dict) -> list:
+    res = []
+    for mapping in system_state.month_master:
+        p_tok = mapping.get("petal_token")
+        m_tok = mapping.get("mini_token")
+        p_sym = mapping.get("petal_symbol")
+        m_sym = mapping.get("mini_symbol")
+        
+        p_q = None
+        m_q = None
+        if p_tok:
+            p_q = quotes_map.get(p_tok)
+        if not p_q and p_sym:
+            p_q = quotes_map.get(p_sym)
+        if not p_q:
+            p_q = {}
+            
+        if m_tok:
+            m_q = quotes_map.get(m_tok)
+        if not m_q and m_sym:
+            m_q = quotes_map.get(m_sym)
+        if not m_q:
+            m_q = {}
+            
+        p_ltp = float(p_q.get("ltp") or p_q.get("last_price") or 0.0)
+        m_ltp = float(m_q.get("ltp") or m_q.get("last_price") or 0.0)
+        
+        if p_ltp > 0 and m_ltp > 0:
+            mm_spread = (p_ltp * 10.0) - m_ltp
+            
+            p_depth = p_q.get("depth")
+            if not p_depth or not p_depth.get("buy") or not p_depth.get("sell"):
+                p_depth = generate_simulated_depth(p_ltp)
+                
+            m_depth = m_q.get("depth")
+            if not m_depth or not m_depth.get("buy") or not m_depth.get("sell"):
+                m_depth = generate_simulated_depth(m_ltp)
+                
+            mm_qty = system_state.trade_quantity
+            avg_p_buy = get_depth_average_price(p_depth, "sell", 100 * mm_qty, p_ltp)
+            avg_m_sell = get_depth_average_price(m_depth, "buy", mm_qty, m_ltp)
+            mm_buy_spread = (avg_p_buy * 10.0) - avg_m_sell
+            
+            avg_p_sell = get_depth_average_price(p_depth, "buy", 100 * mm_qty, p_ltp)
+            avg_m_buy = get_depth_average_price(m_depth, "sell", mm_qty, m_ltp)
+            mm_sell_spread = (avg_p_sell * 10.0) - avg_m_buy
+            
+            res.append({
+                "petal_symbol": p_sym,
+                "mini_symbol": m_sym,
+                "petal_ltp": p_ltp,
+                "mini_ltp": m_ltp,
+                "spread": round(mm_spread, 2),
+                "depth_buy_spread": round(mm_buy_spread, 2),
+                "depth_sell_spread": round(mm_sell_spread, 2)
+            })
+    return res
+
 # ----------------- Dynamic Random Walk Ticker (Live Ticks) -----------------
 async def live_mcx_ticker_task():
     # Fluctuate realistic prices resembling MCX commodity values
@@ -1966,12 +2065,21 @@ async def live_mcx_ticker_task():
                     system_state.api_connected = False
                 else:
                     try:
+                        # Build token list for active & month master
+                        tokens_to_query = {system_state.petal_token, system_state.mini_token}
+                        for m in system_state.month_master:
+                            if m.get("petal_token"):
+                                tokens_to_query.add(m["petal_token"])
+                            if m.get("mini_token"):
+                                tokens_to_query.add(m["mini_token"])
+                        tokens_to_query = [t for t in tokens_to_query if t]
+
                         loop = asyncio.get_running_loop()
                         market_quotes = await loop.run_in_executor(
                             None,
                             lambda: system_state.smart_connect.getMarketData(
                                 mode="FULL",
-                                exchangeTokens={"MCX": [system_state.petal_token, system_state.mini_token]}
+                                exchangeTokens={"MCX": tokens_to_query}
                             )
                         )
                         
@@ -1987,15 +2095,20 @@ async def live_mcx_ticker_task():
  
                         petal_quote = {}
                         mini_quote = {}
+                        quotes_map = {}
                         if market_quotes and market_quotes.get("status") == True:
                             fetched_list = market_quotes.get("data", {}).get("fetched", [])
                             if isinstance(fetched_list, list):
                                 for item in fetched_list:
-                                    if isinstance(item, dict):
-                                        if item.get("symbolToken") == system_state.petal_token:
+                                    if isinstance(item, dict) and "symbolToken" in item:
+                                        tok = item["symbolToken"]
+                                        quotes_map[tok] = item
+                                        if tok == system_state.petal_token:
                                             petal_quote = item
-                                        elif item.get("symbolToken") == system_state.mini_token:
+                                        elif tok == system_state.mini_token:
                                             mini_quote = item
+                        
+                        system_state.month_master_live = calculate_month_master_live_stats(quotes_map)
  
                         petal_ltp = float(petal_quote.get("ltp", 0.0))
                         mini_ltp = float(mini_quote.get("ltp", 0.0))
@@ -2064,26 +2177,40 @@ async def live_mcx_ticker_task():
                         if not a1_mini_token:
                             a1_mini_token = "250001"
                             
+                        # Build token list for active & month master
+                        tokens_to_query = {a1_petal_token, a1_mini_token}
+                        for m in system_state.month_master:
+                            if m.get("petal_token"):
+                                tokens_to_query.add(m["petal_token"])
+                            if m.get("mini_token"):
+                                tokens_to_query.add(m["mini_token"])
+                        tokens_to_query = [t for t in tokens_to_query if t]
+
                         loop = asyncio.get_running_loop()
                         market_quotes = await loop.run_in_executor(
                             None,
                             lambda: system_state.smart_connect.getMarketData(
                                 mode="FULL",
-                                exchangeTokens={"MCX": [a1_petal_token, a1_mini_token]}
+                                exchangeTokens={"MCX": tokens_to_query}
                             )
                         )
                         
                         petal_quote = {}
                         mini_quote = {}
+                        quotes_map = {}
                         if market_quotes and market_quotes.get("status") == True:
                             fetched_list = market_quotes.get("data", {}).get("fetched", [])
                             if isinstance(fetched_list, list):
                                 for item in fetched_list:
-                                    if isinstance(item, dict):
-                                        if item.get("symbolToken") == a1_petal_token:
+                                    if isinstance(item, dict) and "symbolToken" in item:
+                                        tok = item["symbolToken"]
+                                        quotes_map[tok] = item
+                                        if tok == a1_petal_token:
                                             petal_quote = item
-                                        elif item.get("symbolToken") == a1_mini_token:
+                                        elif tok == a1_mini_token:
                                             mini_quote = item
+                        
+                        system_state.month_master_live = calculate_month_master_live_stats(quotes_map)
                                             
                         petal_ltp = float(petal_quote.get("ltp", 0.0))
                         mini_ltp = float(mini_quote.get("ltp", 0.0))
@@ -2135,25 +2262,31 @@ async def live_mcx_ticker_task():
                         
                         loop = asyncio.get_running_loop()
                         
-                        # Fetch quote for Petal (Leg 1)
-                        petal_quote = await loop.run_in_executor(
-                            None,
-                            lambda: system_state.groww_client.get_quote(
-                                exchange=GrowwAPI.EXCHANGE_MCX,
-                                segment=GrowwAPI.SEGMENT_COMMODITY,
-                                trading_symbol=system_state.petal_symbol
+                        # Build symbols list for active & month master
+                        symbols_to_query = {system_state.petal_symbol, system_state.mini_symbol}
+                        for m in system_state.month_master:
+                            if m.get("petal_symbol"):
+                                symbols_to_query.add(m["petal_symbol"])
+                            if m.get("mini_symbol"):
+                                symbols_to_query.add(m["mini_symbol"])
+                                
+                        quotes_map = {}
+                        for sym in symbols_to_query:
+                            q = await loop.run_in_executor(
+                                None,
+                                lambda s=sym: system_state.groww_client.get_quote(
+                                    exchange=GrowwAPI.EXCHANGE_MCX,
+                                    segment=GrowwAPI.SEGMENT_COMMODITY,
+                                    trading_symbol=s
+                                )
                             )
-                        )
+                            if q:
+                                quotes_map[sym] = q
+                                
+                        petal_quote = quotes_map.get(system_state.petal_symbol, {})
+                        mini_quote = quotes_map.get(system_state.mini_symbol, {})
                         
-                        # Fetch quote for Mini (Leg 2)
-                        mini_quote = await loop.run_in_executor(
-                            None,
-                            lambda: system_state.groww_client.get_quote(
-                                exchange=GrowwAPI.EXCHANGE_MCX,
-                                segment=GrowwAPI.SEGMENT_COMMODITY,
-                                trading_symbol=system_state.mini_symbol
-                            )
-                        )
+                        system_state.month_master_live = calculate_month_master_live_stats(quotes_map)
                         
                         petal_ltp = float(petal_quote.get("last_price", 0.0) if petal_quote else 0.0)
                         mini_ltp = float(mini_quote.get("last_price", 0.0) if mini_quote else 0.0)
@@ -2201,7 +2334,45 @@ async def live_mcx_ticker_task():
             else:
                 # Simulation Mode Active
                 system_state.api_connected = True
- 
+                
+                # Build mock quotes_map for month master
+                quotes_map = {}
+                for mapping in system_state.month_master:
+                    p_sym = mapping.get("petal_symbol")
+                    m_sym = mapping.get("mini_symbol")
+                    p_tok = mapping.get("petal_token")
+                    m_tok = mapping.get("mini_token")
+                    
+                    # Generate distinct prices per month pair using stable hashing
+                    hash_val = sum(ord(c) for c in p_sym) % 100
+                    offset_petal = hash_val * 2.5
+                    offset_mini = hash_val * 25.0
+                    
+                    p_ltp = round(petal_base + offset_petal + random.uniform(-3, 3), 2)
+                    m_ltp = round(mini_base + offset_mini + random.uniform(-30, 30), 2)
+                    
+                    p_depth = generate_simulated_depth(p_ltp)
+                    m_depth = generate_simulated_depth(m_ltp)
+                    
+                    mock_quote_petal = {
+                        "ltp": p_ltp,
+                        "depth": p_depth
+                    }
+                    mock_quote_mini = {
+                        "ltp": m_ltp,
+                        "depth": m_depth
+                    }
+                    
+                    if p_tok:
+                        quotes_map[p_tok] = mock_quote_petal
+                    quotes_map[p_sym] = mock_quote_petal
+                    
+                    if m_tok:
+                        quotes_map[m_tok] = mock_quote_mini
+                    quotes_map[m_sym] = mock_quote_mini
+                    
+                system_state.month_master_live = calculate_month_master_live_stats(quotes_map)
+
             # 2. Live Market Feed Generator / Simulator Ticks
             petal_step = random.uniform(-6.0, 6.0)
             mini_step = random.uniform(-6.0, 6.0)
@@ -2851,6 +3022,33 @@ class UpdateParamsPayload(BaseModel):
     dhan_petal_token: str = ""
     dhan_mini_symbol: str = ""
     dhan_mini_token: str = ""
+    upstox_client_id: str = ""
+    upstox_secret: str = ""
+    upstox_access_token: str = ""
+    upstox_petal_symbol: str = ""
+    upstox_mini_symbol: str = ""
+
+class MonthMasterMapping(BaseModel):
+    petal_symbol: str
+    petal_token: str
+    mini_symbol: str
+    mini_token: str
+
+class MonthMasterPayload(BaseModel):
+    mappings: List[MonthMasterMapping]
+
+@app.get("/api/month-master")
+async def api_get_month_master(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    return {"status": "SUCCESS", "mappings": system_state.month_master}
+
+@app.post("/api/month-master")
+async def api_post_month_master(payload: MonthMasterPayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    system_state.month_master = [m.dict() for m in payload.mappings]
+    system_state.save_month_master()
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": "Month Master mappings updated successfully."}
 
 @app.post("/api/update-rules")
 async def api_update_rules(payload: UpdateParamsPayload, token: str = None, authorization: str = Header(None)):
@@ -2902,6 +3100,12 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     if payload.dhan_mini_token:
         system_state.dhan_mini_token = payload.dhan_mini_token
 
+    system_state.upstox_client_id = payload.upstox_client_id
+    system_state.upstox_secret = payload.upstox_secret
+    system_state.upstox_access_token = payload.upstox_access_token
+    system_state.upstox_petal_symbol = payload.upstox_petal_symbol
+    system_state.upstox_mini_symbol = payload.upstox_mini_symbol
+
     # Always save Angel One specific symbols and resolve/store tokens
     system_state.angelone_petal_symbol = payload.petal_symbol
     system_state.angelone_mini_symbol = payload.mini_symbol
@@ -2942,6 +3146,11 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
         system_state.mini_symbol = system_state.groww_mini_symbol
         system_state.petal_token = ""
         system_state.mini_token = ""
+    elif system_state.broker == "Upstox":
+        system_state.petal_symbol = system_state.upstox_petal_symbol
+        system_state.mini_symbol = system_state.upstox_mini_symbol
+        system_state.petal_token = system_state.upstox_petal_symbol
+        system_state.mini_token = system_state.upstox_mini_symbol
     else:
         # Default to Angel One (or Simulation)
         system_state.petal_symbol = system_state.angelone_petal_symbol

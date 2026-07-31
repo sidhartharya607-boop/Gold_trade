@@ -123,6 +123,25 @@ const dhanPetalToken = document.getElementById("input-dhan-petal-token");
 const dhanMiniSymbol = document.getElementById("input-dhan-mini-symbol");
 const dhanMiniToken = document.getElementById("input-dhan-mini-token");
 
+const upstoxFields = document.getElementById("upstox-fields");
+const upstoxClientId = document.getElementById("input-upstox-client-id");
+const upstoxSecret = document.getElementById("input-upstox-secret");
+const upstoxAccessToken = document.getElementById("input-upstox-access-token");
+const upstoxPetalSymbol = document.getElementById("input-upstox-petal-symbol");
+const upstoxMiniSymbol = document.getElementById("input-upstox-mini-symbol");
+
+const quickSelectMonthPair = document.getElementById("quick-select-month-pair");
+const monthMasterTableBody = document.getElementById("month-master-table-body");
+const mmPetalSymbol = document.getElementById("mm-petal-symbol");
+const mmPetalToken = document.getElementById("mm-petal-token");
+const mmMiniSymbol = document.getElementById("mm-mini-symbol");
+const mmMiniToken = document.getElementById("mm-mini-token");
+const addMmMappingBtn = document.getElementById("add-mm-mapping-btn");
+const monthMasterLiveSection = document.getElementById("month-master-live-section");
+const monthMasterLiveCards = document.getElementById("month-master-live-cards");
+
+let lastMonthMasterStr = "";
+
 // Helper to log console logs locally before connection is established
 function logLocalMessage(message) {
     const timestamp = new Date().toLocaleTimeString();
@@ -491,18 +510,27 @@ function updateDashboard(data) {
             if (angeloneFields) angeloneFields.style.display = "grid";
             if (dhanFields) dhanFields.style.display = "none";
             if (growwFields) growwFields.style.display = "none";
+            if (upstoxFields) upstoxFields.style.display = "none";
         } else if (data.broker === "Dhan") {
             if (angeloneFields) angeloneFields.style.display = "grid";
             if (dhanFields) dhanFields.style.display = "grid";
             if (growwFields) growwFields.style.display = "none";
+            if (upstoxFields) upstoxFields.style.display = "none";
         } else if (data.broker === "Groww") {
             if (angeloneFields) angeloneFields.style.display = "none";
             if (dhanFields) dhanFields.style.display = "none";
             if (growwFields) growwFields.style.display = "grid";
+            if (upstoxFields) upstoxFields.style.display = "none";
+        } else if (data.broker === "Upstox") {
+            if (angeloneFields) angeloneFields.style.display = "none";
+            if (dhanFields) dhanFields.style.display = "none";
+            if (growwFields) growwFields.style.display = "none";
+            if (upstoxFields) upstoxFields.style.display = "grid";
         } else {
             if (angeloneFields) angeloneFields.style.display = "none";
             if (dhanFields) dhanFields.style.display = "none";
             if (growwFields) growwFields.style.display = "none";
+            if (upstoxFields) upstoxFields.style.display = "none";
         }
     }
     syncInputField(angeloneClientId, data.client_id);
@@ -526,6 +554,12 @@ function updateDashboard(data) {
     syncInputField(growwSecret, data.groww_secret);
     syncInputField(growwPetalSymbol, data.groww_petal_symbol);
     syncInputField(growwMiniSymbol, data.groww_mini_symbol);
+
+    syncInputField(upstoxClientId, data.upstox_client_id);
+    syncInputField(upstoxSecret, data.upstox_secret);
+    syncInputField(upstoxAccessToken, data.upstox_access_token);
+    syncInputField(upstoxPetalSymbol, data.upstox_petal_symbol);
+    syncInputField(upstoxMiniSymbol, data.upstox_mini_symbol);
 
     // Render dynamic depth-based spreads
     const depthBuySpreadEl = document.getElementById("depth-buy-spread");
@@ -770,6 +804,52 @@ function updateDashboard(data) {
     });
     logsContainer.scrollTop = logsContainer.scrollHeight;
     
+    // Render Month Master Live spreads
+    const monthMasterLive = data.month_master_live || [];
+    if (monthMasterLiveSection && monthMasterLiveCards) {
+        if (monthMasterLive.length === 0) {
+            monthMasterLiveSection.style.display = "none";
+        } else {
+            monthMasterLiveSection.style.display = "block";
+            let cardsHtml = "";
+            monthMasterLive.forEach(item => {
+                const spreadChange = item.spread;
+                const spreadClass = spreadChange >= 0 ? "text-green" : "text-red";
+                cardsHtml += `
+                    <div class="metric-card month-master-live-card" style="padding: 0.75rem 1rem; border-radius: 8px; background: linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.35rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">
+                            <span>${item.petal_symbol} / ${item.mini_symbol}</span>
+                            <span style="font-size: 0.62rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60A5FA;">Live Feed</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.1rem 0;">
+                            <span style="font-size: 0.7rem; color: var(--text-muted);">LTP Spread:</span>
+                            <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${item.spread.toFixed(2)}</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.65rem; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.15rem;">
+                            <div style="display: flex; flex-direction: column; gap: 0.05rem;">
+                                <span style="color: var(--text-muted);">Depth Buy:</span>
+                                <strong class="font-mono text-green" style="font-size: 0.72rem;">${item.depth_buy_spread.toFixed(2)}</strong>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.05rem; align-items: flex-end;">
+                                <span style="color: var(--text-muted);">Depth Sell:</span>
+                                <strong class="font-mono text-red" style="font-size: 0.72rem;">${item.depth_sell_spread.toFixed(2)}</strong>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            monthMasterLiveCards.innerHTML = cardsHtml;
+        }
+    }
+
+    if (data.month_master !== undefined) {
+        const mmStr = JSON.stringify(data.month_master);
+        if (mmStr !== lastMonthMasterStr) {
+            lastMonthMasterStr = mmStr;
+            updateMonthMasterUI(data.month_master);
+        }
+    }
+
     // Update Bot Execution Timeline Pipeline
     updatePipelineTimeline(data);
 }
@@ -959,6 +1039,12 @@ function saveParameters() {
     const growwPetalSymbolVal = growwPetalSymbol ? growwPetalSymbol.value.trim() : "";
     const growwMiniSymbolVal = growwMiniSymbol ? growwMiniSymbol.value.trim() : "";
 
+    const upstoxClientIdVal = upstoxClientId ? upstoxClientId.value.trim() : "";
+    const upstoxSecretVal = upstoxSecret ? upstoxSecret.value.trim() : "";
+    const upstoxAccessTokenVal = upstoxAccessToken ? upstoxAccessToken.value.trim() : "";
+    const upstoxPetalSymbolVal = upstoxPetalSymbol ? upstoxPetalSymbol.value.trim() : "";
+    const upstoxMiniSymbolVal = upstoxMiniSymbol ? upstoxMiniSymbol.value.trim() : "";
+
     const tradeQtyVal = parseInt(quantityInput.value) || 1;
 
     if (isNaN(entryVal) || isNaN(targetVal) || isNaN(slVal) || isNaN(autoTargetVal) || isNaN(autoSlVal) || isNaN(totalCapitalVal) || isNaN(tradeQtyVal) || isNaN(spreadBufferVal)) {
@@ -1009,7 +1095,12 @@ function saveParameters() {
         groww_api_key: growwApiKeyVal,
         groww_secret: growwSecretVal,
         groww_petal_symbol: growwPetalSymbolVal,
-        groww_mini_symbol: growwMiniSymbolVal
+        groww_mini_symbol: growwMiniSymbolVal,
+        upstox_client_id: upstoxClientIdVal,
+        upstox_secret: upstoxSecretVal,
+        upstox_access_token: upstoxAccessTokenVal,
+        upstox_petal_symbol: upstoxPetalSymbolVal,
+        upstox_mini_symbol: upstoxMiniSymbolVal
     })
     .then(data => {
         if (data && data.status === "SUCCESS") {
@@ -1030,7 +1121,8 @@ const inputsToTrack = [
     entryInput, targetInput, slInput, capitalInput, quantityInput,
     inputSpreadBuffer, inputAutoTargetVal, inputAutoSlVal, inputAutoSquareoffTime,
     growwClientId, growwApiKey, growwSecret, growwPetalSymbol, growwMiniSymbol,
-    angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken
+    angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken,
+    upstoxClientId, upstoxSecret, upstoxAccessToken, upstoxPetalSymbol, upstoxMiniSymbol
 ];
 inputsToTrack.forEach(input => {
     if (input) {
@@ -1068,18 +1160,27 @@ selectBroker.addEventListener("change", () => {
         if (angeloneFields) angeloneFields.style.display = "grid";
         if (dhanFields) dhanFields.style.display = "none";
         if (growwFields) growwFields.style.display = "none";
+        if (upstoxFields) upstoxFields.style.display = "none";
     } else if (selectBroker.value === "Dhan") {
         if (angeloneFields) angeloneFields.style.display = "grid";
         if (dhanFields) dhanFields.style.display = "grid";
         if (growwFields) growwFields.style.display = "none";
+        if (upstoxFields) upstoxFields.style.display = "none";
     } else if (selectBroker.value === "Groww") {
         if (angeloneFields) angeloneFields.style.display = "none";
         if (dhanFields) dhanFields.style.display = "none";
         if (growwFields) growwFields.style.display = "grid";
+        if (upstoxFields) upstoxFields.style.display = "none";
+    } else if (selectBroker.value === "Upstox") {
+        if (angeloneFields) angeloneFields.style.display = "none";
+        if (dhanFields) dhanFields.style.display = "none";
+        if (growwFields) growwFields.style.display = "none";
+        if (upstoxFields) upstoxFields.style.display = "grid";
     } else {
         if (angeloneFields) angeloneFields.style.display = "none";
         if (dhanFields) dhanFields.style.display = "none";
         if (growwFields) growwFields.style.display = "none";
+        if (upstoxFields) upstoxFields.style.display = "none";
     }
 });
 
@@ -1478,3 +1579,140 @@ window.toggleCard = function(cardId) {
         if (arrow) arrow.style.transform = "rotate(0deg)";
     }
 };
+
+// Month Master management functions
+function updateMonthMasterUI(mappings) {
+    if (monthMasterTableBody) {
+        if (mappings.length === 0) {
+            monthMasterTableBody.innerHTML = `<tr><td colspan="5" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td></tr>`;
+        } else {
+            let tableHtml = "";
+            mappings.forEach((m, idx) => {
+                tableHtml += `
+                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.02);">
+                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_symbol}</td>
+                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_token}</td>
+                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_symbol}</td>
+                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_token}</td>
+                        <td style="padding: 0.5rem; text-align: right;">
+                            <button onclick="deleteMonthMasterMapping(${idx})" class="metallic-button" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; background-color: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 4px; cursor: pointer; transition: all 0.2s;">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            });
+            monthMasterTableBody.innerHTML = tableHtml;
+        }
+    }
+
+    if (quickSelectMonthPair) {
+        const currentValue = quickSelectMonthPair.value;
+        let selectHtml = `<option value="">-- Select Mapped Pair --</option>`;
+        mappings.forEach((m, idx) => {
+            selectHtml += `<option value="${idx}">${m.petal_symbol} / ${m.mini_symbol}</option>`;
+        });
+        quickSelectMonthPair.innerHTML = selectHtml;
+        if (currentValue && parseInt(currentValue) < mappings.length) {
+            quickSelectMonthPair.value = currentValue;
+        } else {
+            quickSelectMonthPair.value = "";
+        }
+    }
+}
+
+window.deleteMonthMasterMapping = function(index) {
+    if (!confirm("Are you sure you want to delete this month mapping?")) return;
+    let currentMappings = [];
+    try {
+        currentMappings = JSON.parse(lastMonthMasterStr || "[]");
+    } catch(e) {
+        console.error(e);
+        return;
+    }
+    currentMappings.splice(index, 1);
+    saveMonthMasterMappings(currentMappings);
+};
+
+function saveMonthMasterMappings(mappings) {
+    logLocalMessage("[SYSTEM] Updating Month Master mappings in backend...");
+    postAction("month-master", { mappings: mappings })
+    .then(data => {
+        if (data && data.status === "SUCCESS") {
+            logLocalMessage("[SYSTEM] Month Master mappings updated successfully.");
+        } else {
+            logLocalMessage("[SYSTEM] Error updating Month Master mappings.");
+        }
+    });
+}
+
+if (addMmMappingBtn) {
+    addMmMappingBtn.addEventListener("click", () => {
+        const pSym = mmPetalSymbol.value.trim();
+        const pTok = mmPetalToken.value.trim();
+        const mSym = mmMiniSymbol.value.trim();
+        const mTok = mmMiniToken.value.trim();
+        
+        if (!pSym || !mSym) {
+            alert("Leg 1 and Leg 2 symbols are required!");
+            return;
+        }
+        
+        let currentMappings = [];
+        try {
+            currentMappings = JSON.parse(lastMonthMasterStr || "[]");
+        } catch(e) {
+            currentMappings = [];
+        }
+        
+        currentMappings.push({
+            petal_symbol: pSym,
+            petal_token: pTok,
+            mini_symbol: mSym,
+            mini_token: mTok
+        });
+        
+        saveMonthMasterMappings(currentMappings);
+        
+        mmPetalSymbol.value = "";
+        mmPetalToken.value = "";
+        mmMiniSymbol.value = "";
+        mmMiniToken.value = "";
+    });
+}
+
+if (quickSelectMonthPair) {
+    quickSelectMonthPair.addEventListener("change", () => {
+        const idx = quickSelectMonthPair.value;
+        if (idx === "") return;
+        
+        let mappings = [];
+        try {
+            mappings = JSON.parse(lastMonthMasterStr || "[]");
+        } catch(e) {
+            return;
+        }
+        
+        const m = mappings[parseInt(idx)];
+        if (!m) return;
+        
+        const broker = selectBroker.value;
+        if (broker === "AngelOne") {
+            if (angelonePetalSymbol) { angelonePetalSymbol.value = m.petal_symbol; angelonePetalSymbol.dataset.isDirty = "true"; }
+            if (angelonePetalToken) { angelonePetalToken.value = m.petal_token; angelonePetalToken.dataset.isDirty = "true"; }
+            if (angeloneMiniSymbol) { angeloneMiniSymbol.value = m.mini_symbol; angeloneMiniSymbol.dataset.isDirty = "true"; }
+            if (angeloneMiniToken) { angeloneMiniToken.value = m.mini_token; angeloneMiniToken.dataset.isDirty = "true"; }
+        } else if (broker === "Dhan") {
+            if (dhanPetalSymbol) { dhanPetalSymbol.value = m.petal_symbol; dhanPetalSymbol.dataset.isDirty = "true"; }
+            if (dhanPetalToken) { dhanPetalToken.value = m.petal_token; dhanPetalToken.dataset.isDirty = "true"; }
+            if (dhanMiniSymbol) { dhanMiniSymbol.value = m.mini_symbol; dhanMiniSymbol.dataset.isDirty = "true"; }
+            if (dhanMiniToken) { dhanMiniToken.value = m.mini_token; dhanMiniToken.dataset.isDirty = "true"; }
+        } else if (broker === "Groww") {
+            if (growwPetalSymbol) { growwPetalSymbol.value = m.petal_symbol; growwPetalSymbol.dataset.isDirty = "true"; }
+            if (growwMiniSymbol) { growwMiniSymbol.value = m.mini_symbol; growwMiniSymbol.dataset.isDirty = "true"; }
+        } else if (broker === "Upstox") {
+            if (upstoxPetalSymbol) { upstoxPetalSymbol.value = m.petal_symbol; upstoxPetalSymbol.dataset.isDirty = "true"; }
+            if (upstoxMiniSymbol) { upstoxMiniSymbol.value = m.mini_symbol; upstoxMiniSymbol.dataset.isDirty = "true"; }
+        }
+        
+        logLocalMessage(`[SYSTEM] Loaded Month Master pair parameters. Please click 'Save Parameters' to apply changes.`);
+    });
+}

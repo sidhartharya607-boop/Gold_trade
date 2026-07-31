@@ -114,6 +114,16 @@
             </div>
         </section>
 
+        <!-- Month Master Live Spread Section -->
+        <section id="month-master-live-section" style="display: none; margin-bottom: 1.25rem;">
+            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.5rem 0; display: flex; align-items: center; gap: 0.4rem;">
+                📊 Month Master Live Spreads
+            </h3>
+            <div id="month-master-live-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
+                <!-- Dynamic cards will be generated here -->
+            </div>
+        </section>
+
         <!-- Main Stats Grid -->
         <main class="stats-grid">
             <!-- Card 1: Gold Petal -->
@@ -488,14 +498,23 @@
                     </div>
                     
                     <div class="broker-configs-section" style="border-top: 1px dashed var(--border-color); padding-top: 0.85rem; margin-top: 0.75rem;">
-                        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem;">
-                            <span class="rule-label" style="font-weight: 700; color: #1e293b;">Select Active Broker:</span>
-                            <select id="select-broker" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; width: 140px; font-weight: 600; cursor: pointer; border-radius: 6px;">
-                                <option value="AngelOne">Angel One API</option>
-                                <option value="Dhan">Dhan API</option>
-                                <option value="Groww">Groww API</option>
-                                <option value="Simulation">Simulation Mode</option>
-                            </select>
+                        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap;">
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <span class="rule-label" style="font-weight: 700; color: #1e293b;">Select Active Broker:</span>
+                                <select id="select-broker" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; width: 140px; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                                    <option value="AngelOne">Angel One API</option>
+                                    <option value="Dhan">Dhan API</option>
+                                    <option value="Groww">Groww API</option>
+                                    <option value="Upstox">Upstox API</option>
+                                    <option value="Simulation">Simulation Mode</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; align-items: center; flex: 1; min-width: 200px;">
+                                <span class="rule-label" style="font-weight: 700; color: #1e293b;">Quick Select Pair:</span>
+                                <select id="quick-select-month-pair" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; flex: 1; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
+                                    <option value="">-- Select Mapped Pair --</option>
+                                </select>
+                            </div>
                         </div>
                         
                         <!-- Angel One Config Fields -->
@@ -601,6 +620,30 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <!-- Upstox Config Fields -->
+                        <div id="upstox-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
+                            <div class="config-item">
+                                <label for="input-upstox-client-id" class="rule-label">Client ID / App Key</label>
+                                <input type="text" id="input-upstox-client-id" class="rule-input font-mono" placeholder="Upstox API Key">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-upstox-secret" class="rule-label">Client Secret Key</label>
+                                <input type="password" id="input-upstox-secret" class="rule-input font-mono" placeholder="Upstox Secret Key">
+                            </div>
+                            <div class="config-item" style="grid-column: span 2;">
+                                <label for="input-upstox-access-token" class="rule-label">Access Token</label>
+                                <input type="password" id="input-upstox-access-token" class="rule-input font-mono" placeholder="Upstox Access Token">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-upstox-petal-symbol" class="rule-label">Leg 1 key (Instrument Key)</label>
+                                <input type="text" id="input-upstox-petal-symbol" class="rule-input font-mono" value="MCX_FO|41223" placeholder="e.g. MCX_FO|41223">
+                            </div>
+                            <div class="config-item">
+                                <label for="input-upstox-mini-symbol" class="rule-label">Leg 2 key (Instrument Key)</label>
+                                <input type="text" id="input-upstox-mini-symbol" class="rule-input font-mono" value="MCX_FO|41224" placeholder="e.g. MCX_FO|41224">
+                            </div>
+                        </div>
                     </div>
 
                     <div class="safety-bottom-row">
@@ -624,6 +667,59 @@
                             <button id="update-params-btn" class="update-button">Save Parameters</button>
                             <button id="download-btn" class="metallic-button">Download Logic</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Month Master Section -->
+        <section class="month-master-section" style="margin-bottom: 1.25rem; width: 100%;">
+            <div class="control-card month-master-panel collapsible-card" id="card-month-master" style="width: 100%;">
+                <div class="card-header-toggle" onclick="toggleCard('card-month-master')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">📅 Month Master Mapping Manager</h2>
+                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                </div>
+                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1rem;">
+                    <!-- Form to Add Mapping -->
+                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+                        <div class="config-item">
+                            <label class="rule-label">Leg 1 (Petal) Symbol</label>
+                            <input type="text" id="mm-petal-symbol" class="rule-input font-mono" placeholder="e.g. GOLDPETAL31JUL26FUT">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Leg 1 (Petal) Token</label>
+                            <input type="text" id="mm-petal-token" class="rule-input font-mono" placeholder="e.g. 250000">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Leg 2 (Mini) Symbol</label>
+                            <input type="text" id="mm-mini-symbol" class="rule-input font-mono" placeholder="e.g. GOLDM05AUG26FUT">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Leg 2 (Mini) Token</label>
+                            <input type="text" id="mm-mini-token" class="rule-input font-mono" placeholder="e.g. 250001">
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end;">
+                        <button id="add-mm-mapping-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem;">Add Mapping</button>
+                    </div>
+                    <!-- Table of current mappings -->
+                    <div class="table-container" style="max-height: 200px; overflow-y: auto; margin-top: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px;">
+                        <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background-color: rgba(255,255,255,0.03);">
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 1 Symbol</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 1 Token</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 2 Symbol</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 2 Token</th>
+                                    <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="month-master-table-body">
+                                <tr>
+                                    <td colspan="5" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
