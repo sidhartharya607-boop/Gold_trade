@@ -1779,6 +1779,75 @@ async def trigger_manual_trade_execution(trade: dict):
         
     await broadcast_system_state()
 
+def extract_month_from_symbol(symbol: str) -> str:
+    if not symbol:
+        return "UNKNOWN"
+    months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
+    symbol_upper = symbol.upper()
+    for m in months:
+        if m in symbol_upper:
+            return m
+    return "UNKNOWN"
+
+def record_depth_spread(petal_symbol: str, mini_symbol: str, 
+                        avg_petal_buy: float, avg_mini_sell: float, depth_buy_spread: float,
+                        avg_petal_sell: float, avg_mini_buy: float, depth_sell_spread: float):
+    month = extract_month_from_symbol(petal_symbol)
+    
+    if not hasattr(system_state, "last_logged_spreads"):
+        system_state.last_logged_spreads = {}
+        
+    key = (petal_symbol, mini_symbol)
+    last = system_state.last_logged_spreads.get(key, (0.0, 0.0))
+    
+    if abs(depth_buy_spread - last[0]) > 0.01 or abs(depth_sell_spread - last[1]) > 0.01:
+        system_state.last_logged_spreads[key] = (depth_buy_spread, depth_sell_spread)
+        
+        try:
+            csv_file = "depth_spread_history.csv"
+            file_exists = os.path.exists(csv_file)
+            
+            write_header = not file_exists
+            if file_exists:
+                try:
+                    with open(csv_file, "r", encoding="utf-8") as f:
+                        first_line = f.readline()
+                    if "Month" not in first_line:
+                        write_header = True
+                except Exception:
+                    pass
+            
+            mode = "w" if write_header else "a"
+            with open(csv_file, mode, newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                if write_header:
+                    writer.writerow([
+                        "Month",
+                        "Timestamp", 
+                        "Petal_Symbol",
+                        "Mini_Symbol",
+                        "Petal_Ask_Avg", 
+                        "Mini_Bid_Avg", 
+                        "Depth_Buy_Spread", 
+                        "Petal_Bid_Avg", 
+                        "Mini_Ask_Avg", 
+                        "Depth_Sell_Spread"
+                    ])
+                writer.writerow([
+                    month,
+                    get_ist_time_str("%Y-%m-%d %H:%M:%S"),
+                    petal_symbol,
+                    mini_symbol,
+                    round(avg_petal_buy, 2),
+                    round(avg_mini_sell, 2),
+                    round(depth_buy_spread, 2),
+                    round(avg_petal_sell, 2),
+                    round(avg_mini_buy, 2),
+                    round(depth_sell_spread, 2)
+                ])
+        except Exception as csv_err:
+            logger.error(f"Failed to record depth spread to CSV for {petal_symbol}: {csv_err}")
+
 # ----------------- Trading Engine and Live Tickers -----------------
 async def process_market_data(data: dict):
     global system_state
@@ -1827,32 +1896,16 @@ async def process_market_data(data: dict):
         system_state.last_logged_buy_spread = system_state.depth_buy_spread
         system_state.last_logged_sell_spread = system_state.depth_sell_spread
         
-        try:
-            csv_file = "depth_spread_history.csv"
-            file_exists = os.path.exists(csv_file)
-            with open(csv_file, "a", newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if not file_exists:
-                    writer.writerow([
-                        "Timestamp", 
-                        "Petal_Ask_Avg", 
-                        "Mini_Bid_Avg", 
-                        "Depth_Buy_Spread", 
-                        "Petal_Bid_Avg", 
-                        "Mini_Ask_Avg", 
-                        "Depth_Sell_Spread"
-                    ])
-                writer.writerow([
-                    get_ist_time_str("%Y-%m-%d %H:%M:%S"),
-                    round(avg_petal_buy, 2),
-                    round(avg_mini_sell, 2),
-                    round(system_state.depth_buy_spread, 2),
-                    round(avg_petal_sell, 2),
-                    round(avg_mini_buy, 2),
-                    round(system_state.depth_sell_spread, 2)
-                ])
-        except Exception as csv_err:
-            logger.error(f"Failed to record depth spread to CSV: {csv_err}")
+        record_depth_spread(
+            system_state.petal_symbol, 
+            system_state.mini_symbol, 
+            avg_petal_buy, 
+            avg_mini_sell, 
+            system_state.depth_buy_spread, 
+            avg_petal_sell, 
+            avg_mini_buy, 
+            system_state.depth_sell_spread
+        )
             
     # Live leg and portfolio P&L calculations (Corrected to physical multipliers: 100x for Petal, 10x for Mini)
     if system_state.is_in_position:
@@ -2039,6 +2092,18 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
             avg_p_sell = get_depth_average_price(p_depth, "buy", 100 * mm_qty, p_ltp)
             avg_m_buy = get_depth_average_price(m_depth, "sell", mm_qty, m_ltp)
             mm_sell_spread = (avg_p_sell * 10.0) - avg_m_buy
+            
+            # Log depth spread for this month master mapping
+            record_depth_spread(
+                p_sym,
+                m_sym,
+                avg_p_buy,
+                avg_m_sell,
+                mm_buy_spread,
+                avg_p_sell,
+                avg_m_buy,
+                mm_sell_spread
+            )
             
             res.append({
                 "petal_symbol": p_sym,
@@ -3268,7 +3333,10 @@ async def api_export_depth_spread(token: str = None, authorization: str = Header
         csv_buffer = StringIO()
         writer = csv.writer(csv_buffer)
         writer.writerow([
+            "Month",
             "Timestamp", 
+            "Petal_Symbol",
+            "Mini_Symbol",
             "Petal_Ask_Avg", 
             "Mini_Bid_Avg", 
             "Depth_Buy_Spread", 
