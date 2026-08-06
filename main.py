@@ -2478,6 +2478,20 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
             avg_m_buy = get_depth_average_price(m_depth, "sell", mm_qty, m_ltp)
             mm_sell_spread = (avg_p_sell * 10.0) - avg_m_buy
             
+            # Cache the values dynamically
+            if p_sym:
+                system_state.symbol_ltps[p_sym] = p_ltp
+                system_state.symbol_depths[p_sym] = p_depth
+            if p_tok:
+                system_state.symbol_ltps[p_tok] = p_ltp
+                system_state.symbol_depths[p_tok] = p_depth
+            if m_sym:
+                system_state.symbol_ltps[m_sym] = m_ltp
+                system_state.symbol_depths[m_sym] = m_depth
+            if m_tok:
+                system_state.symbol_ltps[m_tok] = m_ltp
+                system_state.symbol_depths[m_tok] = m_depth
+
             # Log depth spread for this month master mapping
             record_depth_spread(
                 p_sym,
