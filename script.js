@@ -140,6 +140,18 @@ const addMmMappingBtn = document.getElementById("add-mm-mapping-btn");
 const monthMasterLiveSection = document.getElementById("month-master-live-section");
 const monthMasterLiveCards = document.getElementById("month-master-live-cards");
 
+// Trade Automation DOM References
+const taSelectMonth = document.getElementById("ta-select-month");
+const taInputEntryDiff = document.getElementById("ta-input-entry-diff");
+const taInputAveragingStep = document.getElementById("ta-input-averaging-step");
+const taInputExitGap = document.getElementById("ta-input-exit-gap");
+const taInputQuantity = document.getElementById("ta-input-quantity");
+const taSelectDirection = document.getElementById("ta-select-direction");
+const taCheckboxPaperMode = document.getElementById("ta-checkbox-paper-mode");
+const taCheckboxEnabled = document.getElementById("ta-checkbox-enabled");
+const taSaveSettingsBtn = document.getElementById("ta-save-settings-btn");
+const taTradesBody = document.getElementById("ta-trades-body");
+
 let lastMonthMasterStr = "";
 
 // Helper to log console logs locally before connection is established
@@ -682,6 +694,100 @@ function updateDashboard(data) {
         });
     }
 
+    // Sync Trade Automation Strategy form fields
+    if (taSelectMonth && !taSelectMonth.dataset.isDirty && document.activeElement !== taSelectMonth && data.ta_selected_month_idx !== undefined) {
+        taSelectMonth.value = data.ta_selected_month_idx;
+    }
+    syncInputField(taInputEntryDiff, data.ta_entry_diff);
+    syncInputField(taInputAveragingStep, data.ta_averaging_step);
+    syncInputField(taInputExitGap, data.ta_exit_gap);
+    syncInputField(taInputQuantity, data.ta_trade_quantity);
+    if (taSelectDirection && !taSelectDirection.dataset.isDirty && document.activeElement !== taSelectDirection && data.ta_direction !== undefined) {
+        taSelectDirection.value = data.ta_direction;
+    }
+    if (taCheckboxPaperMode && document.activeElement !== taCheckboxPaperMode && data.ta_paper_mode !== undefined) {
+        taCheckboxPaperMode.checked = data.ta_paper_mode;
+    }
+    if (taCheckboxEnabled && document.activeElement !== taCheckboxEnabled && data.ta_enabled !== undefined) {
+        taCheckboxEnabled.checked = data.ta_enabled;
+    }
+
+    // Render Trade Automation Trades Table
+    const taTrades = data.ta_trades || [];
+    if (!taTradesBody) {
+        // Guard
+    } else if (taTrades.length === 0) {
+        taTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td></tr>`;
+    } else {
+        taTradesBody.innerHTML = "";
+        taTrades.forEach(trade => {
+            const tr = document.createElement("tr");
+            tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
+            
+            let statusBadge = "";
+            const status = trade.status || "Open";
+            if (status === "Open") {
+                statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
+            } else if (status === "Closed" || status === "Completed") {
+                statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
+            } else {
+                statusBadge = `<span class="badge-failed" style="background-color: rgba(239,68,68,0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.25);">${status.toUpperCase()}</span>`;
+            }
+            
+            const entrySpreadVal = trade.entry_spread !== undefined ? parseFloat(trade.entry_spread).toFixed(2) : "--";
+            
+            const petalEntry = trade.petal_entry_price || 0.0;
+            const miniEntry = trade.mini_entry_price || 0.0;
+            
+            let pricesContent = `
+                <div style="font-size: 0.72rem; line-height: 1.4;">
+                    <div>P: <strong>${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                    <div>M: <strong>${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                </div>
+            `;
+            
+            let pnlContent = "--";
+            if (status === "Open") {
+                const unrealizedPnl = trade.unrealized_pnl || 0.0;
+                const pnlClass = unrealizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
+                pnlContent = `<strong class="${pnlClass}" style="font-family: var(--font-mono);">${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>`;
+            } else {
+                const realizedPnl = trade.pnl || 0.0;
+                const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
+                pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
+            }
+            
+            let actionBtn = "";
+            if (status === "Open") {
+                actionBtn = `<button class="action-btn exit-button" onclick="exitTaTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0;">Square Off</button>`;
+            } else {
+                actionBtn = `<button class="metallic-button" onclick="dismissTaTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
+            }
+            
+            const symbolsContent = `
+                <div style="font-size: 0.7rem; line-height: 1.3;">
+                    <div>L1: <strong class="font-mono" style="color: var(--text-primary);">${trade.petal_symbol}</strong></div>
+                    <div>L2: <strong class="font-mono" style="color: var(--text-secondary);">${trade.mini_symbol}</strong></div>
+                </div>
+            `;
+            
+            tr.innerHTML = `
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
+                <td style="padding: 0.5rem;">${symbolsContent}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.quantity}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;"><strong>${entrySpreadVal}</strong></td>
+                <td style="padding: 0.5rem;">${statusBadge}</td>
+                <td class="font-mono" style="padding: 0.5rem;">${pricesContent}</td>
+                <td style="padding: 0.5rem;">${pnlContent}</td>
+                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+            `;
+            
+            taTradesBody.appendChild(tr);
+        });
+    }
+
     // 7. Trade History Table
     if (data.trade_history.length === 0) {
         historyBody.innerHTML = `<tr><td colspan="7" class="empty-table">No completed or cancelled trades yet.</td></tr>`;
@@ -1122,7 +1228,8 @@ const inputsToTrack = [
     inputSpreadBuffer, inputAutoTargetVal, inputAutoSlVal, inputAutoSquareoffTime,
     growwClientId, growwApiKey, growwSecret, growwPetalSymbol, growwMiniSymbol,
     angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken,
-    upstoxClientId, upstoxSecret, upstoxAccessToken, upstoxPetalSymbol, upstoxMiniSymbol
+    upstoxClientId, upstoxSecret, upstoxAccessToken, upstoxPetalSymbol, upstoxMiniSymbol,
+    taInputEntryDiff, taInputAveragingStep, taInputExitGap, taInputQuantity
 ];
 inputsToTrack.forEach(input => {
     if (input) {
@@ -1617,6 +1724,20 @@ function updateMonthMasterUI(mappings) {
             quickSelectMonthPair.value = "";
         }
     }
+
+    if (taSelectMonth) {
+        const currentVal = taSelectMonth.value;
+        let selectHtml = `<option value="-1">-- Select Month --</option>`;
+        mappings.forEach((m, idx) => {
+            selectHtml += `<option value="${idx}">${m.petal_symbol} / ${m.mini_symbol}</option>`;
+        });
+        taSelectMonth.innerHTML = selectHtml;
+        if (currentVal && parseInt(currentVal) < mappings.length) {
+            taSelectMonth.value = currentVal;
+        } else {
+            taSelectMonth.value = "-1";
+        }
+    }
 }
 
 window.deleteMonthMasterMapping = function(index) {
@@ -1716,3 +1837,68 @@ if (quickSelectMonthPair) {
         logLocalMessage(`[SYSTEM] Loaded Month Master pair parameters. Please click 'Save Parameters' to apply changes.`);
     });
 }
+
+// Trade Automation Event Listeners
+if (taSaveSettingsBtn) {
+    taSaveSettingsBtn.addEventListener("click", () => {
+        const selectedMonthIdx = parseInt(taSelectMonth.value);
+        const entryDiff = parseFloat(taInputEntryDiff.value);
+        const averagingStep = parseFloat(taInputAveragingStep.value);
+        const exitGap = parseFloat(taInputExitGap.value);
+        const qty = parseInt(taInputQuantity.value);
+        const direction = taSelectDirection.value;
+        const paperMode = taCheckboxPaperMode.checked;
+        const enabled = taCheckboxEnabled.checked;
+        
+        if (isNaN(entryDiff) || isNaN(averagingStep) || isNaN(exitGap) || isNaN(qty)) {
+            logLocalMessage("[SYSTEM] Error: Trade Automation strategy numeric fields must hold valid values.");
+            return;
+        }
+        
+        logLocalMessage("[SYSTEM] Syncing Trade Automation strategy settings...");
+        postAction("ta-config", {
+            ta_enabled: enabled,
+            ta_selected_month_idx: selectedMonthIdx,
+            ta_entry_diff: entryDiff,
+            ta_averaging_step: averagingStep,
+            ta_exit_gap: exitGap,
+            ta_trade_quantity: qty,
+            ta_direction: direction,
+            ta_paper_mode: paperMode
+        })
+        .then(res => {
+            if (res && res.status === "SUCCESS") {
+                // Clear dirty flags
+                if (taSelectMonth) delete taSelectMonth.dataset.isDirty;
+                if (taSelectDirection) delete taSelectDirection.dataset.isDirty;
+                [taInputEntryDiff, taInputAveragingStep, taInputExitGap, taInputQuantity].forEach(input => {
+                    if (input) delete input.dataset.isDirty;
+                });
+                logLocalMessage("[SYSTEM] Trade Automation strategy parameters updated successfully.");
+            }
+        });
+    });
+}
+
+if (taSelectMonth) {
+    taSelectMonth.addEventListener("change", () => {
+        taSelectMonth.dataset.isDirty = "true";
+    });
+}
+if (taSelectDirection) {
+    taSelectDirection.addEventListener("change", () => {
+        taSelectDirection.dataset.isDirty = "true";
+    });
+}
+
+// Window level helper callbacks for Trade Automation manual exit & dismiss actions
+window.exitTaTrade = function(tradeId) {
+    if (confirm(`Are you sure you want to square off Trade Automation trade ID ${tradeId}?`)) {
+        logLocalMessage(`[SYSTEM] Squaring off Trade Automation trade ID ${tradeId}...`);
+        postAction("ta-exit-trade", { trade_id: tradeId });
+    }
+};
+
+window.dismissTaTrade = function(tradeId) {
+    postAction("ta-dismiss-trade", { trade_id: tradeId });
+};

@@ -672,6 +672,100 @@
             </div>
         </section>
 
+        <!-- Trade Automation (Grid Arbitrage) Section -->
+        <section class="month-master-section" style="margin-bottom: 1.25rem; width: 100%;">
+            <div class="control-card month-master-panel collapsible-card" id="card-trade-automation" style="width: 100%;">
+                <div class="card-header-toggle" onclick="toggleCard('card-trade-automation')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">🤖 Trade Automation (Grid Arbitrage Bot)</h2>
+                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                </div>
+                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
+                    
+                    <!-- Strategy Parameters Input Form -->
+                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+                        <div class="config-item">
+                            <label class="rule-label">Select Month Pair</label>
+                            <select id="ta-select-month" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                <option value="-1">-- Select Month --</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Entry Diff Threshold</label>
+                            <input type="number" id="ta-input-entry-diff" class="rule-input font-mono" value="500" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Averaging Step Size</label>
+                            <input type="number" id="ta-input-averaging-step" class="rule-input font-mono" value="50" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Exit Profit Gap</label>
+                            <input type="number" id="ta-input-exit-gap" class="rule-input font-mono" value="100" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Trade Quantity (Lots)</label>
+                            <input type="number" id="ta-input-quantity" class="rule-input font-mono" value="1" min="1" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Strategy Direction</label>
+                            <select id="ta-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                <option value="Expansion">Spread Expansion</option>
+                                <option value="Contraction">Spread Contraction</option>
+                            </select>
+                        </div>
+                        
+                        <div class="config-item checkbox-input-group" style="display: flex; gap: 1.5rem; align-items: center; grid-column: span 2; margin-top: 1.25rem;">
+                            <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="rule-label" style="margin-bottom: 0;">Paper Mode</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="ta-checkbox-paper-mode" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="rule-label" style="margin-bottom: 0;">Enable Automation</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="ta-checkbox-enabled">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
+                        <button id="ta-save-settings-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem;">Save Automation Strategy</button>
+                    </div>
+
+                    <!-- Trades Table -->
+                    <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
+                        <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.5rem 0;">📋 Active & Closed Automation Trades</h3>
+                        <div class="table-container" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                            <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background-color: rgba(255,255,255,0.03);">
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 120px;">Entry Spread</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Entry Prices</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&L (Net)</th>
+                                        <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ta-trades-body">
+                                    <tr>
+                                        <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Month Master Section -->
         <section class="month-master-section" style="margin-bottom: 1.25rem; width: 100%;">
             <div class="control-card month-master-panel collapsible-card" id="card-month-master" style="width: 100%;">
