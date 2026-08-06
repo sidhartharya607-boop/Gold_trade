@@ -218,18 +218,12 @@ class TradingSystem:
         self.symbol_ltps = {}
         
         # Trade Automation Strategy State
-        self.ta_enabled = False
-        self.ta_selected_month_idx = -1
-        self.ta_entry_diff = 500.0
-        self.ta_averaging_step = 50.0
-        self.ta_exit_gap = 100.0
-        self.ta_trade_quantity = 1
-        self.ta_direction = "Expansion"
-        self.ta_paper_mode = True
+        self.ta_configs = []
         self.ta_trades = []
         self.ta_execution_in_progress = False
         
         self.load_ta_trades()
+        self.load_ta_configs()
         
     def load_trade_history(self):
         try:
@@ -324,6 +318,25 @@ class TradingSystem:
                 json.dump(self.ta_trades, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta trades: {e}")
+
+    def load_ta_configs(self):
+        try:
+            if os.path.exists("ta_configs.json"):
+                with open("ta_configs.json", "r", encoding="utf-8") as f:
+                    self.ta_configs = json.load(f)
+                self.log(f"[PERSISTENCE] Loaded {len(self.ta_configs)} Trade Automation configs from ta_configs.json.")
+            else:
+                self.ta_configs = []
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to load ta configs: {e}")
+            self.ta_configs = []
+
+    def save_ta_configs(self):
+        try:
+            with open("ta_configs.json", "w", encoding="utf-8") as f:
+                json.dump(self.ta_configs, f, indent=4)
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to save ta configs: {e}")
 
     def calculate_mcx_charges(self, direction: str, qty: int, petal_entry: float, mini_entry: float, petal_exit: float, mini_exit: float) -> float:
         # GOLDPETAL: 1g size, we trade 100 * qty. GOLDMINI: 100g size (price per 10g), multiplier is 10.
@@ -838,14 +851,7 @@ async def broadcast_system_state():
         "month_master_live": getattr(system_state, "month_master_live", []),
         
         # Trade Automation Broadcast fields
-        "ta_enabled": system_state.ta_enabled,
-        "ta_selected_month_idx": system_state.ta_selected_month_idx,
-        "ta_entry_diff": system_state.ta_entry_diff,
-        "ta_averaging_step": system_state.ta_averaging_step,
-        "ta_exit_gap": system_state.ta_exit_gap,
-        "ta_trade_quantity": system_state.ta_trade_quantity,
-        "ta_direction": system_state.ta_direction,
-        "ta_paper_mode": system_state.ta_paper_mode,
+        "ta_configs": system_state.ta_configs,
         "ta_trades": system_state.ta_trades,
         
         "logs": system_state.logs
@@ -1579,7 +1585,7 @@ async def run_auto_exit(exit_reason: str, expected_exit_spread: float):
         system_state.execution_in_progress = False
         await broadcast_system_state()
 
-async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread: float):
+async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread: float, paper_mode: bool):
     if system_state.ta_execution_in_progress:
         return
     system_state.ta_execution_in_progress = True
@@ -1596,7 +1602,7 @@ async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread:
             alt_petal_token=mapping.get("petal_token"),
             alt_mini_symbol=mapping["mini_symbol"],
             alt_mini_token=mapping.get("mini_token"),
-            paper_mode_override=system_state.ta_paper_mode
+            paper_mode_override=paper_mode
         )
         if result["success"]:
             trade_id = len(system_state.ta_trades) + 1
@@ -1635,7 +1641,7 @@ async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread:
         system_state.ta_execution_in_progress = False
         await broadcast_system_state()
 
-async def run_ta_exit(trade: dict, mapping: dict):
+async def run_ta_exit(trade: dict, mapping: dict, paper_mode: bool = True):
     if system_state.ta_execution_in_progress:
         return
     system_state.ta_execution_in_progress = True
@@ -1654,7 +1660,7 @@ async def run_ta_exit(trade: dict, mapping: dict):
             alt_petal_token=mapping.get("petal_token"),
             alt_mini_symbol=mapping["mini_symbol"],
             alt_mini_token=mapping.get("mini_token"),
-            paper_mode_override=system_state.ta_paper_mode
+            paper_mode_override=paper_mode
         )
         if result["success"]:
             petal_exit = result["petal_fill_price"]
@@ -1747,84 +1753,89 @@ async def run_trade_automation_checks():
     if system_state.ta_execution_in_progress:
         return
         
-    idx = system_state.ta_selected_month_idx
-    if idx < 0 or idx >= len(system_state.month_master):
-        return
-        
-    mapping = system_state.month_master[idx]
-    p_sym = mapping["petal_symbol"]
-    m_sym = mapping["mini_symbol"]
-    
-    # Find matching live stat in system_state.month_master_live
-    live_stat = None
-    for stat in system_state.month_master_live:
-        if stat["petal_symbol"] == p_sym and stat["mini_symbol"] == m_sym:
-            live_stat = stat
-            break
+    for config in system_state.ta_configs:
+        if not config.get("enabled", False):
+            continue
             
-    if not live_stat:
-        return
-        
-    buy_spread = live_stat["depth_buy_spread"]
-    sell_spread = live_stat["depth_sell_spread"]
-    
-    # Get active (Open) Trade Automation trades for this specific month pair
-    open_trades = [t for t in system_state.ta_trades if t["status"] == "Open" and t["petal_symbol"] == p_sym and t["mini_symbol"] == m_sym]
-    
-    direction = system_state.ta_direction
-    qty = system_state.ta_trade_quantity
-    
-    # Check exits first
-    for trade in open_trades:
-        entry_spread = trade["entry_spread"]
-        exit_triggered = False
-        if direction == "Expansion":
-            # We bought at entry_spread. Exit when sell_spread >= entry_spread + exit_gap
-            if sell_spread >= entry_spread + system_state.ta_exit_gap:
-                exit_triggered = True
-        elif direction == "Contraction":
-            # We sold at entry_spread. Exit when buy_spread <= entry_spread - exit_gap
-            if buy_spread <= entry_spread - system_state.ta_exit_gap:
-                exit_triggered = True
-                
-        if exit_triggered:
-            system_state.log(f"[TA TRIGGER] Exit met for trade ID {trade['id']}. Entry spread: {entry_spread:.2f}, Exit spread: {sell_spread if direction == 'Expansion' else buy_spread:.2f}")
-            await run_ta_exit(trade, mapping)
-            return # Process one action at a time to prevent concurrency conflicts
+        idx = config.get("month_idx", -1)
+        if idx < 0 or idx >= len(system_state.month_master):
+            continue
             
-    # Check entries
-    if len(open_trades) == 0:
-        # Check first entry
-        entry_triggered = False
-        if direction == "Expansion":
-            if buy_spread <= system_state.ta_entry_diff:
-                entry_triggered = True
-        elif direction == "Contraction":
-            if sell_spread >= system_state.ta_entry_diff:
-                entry_triggered = True
-                
-        if entry_triggered:
-            system_state.log(f"[TA TRIGGER] First entry met. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {system_state.ta_entry_diff:.2f})")
-            await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread)
-    else:
-        # Check averaging entry
-        # Find last entry spread
-        last_trade = open_trades[-1]
-        last_entry_spread = last_trade["entry_spread"]
+        mapping = system_state.month_master[idx]
+        p_sym = mapping["petal_symbol"]
+        m_sym = mapping["mini_symbol"]
         
-        averaging_triggered = False
-        if direction == "Expansion":
-            # We bought at last_entry_spread. Averaging entry when buy_spread <= last_entry_spread - averaging_step
-            if buy_spread <= last_entry_spread - system_state.ta_averaging_step:
-                averaging_triggered = True
-        elif direction == "Contraction":
-            # We sold at last_entry_spread. Averaging entry when sell_spread >= last_entry_spread + averaging_step
-            if sell_spread >= last_entry_spread + system_state.ta_averaging_step:
-                averaging_triggered = True
+        # Find matching live stat in system_state.month_master_live
+        live_stat = None
+        for stat in system_state.month_master_live:
+            if stat["petal_symbol"] == p_sym and stat["mini_symbol"] == m_sym:
+                live_stat = stat
+                break
                 
-        if averaging_triggered:
-            system_state.log(f"[TA TRIGGER] Averaging entry met. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Last entry: {last_entry_spread:.2f}, Step: {system_state.ta_averaging_step:.2f})")
-            await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread)
+        if not live_stat:
+            continue
+            
+        buy_spread = live_stat["depth_buy_spread"]
+        sell_spread = live_stat["depth_sell_spread"]
+        
+        # Get active (Open) Trade Automation trades for this specific month pair
+        open_trades = [t for t in system_state.ta_trades if t["status"] == "Open" and t["petal_symbol"] == p_sym and t["mini_symbol"] == m_sym]
+        
+        direction = config.get("direction", "Expansion")
+        qty = config.get("quantity", 1)
+        entry_diff = config.get("entry_diff", 500.0)
+        averaging_step = config.get("averaging_step", 50.0)
+        exit_gap = config.get("exit_gap", 100.0)
+        paper_mode = config.get("paper_mode", True)
+        
+        # Check exits first
+        for trade in open_trades:
+            entry_spread = trade["entry_spread"]
+            exit_triggered = False
+            if direction == "Expansion":
+                if sell_spread >= entry_spread + exit_gap:
+                    exit_triggered = True
+            elif direction == "Contraction":
+                if buy_spread <= entry_spread - exit_gap:
+                    exit_triggered = True
+                    
+            if exit_triggered:
+                system_state.log(f"[TA TRIGGER] Exit met for trade ID {trade['id']} ({p_sym}/{m_sym}). Entry: {entry_spread:.2f}, Exit: {sell_spread if direction == 'Expansion' else buy_spread:.2f}")
+                await run_ta_exit(trade, mapping, paper_mode)
+                return # Process one action at a time to prevent concurrency conflicts
+                
+        # Check entries
+        if len(open_trades) == 0:
+            # Check first entry
+            entry_triggered = False
+            if direction == "Expansion":
+                if buy_spread <= entry_diff:
+                    entry_triggered = True
+            elif direction == "Contraction":
+                if sell_spread >= entry_diff:
+                    entry_triggered = True
+                    
+            if entry_triggered:
+                system_state.log(f"[TA TRIGGER] First entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {entry_diff:.2f})")
+                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode)
+                return
+        else:
+            # Check averaging entry
+            last_trade = open_trades[-1]
+            last_entry_spread = last_trade["entry_spread"]
+            
+            averaging_triggered = False
+            if direction == "Expansion":
+                if buy_spread <= last_entry_spread - averaging_step:
+                    averaging_triggered = True
+            elif direction == "Contraction":
+                if sell_spread >= last_entry_spread + averaging_step:
+                    averaging_triggered = True
+                    
+            if averaging_triggered:
+                system_state.log(f"[TA TRIGGER] Averaging entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Last: {last_entry_spread:.2f}, Step: {averaging_step:.2f})")
+                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode)
+                return
 
 async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None) -> dict:
     global system_state
@@ -2399,7 +2410,7 @@ async def process_market_data(data: dict):
                 asyncio.create_task(run_auto_entry("Contraction", "SELL", "BUY", system_state.target_threshold))
  
     # Process Trade Automation Strategy Checks
-    if system_state.ta_enabled and system_state.ta_selected_month_idx >= 0:
+    if system_state.ta_configs:
         asyncio.create_task(run_trade_automation_checks())
 
     await broadcast_system_state()
@@ -3043,14 +3054,7 @@ async def live_data_endpoint(websocket: WebSocket):
             "trade_history": system_state.trade_history,
             
             # Trade Automation Broadcast fields
-            "ta_enabled": system_state.ta_enabled,
-            "ta_selected_month_idx": system_state.ta_selected_month_idx,
-            "ta_entry_diff": system_state.ta_entry_diff,
-            "ta_averaging_step": system_state.ta_averaging_step,
-            "ta_exit_gap": system_state.ta_exit_gap,
-            "ta_trade_quantity": system_state.ta_trade_quantity,
-            "ta_direction": system_state.ta_direction,
-            "ta_paper_mode": system_state.ta_paper_mode,
+            "ta_configs": system_state.ta_configs,
             "ta_trades": system_state.ta_trades,
             
             "logs": system_state.logs
@@ -3443,14 +3447,25 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
                     "mini_symbol": trade["mini_symbol"],
                     "mini_token": ""
                 }
+            # Find config to get paper mode
+            paper_mode = True
+            for config in system_state.ta_configs:
+                idx = config.get("month_idx", -1)
+                if 0 <= idx < len(system_state.month_master):
+                    m = system_state.month_master[idx]
+                    if m["petal_symbol"] == trade["petal_symbol"] and m["mini_symbol"] == trade["mini_symbol"]:
+                        paper_mode = config.get("paper_mode", True)
+                        break
             system_state.log(f"[KILL SWITCH] Squaring off Trade Automation trade ID {trade['id']}...")
-            await run_ta_exit(trade, mapping)
+            await run_ta_exit(trade, mapping, paper_mode)
             
-    # Also disable Trade Automation
-    system_state.ta_enabled = False
+    # Also disable all Trade Automation configs
+    for config in system_state.ta_configs:
+        config["enabled"] = False
                 
     system_state.save_manual_trades()
     system_state.save_ta_trades()
+    system_state.save_ta_configs()
     system_state.save_trade_history()
     system_state.system_status = "Halted"
     await broadcast_system_state()
@@ -3522,31 +3537,27 @@ async def api_post_month_master(payload: MonthMasterPayload, token: str = None, 
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Month Master mappings updated successfully."}
 
+class TAConfigItem(BaseModel):
+    month_idx: int
+    entry_diff: float
+    averaging_step: float
+    exit_gap: float
+    quantity: int
+    direction: str
+    paper_mode: bool
+    enabled: bool
+
 class TAConfigPayload(BaseModel):
-    ta_enabled: bool
-    ta_selected_month_idx: int
-    ta_entry_diff: float
-    ta_averaging_step: float
-    ta_exit_gap: float
-    ta_trade_quantity: int
-    ta_direction: str
-    ta_paper_mode: bool
+    configs: List[TAConfigItem]
 
 @app.post("/api/ta-config")
 async def api_post_ta_config(payload: TAConfigPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    system_state.ta_enabled = payload.ta_enabled
-    system_state.ta_selected_month_idx = payload.ta_selected_month_idx
-    system_state.ta_entry_diff = payload.ta_entry_diff
-    system_state.ta_averaging_step = payload.ta_averaging_step
-    system_state.ta_exit_gap = payload.ta_exit_gap
-    system_state.ta_trade_quantity = max(1, payload.ta_trade_quantity)
-    system_state.ta_direction = payload.ta_direction
-    system_state.ta_paper_mode = payload.ta_paper_mode
-    
-    system_state.log(f"Trade Automation config updated: Enabled={system_state.ta_enabled}, MonthIdx={system_state.ta_selected_month_idx}, Mode={'Paper' if system_state.ta_paper_mode else 'Real'}, EntryDiff={system_state.ta_entry_diff}, Step={system_state.ta_averaging_step}, ExitGap={system_state.ta_exit_gap}")
+    system_state.ta_configs = [c.dict() for c in payload.configs]
+    system_state.save_ta_configs()
+    system_state.log(f"Trade Automation configs updated: {len(system_state.ta_configs)} active instance(s).")
     await broadcast_system_state()
-    return {"status": "SUCCESS", "message": "Trade Automation configuration updated successfully."}
+    return {"status": "SUCCESS", "message": "Trade Automation configurations updated successfully."}
 
 class TAExitTradePayload(BaseModel):
     trade_id: int
@@ -3568,16 +3579,12 @@ async def api_ta_exit_trade(payload: TAExitTradePayload, token: str = None, auth
         raise HTTPException(status_code=400, detail="Trade is not active.")
         
     # Find month mapping
-    idx = system_state.ta_selected_month_idx
-    if idx < 0 or idx >= len(system_state.month_master):
-        mapping = None
-        for m in system_state.month_master:
-            if m["petal_symbol"] == trade["petal_symbol"] and m["mini_symbol"] == trade["mini_symbol"]:
-                mapping = m
-                break
-    else:
-        mapping = system_state.month_master[idx]
-        
+    mapping = None
+    for m in system_state.month_master:
+        if m["petal_symbol"] == trade["petal_symbol"] and m["mini_symbol"] == trade["mini_symbol"]:
+            mapping = m
+            break
+            
     if not mapping:
         mapping = {
             "petal_symbol": trade["petal_symbol"],
@@ -3586,8 +3593,18 @@ async def api_ta_exit_trade(payload: TAExitTradePayload, token: str = None, auth
             "mini_token": ""
         }
         
+    # Find config for the trade's month mapping to get the paper mode
+    paper_mode = True
+    for config in system_state.ta_configs:
+        idx = config.get("month_idx", -1)
+        if 0 <= idx < len(system_state.month_master):
+            m = system_state.month_master[idx]
+            if m["petal_symbol"] == trade["petal_symbol"] and m["mini_symbol"] == trade["mini_symbol"]:
+                paper_mode = config.get("paper_mode", True)
+                break
+                
     system_state.log(f"[TA MANUAL EXIT] Squaring off Trade Automation trade ID {trade['id']}...")
-    await run_ta_exit(trade, mapping)
+    await run_ta_exit(trade, mapping, paper_mode)
     return {"status": "SUCCESS", "message": "Trade Automation trade closed successfully."}
 
 class TADismissTradePayload(BaseModel):

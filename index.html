@@ -721,23 +721,46 @@
                                     <span class="slider"></span>
                                 </label>
                             </div>
-                            <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span class="rule-label" style="margin-bottom: 0;">Enable Automation</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="ta-checkbox-enabled">
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
                         </div>
                     </div>
                     
                     <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
-                        <button id="ta-save-settings-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem;">Save Automation Strategy</button>
+                        <button id="ta-add-config-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem; display: flex; align-items: center; gap: 0.25rem;">➕ Add Bot Instance</button>
+                    </div>
+
+                    <!-- Active Bot Instances -->
+                    <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
+                        <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.5rem 0;">🤖 Active Bot Instances (Multi-Month Grid)</h3>
+                        <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px; margin-bottom: 1rem;">
+                            <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                <thead>
+                                    <tr style="background-color: rgba(255,255,255,0.03);">
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Month Pair</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 100px;">Direction</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Entry Diff</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Step</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Gap</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Mode</th>
+                                        <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
+                                        <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px; padding-right: 1.5rem;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ta-configs-body">
+                                    <tr>
+                                        <td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
 
                     <!-- Trades Table -->
                     <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
-                        <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.5rem 0;">📋 Active & Closed Automation Trades</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">📋 Active & Closed Automation Trades</h3>
+                            <button id="ta-export-btn" class="metallic-button" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Export Trade Log (CSV)</button>
+                        </div>
                         <div class="table-container" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
                             <table class="history-table" style="width: 100%; border-collapse: collapse;">
                                 <thead>
@@ -747,9 +770,9 @@
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 120px;">Entry Spread</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Entry Prices</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&L (Net)</th>
                                         <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
                                     </tr>

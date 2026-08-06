@@ -148,8 +148,8 @@ const taInputExitGap = document.getElementById("ta-input-exit-gap");
 const taInputQuantity = document.getElementById("ta-input-quantity");
 const taSelectDirection = document.getElementById("ta-select-direction");
 const taCheckboxPaperMode = document.getElementById("ta-checkbox-paper-mode");
-const taCheckboxEnabled = document.getElementById("ta-checkbox-enabled");
-const taSaveSettingsBtn = document.getElementById("ta-save-settings-btn");
+const taAddConfigBtn = document.getElementById("ta-add-config-btn");
+const taConfigsBody = document.getElementById("ta-configs-body");
 const taTradesBody = document.getElementById("ta-trades-body");
 
 let lastMonthMasterStr = "";
@@ -185,6 +185,7 @@ function connect() {
     socket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
+            window.latestDataPayload = data;
             updateDashboard(data);
         } catch (error) {
             console.error("Error parsing WebSocket JSON payload:", error);
@@ -694,22 +695,49 @@ function updateDashboard(data) {
         });
     }
 
-    // Sync Trade Automation Strategy form fields
-    if (taSelectMonth && !taSelectMonth.dataset.isDirty && document.activeElement !== taSelectMonth && data.ta_selected_month_idx !== undefined) {
-        taSelectMonth.value = data.ta_selected_month_idx;
-    }
-    syncInputField(taInputEntryDiff, data.ta_entry_diff);
-    syncInputField(taInputAveragingStep, data.ta_averaging_step);
-    syncInputField(taInputExitGap, data.ta_exit_gap);
-    syncInputField(taInputQuantity, data.ta_trade_quantity);
-    if (taSelectDirection && !taSelectDirection.dataset.isDirty && document.activeElement !== taSelectDirection && data.ta_direction !== undefined) {
-        taSelectDirection.value = data.ta_direction;
-    }
-    if (taCheckboxPaperMode && document.activeElement !== taCheckboxPaperMode && data.ta_paper_mode !== undefined) {
-        taCheckboxPaperMode.checked = data.ta_paper_mode;
-    }
-    if (taCheckboxEnabled && document.activeElement !== taCheckboxEnabled && data.ta_enabled !== undefined) {
-        taCheckboxEnabled.checked = data.ta_enabled;
+    // Render Active Bot Instances table
+    const taConfigs = data.ta_configs || [];
+    window.taConfigs = taConfigs; // Store globally
+    if (!taConfigsBody) {
+        // Guard
+    } else if (taConfigs.length === 0) {
+        taConfigsBody.innerHTML = `<tr><td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td></tr>`;
+    } else {
+        taConfigsBody.innerHTML = "";
+        taConfigs.forEach((config, index) => {
+            const tr = document.createElement("tr");
+            tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
+            
+            // Resolve Month Pair Name
+            let monthPairName = "Unknown Pair";
+            if (data.month_master && data.month_master[config.month_idx]) {
+                const m = data.month_master[config.month_idx];
+                monthPairName = `${m.petal_symbol} / ${m.mini_symbol}`;
+            }
+            
+            const isEnabled = config.enabled;
+            const statusToggle = `
+                <label class="switch">
+                    <input type="checkbox" onchange="toggleTaConfig(${index}, this.checked)" ${isEnabled ? "checked" : ""}>
+                    <span class="slider"></span>
+                </label>
+            `;
+            
+            tr.innerHTML = `
+                <td style="padding: 0.5rem; font-size: 0.75rem; font-weight: 600;">${monthPairName}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${config.direction}</strong></td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.entry_diff}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.averaging_step}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.exit_gap}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.quantity}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${config.paper_mode ? "Paper" : "Real"}</td>
+                <td style="padding: 0.5rem; text-align: center;">${statusToggle}</td>
+                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">
+                    <button class="action-btn exit-button" onclick="removeTaConfig(${index})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444;">Remove</button>
+                </td>
+            `;
+            taConfigsBody.appendChild(tr);
+        });
     }
 
     // Render Trade Automation Trades Table
@@ -735,16 +763,46 @@ function updateDashboard(data) {
             }
             
             const entrySpreadVal = trade.entry_spread !== undefined ? parseFloat(trade.entry_spread).toFixed(2) : "--";
+            let spreadDisplay = "";
+            if (status === "Open") {
+                const targetExitSpread = parseFloat(trade.entry_spread) + (trade.direction === "Expansion" ? (data.ta_exit_gap || 100.0) : -(data.ta_exit_gap || 100.0));
+                spreadDisplay = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>Ent: <strong class="font-mono">${entrySpreadVal}</strong></div>
+                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono">${targetExitSpread.toFixed(2)}</span></div>
+                    </div>
+                `;
+            } else {
+                const exitSpreadVal = trade.actual_exit_spread !== undefined ? parseFloat(trade.actual_exit_spread).toFixed(2) : (trade.exit_spread !== undefined ? parseFloat(trade.exit_spread).toFixed(2) : "--");
+                spreadDisplay = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>Ent: <strong class="font-mono">${entrySpreadVal}</strong></div>
+                        <div style="color: #34d399;">Exit: <strong class="font-mono">${exitSpreadVal}</strong></div>
+                    </div>
+                `;
+            }
             
             const petalEntry = trade.petal_entry_price || 0.0;
             const miniEntry = trade.mini_entry_price || 0.0;
+            const petalExit = trade.petal_exit_price || 0.0;
+            const miniExit = trade.mini_exit_price || 0.0;
             
-            let pricesContent = `
-                <div style="font-size: 0.72rem; line-height: 1.4;">
-                    <div>P: <strong>${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
-                    <div>M: <strong>${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
-                </div>
-            `;
+            let pricesContent = "";
+            if (status === "Open") {
+                pricesContent = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>P: <strong>${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                        <div>M: <strong>${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                    </div>
+                `;
+            } else {
+                pricesContent = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>Ent: P:${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })} / M:${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                        <div style="color: #34d399;">Exit: P:${petalExit.toLocaleString('en-IN', { minimumFractionDigits: 2 })} / M:${miniExit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                `;
+            }
             
             let pnlContent = "--";
             if (status === "Open") {
@@ -777,7 +835,7 @@ function updateDashboard(data) {
                 <td style="padding: 0.5rem;">${symbolsContent}</td>
                 <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
                 <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.quantity}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;"><strong>${entrySpreadVal}</strong></td>
+                <td style="padding: 0.5rem;">${spreadDisplay}</td>
                 <td style="padding: 0.5rem;">${statusBadge}</td>
                 <td class="font-mono" style="padding: 0.5rem;">${pricesContent}</td>
                 <td style="padding: 0.5rem;">${pnlContent}</td>
@@ -1839,46 +1897,78 @@ if (quickSelectMonthPair) {
 }
 
 // Trade Automation Event Listeners
-if (taSaveSettingsBtn) {
-    taSaveSettingsBtn.addEventListener("click", () => {
+// Trade Automation Event Listeners
+if (taAddConfigBtn) {
+    taAddConfigBtn.addEventListener("click", () => {
         const selectedMonthIdx = parseInt(taSelectMonth.value);
+        if (selectedMonthIdx < 0) {
+            alert("Please select a Month Master pair mapping first.");
+            return;
+        }
+        
         const entryDiff = parseFloat(taInputEntryDiff.value);
         const averagingStep = parseFloat(taInputAveragingStep.value);
         const exitGap = parseFloat(taInputExitGap.value);
         const qty = parseInt(taInputQuantity.value);
         const direction = taSelectDirection.value;
         const paperMode = taCheckboxPaperMode.checked;
-        const enabled = taCheckboxEnabled.checked;
         
         if (isNaN(entryDiff) || isNaN(averagingStep) || isNaN(exitGap) || isNaN(qty)) {
-            logLocalMessage("[SYSTEM] Error: Trade Automation strategy numeric fields must hold valid values.");
+            logLocalMessage("[SYSTEM] Error: Trade Automation numeric fields must be valid.");
             return;
         }
         
-        logLocalMessage("[SYSTEM] Syncing Trade Automation strategy settings...");
-        postAction("ta-config", {
-            ta_enabled: enabled,
-            ta_selected_month_idx: selectedMonthIdx,
-            ta_entry_diff: entryDiff,
-            ta_averaging_step: averagingStep,
-            ta_exit_gap: exitGap,
-            ta_trade_quantity: qty,
-            ta_direction: direction,
-            ta_paper_mode: paperMode
-        })
+        const currentConfigs = window.taConfigs || [];
+        
+        // Prevent duplicate Month Master pairs
+        const exists = currentConfigs.some(config => config.month_idx === selectedMonthIdx);
+        if (exists) {
+            alert("A bot instance for this Month Master pair is already configured.");
+            return;
+        }
+        
+        const newConfig = {
+            month_idx: selectedMonthIdx,
+            entry_diff: entryDiff,
+            averaging_step: averagingStep,
+            exit_gap: exitGap,
+            quantity: qty,
+            direction: direction,
+            paper_mode: paperMode,
+            enabled: true
+        };
+        
+        currentConfigs.push(newConfig);
+        
+        logLocalMessage("[SYSTEM] Adding new Trade Automation bot instance...");
+        postAction("ta-config", { configs: currentConfigs })
         .then(res => {
             if (res && res.status === "SUCCESS") {
-                // Clear dirty flags
-                if (taSelectMonth) delete taSelectMonth.dataset.isDirty;
-                if (taSelectDirection) delete taSelectDirection.dataset.isDirty;
-                [taInputEntryDiff, taInputAveragingStep, taInputExitGap, taInputQuantity].forEach(input => {
-                    if (input) delete input.dataset.isDirty;
-                });
-                logLocalMessage("[SYSTEM] Trade Automation strategy parameters updated successfully.");
+                logLocalMessage("[SYSTEM] Trade Automation instance added successfully.");
             }
         });
     });
 }
+
+window.toggleTaConfig = function(index, enabled) {
+    const currentConfigs = window.taConfigs || [];
+    if (index >= 0 && index < currentConfigs.length) {
+        currentConfigs[index].enabled = enabled;
+        logLocalMessage(`[SYSTEM] ${enabled ? "Enabling" : "Disabling"} Trade Automation bot instance...`);
+        postAction("ta-config", { configs: currentConfigs });
+    }
+};
+
+window.removeTaConfig = function(index) {
+    const currentConfigs = window.taConfigs || [];
+    if (index >= 0 && index < currentConfigs.length) {
+        if (confirm("Are you sure you want to remove this bot instance? This will stop future automation checks for this pair.")) {
+            currentConfigs.splice(index, 1);
+            logLocalMessage("[SYSTEM] Removing Trade Automation bot instance...");
+            postAction("ta-config", { configs: currentConfigs });
+        }
+    }
+};
 
 if (taSelectMonth) {
     taSelectMonth.addEventListener("change", () => {
@@ -1902,3 +1992,73 @@ window.exitTaTrade = function(tradeId) {
 window.dismissTaTrade = function(tradeId) {
     postAction("ta-dismiss-trade", { trade_id: tradeId });
 };
+
+// Export Trade Automation trades as CSV
+const taExportBtn = document.getElementById("ta-export-btn");
+if (taExportBtn) {
+    taExportBtn.addEventListener("click", () => {
+        const payload = window.latestDataPayload;
+        if (!payload || !payload.ta_trades || payload.ta_trades.length === 0) {
+            alert("No trade data available to export.");
+            return;
+        }
+        
+        let csvContent = "data:text/csv;charset=utf-8,";
+        
+        // Define Headers
+        const headers = [
+            "ID", "Direction", "Quantity", "Status", 
+            "Entry Time", "Entry Date", "Petal Symbol", "Mini Symbol",
+            "Petal Entry Price", "Mini Entry Price", "Entry Spread", "Expected Entry Spread",
+            "Petal Exit Price", "Mini Exit Price", "Exit Spread", "Actual Exit Spread",
+            "Exit Time", "Exit Date", "PnL (Net)", "Charges"
+        ];
+        csvContent += headers.join(",") + "\n";
+        
+        // Populate Data rows
+        payload.ta_trades.forEach(trade => {
+            const row = [
+                trade.id || "",
+                trade.direction || "",
+                trade.quantity || "",
+                trade.status || "",
+                trade.entry_time || "",
+                trade.entry_date || "",
+                trade.petal_symbol || "",
+                trade.mini_symbol || "",
+                trade.petal_entry_price || "",
+                trade.mini_entry_price || "",
+                trade.entry_spread || "",
+                trade.expected_entry_spread || "",
+                trade.petal_exit_price || "",
+                trade.mini_exit_price || "",
+                trade.exit_spread || "",
+                trade.actual_exit_spread || "",
+                trade.exit_time || "",
+                trade.exit_date || "",
+                trade.pnl || "",
+                trade.charges || ""
+            ];
+            
+            // Clean values for CSV safety
+            const cleanRow = row.map(val => {
+                let s = String(val).replace(/"/g, '""');
+                if (s.includes(",") || s.includes("\n") || s.includes('"')) {
+                    s = `"${s}"`;
+                }
+                return s;
+            });
+            csvContent += cleanRow.join(",") + "\n";
+        });
+        
+        // Download logic
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `Trade_Automation_Logs_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        logLocalMessage("[SYSTEM] Trade Automation CSV log file exported successfully.");
+    });
+}
