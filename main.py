@@ -2134,61 +2134,8 @@ def extract_month_from_symbol(symbol: str) -> str:
 def record_depth_spread(petal_symbol: str, mini_symbol: str, 
                         avg_petal_buy: float, avg_mini_sell: float, depth_buy_spread: float,
                         avg_petal_sell: float, avg_mini_buy: float, depth_sell_spread: float):
-    month = extract_month_from_symbol(petal_symbol)
-    
-    if not hasattr(system_state, "last_logged_spreads"):
-        system_state.last_logged_spreads = {}
-        
-    key = (petal_symbol, mini_symbol)
-    last = system_state.last_logged_spreads.get(key, (0.0, 0.0))
-    
-    if abs(depth_buy_spread - last[0]) > 0.01 or abs(depth_sell_spread - last[1]) > 0.01:
-        system_state.last_logged_spreads[key] = (depth_buy_spread, depth_sell_spread)
-        
-        try:
-            csv_file = "depth_spread_history.csv"
-            file_exists = os.path.exists(csv_file)
-            
-            write_header = not file_exists
-            if file_exists:
-                try:
-                    with open(csv_file, "r", encoding="utf-8") as f:
-                        first_line = f.readline()
-                    if "Month" not in first_line:
-                        write_header = True
-                except Exception:
-                    pass
-            
-            mode = "w" if write_header else "a"
-            with open(csv_file, mode, newline="", encoding="utf-8") as f:
-                writer = csv.writer(f)
-                if write_header:
-                    writer.writerow([
-                        "Month",
-                        "Timestamp", 
-                        "Petal_Symbol",
-                        "Mini_Symbol",
-                        "Petal_Ask_Avg", 
-                        "Mini_Bid_Avg", 
-                        "Depth_Buy_Spread", 
-                        "Petal_Bid_Avg", 
-                        "Mini_Ask_Avg", 
-                        "Depth_Sell_Spread"
-                    ])
-                writer.writerow([
-                    month,
-                    get_ist_time_str("%Y-%m-%d %H:%M:%S"),
-                    petal_symbol,
-                    mini_symbol,
-                    round(avg_petal_buy, 2),
-                    round(avg_mini_sell, 2),
-                    round(depth_buy_spread, 2),
-                    round(avg_petal_sell, 2),
-                    round(avg_mini_buy, 2),
-                    round(depth_sell_spread, 2)
-                ])
-        except Exception as csv_err:
-            logger.error(f"Failed to record depth spread to CSV for {petal_symbol}: {csv_err}")
+    # Disabled logging to depth_spread_history.csv as requested
+    pass
 
 # ----------------- Trading Engine and Live Tickers -----------------
 async def process_market_data(data: dict):
