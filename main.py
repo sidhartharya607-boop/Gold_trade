@@ -43,9 +43,11 @@ load_dotenv()
 # IST Timezone Helper Functions
 from datetime import datetime, timezone, timedelta
 
+# Setup IST Timezone (+5:30)
+IST = timezone(timedelta(hours=5, minutes=30))
+
 def get_ist_time() -> datetime:
-    # IST is UTC + 5:30
-    return datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    return datetime.now(IST)
 
 def get_ist_time_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     return get_ist_time().strftime(fmt)
@@ -61,7 +63,8 @@ logger = logging.getLogger("arbitrage-bot")
 # Initialize FastAPI App
 app = FastAPI(title="Spread Arbitrage Workstation Core")
 
-# CORS Setup
+# Middleware Setup
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -759,7 +762,14 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-async def broadcast_system_state():
+last_broadcast_time = 0.0
+
+async def broadcast_system_state(force: bool = False):
+    global last_broadcast_time
+    now = time.time()
+    if not force and (now - last_broadcast_time < 0.1):
+        return
+    last_broadcast_time = now
     await manager.broadcast({
         "gold_petal_ltp": round(system_state.gold_petal_ltp, 2),
         "gold_mini_ltp": round(system_state.gold_mini_ltp, 2),
