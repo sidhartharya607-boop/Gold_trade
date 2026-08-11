@@ -2164,18 +2164,7 @@ async def process_market_data(data: dict):
     if system_state.mini_token:
         system_state.symbol_depths[system_state.mini_token] = system_state.mini_depth
     
-    # Auto-record live price tick to CSV for historical backtesting
-    try:
-        csv_file = "historical_market_data.csv"
-        file_exists = os.path.exists(csv_file)
-        with open(csv_file, "a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow(["Timestamp", "GOLDPETAL_LTP", "GOLDMINI_LTP"])
-            writer.writerow([get_ist_time_str("%Y-%m-%d %H:%M:%S"), petal_ltp, mini_ltp])
-    except Exception as csv_err:
-        logger.error(f"Failed to record live price tick to CSV: {csv_err}")
-        
+
     qty = system_state.trade_quantity
     
     # Calculate depth-based spreads
