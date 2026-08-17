@@ -596,7 +596,13 @@ function updateDashboard(data) {
         manualTradesBody.innerHTML = `<tr><td colspan="9" class="empty-table">No active or pending manual trades.</td></tr>`;
     } else {
         manualTradesBody.innerHTML = "";
-        manualTrades.forEach(trade => {
+        // Optimize: Show all active/pending manual trades, and only last 10 closed ones to prevent DOM rendering lag
+        const activeManual = manualTrades.filter(t => t.status === "Open" || t.status === "Pending" || !t.status);
+        const closedManual = manualTrades.filter(t => t.status !== "Open" && t.status !== "Pending" && t.status);
+        const limitedClosedManual = closedManual.slice(-10);
+        const manualTradesToRender = [...activeManual, ...limitedClosedManual];
+
+        manualTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
             
             // Format status badge
@@ -748,7 +754,13 @@ function updateDashboard(data) {
         taTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td></tr>`;
     } else {
         taTradesBody.innerHTML = "";
-        taTrades.forEach(trade => {
+        // Optimize: Show all Open trades, and only last 15 closed/completed trades to prevent DOM rendering lag
+        const openTa = taTrades.filter(t => t.status === "Open" || !t.status);
+        const closedTa = taTrades.filter(t => t.status !== "Open" && t.status);
+        const limitedClosedTa = closedTa.slice(-15);
+        const taTradesToRender = [...openTa, ...limitedClosedTa];
+
+        taTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
             tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
             
@@ -847,11 +859,14 @@ function updateDashboard(data) {
     }
 
     // 7. Trade History Table
-    if (data.trade_history.length === 0) {
+    const historyTrades = data.trade_history || [];
+    if (historyTrades.length === 0) {
         historyBody.innerHTML = `<tr><td colspan="7" class="empty-table">No completed or cancelled trades yet.</td></tr>`;
     } else {
         historyBody.innerHTML = "";
-        data.trade_history.forEach(trade => {
+        // Optimize: Limit historical completed trades table to the last 20 to prevent DOM rendering lag
+        const limitedHistory = historyTrades.slice(-20);
+        limitedHistory.forEach(trade => {
             const tr = document.createElement("tr");
             const status = trade.status || "COMPLETED";
             
