@@ -195,6 +195,29 @@ body {
     animation: pulse-red 1s infinite;
 }
 
+/* Hold State */
+.status-hold {
+    background-color: #FEF3C7;
+    color: #D97706;
+    border-color: #FDE68A;
+}
+.status-hold .status-dot {
+    background-color: #D97706;
+    box-shadow: 0 0 8px #D97706;
+    animation: pulse-orange 2s infinite;
+}
+
+/* Suspended State */
+.status-suspended {
+    background-color: #F3F4F6;
+    color: #4B5563;
+    border-color: #E5E7EB;
+}
+.status-suspended .status-dot {
+    background-color: #4B5563;
+    box-shadow: 0 0 8px #4B5563;
+}
+
 @keyframes pulse-green {
     0% { transform: scale(0.9); opacity: 0.8; }
     50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 10px var(--accent-green); }
@@ -210,6 +233,12 @@ body {
 @keyframes pulse-red {
     0% { transform: scale(0.9); opacity: 0.8; }
     50% { transform: scale(1.25); opacity: 1; box-shadow: 0 0 12px var(--accent-red); }
+    100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+@keyframes pulse-orange {
+    0% { transform: scale(0.9); opacity: 0.8; }
+    50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 10px #D97706; }
     100% { transform: scale(0.9); opacity: 0.8; }
 }
 

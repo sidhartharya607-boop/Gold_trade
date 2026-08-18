@@ -53,6 +53,27 @@ def get_ist_time() -> datetime:
 def get_ist_time_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     return get_ist_time().strftime(fmt)
 
+def get_market_session_status() -> str:
+    """
+    Returns:
+      "HOLD" - if morning hold time (09:00:00 to 09:02:59 IST)
+      "SUSPENDED" - if evening/night suspension time (23:25:00 to 08:59:59 IST)
+      "OPEN" - otherwise (trading allowed)
+    """
+    now = get_ist_time()
+    h = now.hour
+    m = now.minute
+    
+    # Morning hold: 9:00 to 9:02:59 (inclusive of 9:00, 9:01, 9:02)
+    if h == 9 and 0 <= m < 3:
+        return "HOLD"
+        
+    # Evening suspension: 23:25:00 to 08:59:59 next day
+    if (h == 23 and m >= 25) or (h < 9):
+        return "SUSPENDED"
+        
+    return "OPEN"
+
 # Setup Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -771,6 +792,14 @@ async def broadcast_system_state(force: bool = False):
     if not force and (now - last_broadcast_time < 0.1):
         return
     last_broadcast_time = now
+
+    session_status = get_market_session_status()
+    display_status = system_state.system_status
+    if session_status == "HOLD":
+        display_status = "Hold"
+    elif session_status == "SUSPENDED":
+        display_status = "Suspended"
+
     await manager.broadcast({
         "gold_petal_ltp": round(system_state.gold_petal_ltp, 2),
         "gold_mini_ltp": round(system_state.gold_mini_ltp, 2),
@@ -780,7 +809,7 @@ async def broadcast_system_state(force: bool = False):
         
         "is_in_position": system_state.is_in_position,
         "position_direction": system_state.position_direction,
-        "system_status": system_state.system_status,
+        "system_status": display_status,
         
         "petal_entry_price": round(system_state.petal_entry_price, 2),
         "mini_entry_price": round(system_state.mini_entry_price, 2),
@@ -2280,6 +2309,20 @@ async def process_market_data(data: dict):
     else:
         system_state.returns_percentage = 0.0
         
+    session_status = get_market_session_status()
+    if session_status == "SUSPENDED":
+        # Check specifically for evening shutdown window (23:25 to 23:59)
+        now = get_ist_time()
+        if now.hour == 23 and now.minute >= 25:
+            system_state.log("[EMERGENCY SHUTDOWN] Time is 23:25 or later. Shutting down server immediately.")
+            print("[EMERGENCY SHUTDOWN] Time is 23:25 or later. Shutting down server immediately.")
+            os._exit(0)
+
+    # If the session is HOLD or SUSPENDED, skip all trade execution and automated checks.
+    if session_status in ["HOLD", "SUSPENDED"]:
+        await broadcast_system_state()
+        return
+
     # Process pending manual trade triggers
     for trade in system_state.manual_trades:
         if trade.get("status") == "Pending":
@@ -3092,6 +3135,12 @@ class EntryPayload(BaseModel):
 async def api_entry(payload: EntryPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     
+    session_status = get_market_session_status()
+    if session_status == "HOLD":
+        raise HTTPException(status_code=400, detail="Trading is suspended during morning hold (09:00 - 09:03).")
+    elif session_status == "SUSPENDED":
+        raise HTTPException(status_code=400, detail="Trading is suspended after market close (23:25 - 09:00).")
+
     if system_state.system_status == "Halted":
         raise HTTPException(status_code=400, detail="Terminal is Halted due to Kill Switch or Stop Loss.")
         
@@ -3514,6 +3563,13 @@ class TAConfigPayload(BaseModel):
 @app.post("/api/ta-config")
 async def api_post_ta_config(payload: TAConfigPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
+    
+    session_status = get_market_session_status()
+    if session_status == "SUSPENDED":
+        has_enabled = any(c.dict().get("enabled") for c in payload.configs)
+        if has_enabled:
+            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation configs after market close (23:25 - 09:00).")
+
     system_state.ta_configs = [c.dict() for c in payload.configs]
     system_state.save_ta_configs()
     system_state.log(f"Trade Automation configs updated: {len(system_state.ta_configs)} active instance(s).")
@@ -3583,6 +3639,11 @@ async def api_ta_dismiss_trade(payload: TADismissTradePayload, token: str = None
 async def api_update_rules(payload: UpdateParamsPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     
+    session_status = get_market_session_status()
+    if session_status == "SUSPENDED":
+        if payload.auto_trading_enabled:
+            raise HTTPException(status_code=400, detail="Cannot enable Auto Trading after market close (23:25 - 09:00).")
+
     system_state.entry_threshold = payload.entry_threshold
     system_state.target_threshold = payload.target_threshold
     system_state.sl_threshold = payload.stop_loss_threshold

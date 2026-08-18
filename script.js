@@ -417,7 +417,7 @@ function updateDashboard(data) {
     }
 
     // 5. Position Details & Button states
-    const status = data.system_status; // "Active", "In-Position", "Halted"
+    const status = data.system_status; // "Active", "In-Position", "Halted", "Hold", "Suspended"
     statusTextEl.innerText = status;
     statusBadgeEl.className = "status-badge";
 
@@ -440,6 +440,16 @@ function updateDashboard(data) {
         entryBtn.disabled = true;
         exitBtn.disabled = true;
         entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Manual Entry`;
+    } else if (status === "Hold") {
+        statusBadgeEl.classList.add("status-hold");
+        entryBtn.disabled = true;
+        exitBtn.disabled = true;
+        entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Market Hold`;
+    } else if (status === "Suspended") {
+        statusBadgeEl.classList.add("status-suspended");
+        entryBtn.disabled = true;
+        exitBtn.disabled = true;
+        entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Suspended`;
     }
 
     if (positionDirBadge) {
@@ -1500,9 +1510,13 @@ function updatePipelineTimeline(data) {
         return;
     }
     
-    if (status === "Halted") {
+    if (status === "Halted" || status === "Hold" || status === "Suspended") {
         if (stepScan) stepScan.className = "wf-step failed";
-        if (labelScan) labelScan.innerText = "1. Bot Halted";
+        if (labelScan) {
+            if (status === "Halted") labelScan.innerText = "1. Bot Halted";
+            else if (status === "Hold") labelScan.innerText = "1. Market Hold";
+            else labelScan.innerText = "1. Market Suspended";
+        }
         resetStep(stepLiquidity, labelLiquidity, "2. Depth Check");
         resetStep(stepOrder1, labelOrder1, "3. Order Leg 1");
         resetStep(stepOrder2, labelOrder2, "4. Order Leg 2");
@@ -1697,12 +1711,18 @@ function updateTopWorkflowBanner(data) {
         }
     }
     
-    if (status === "Halted") {
+    if (status === "Halted" || status === "Hold" || status === "Suspended") {
         setStepState(stepScan, "failed");
         setStepState(stepLiquidity, "");
         setStepState(stepOrder1, "");
         setStepState(stepOrder2, "");
         setStepState(stepPosition, "");
+        const scanLabel = stepScan ? stepScan.querySelector(".wf-label") : null;
+        if (scanLabel) {
+            if (status === "Halted") scanLabel.innerText = "Bot Halted";
+            else if (status === "Hold") scanLabel.innerText = "Market Hold";
+            else scanLabel.innerText = "Market Suspended";
+        }
         return;
     }
     
