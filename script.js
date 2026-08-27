@@ -76,9 +76,6 @@ const slInput = document.getElementById("input-sl");
 const checkboxTarget = document.getElementById("checkbox-target");
 const inputAutoTargetVal = document.getElementById("input-auto-target-val");
 
-const checkboxSl = document.getElementById("checkbox-sl");
-const inputAutoSlVal = document.getElementById("input-auto-sl-val");
-
 const paperModeInput = document.getElementById("input-paper-mode");
 const autoTradingInput = document.getElementById("input-auto-trading");
 
@@ -421,7 +418,7 @@ function updateDashboard(data) {
     if (status === "Active") {
         statusBadgeEl.classList.add("status-active");
         entryBtn.disabled = data.auto_trading_enabled;
-        exitBtn.disabled = true;
+        if (exitBtn) exitBtn.disabled = true;
         if (data.auto_trading_enabled) {
             entryBtn.innerHTML = `Auto Active`;
         } else {
@@ -430,22 +427,22 @@ function updateDashboard(data) {
     } else if (status === "In-Position") {
         statusBadgeEl.classList.add("status-in-position");
         entryBtn.disabled = true;
-        exitBtn.disabled = false;
+        if (exitBtn) exitBtn.disabled = false;
         entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Manual Entry`;
     } else if (status === "Halted") {
         statusBadgeEl.classList.add("status-halted");
         entryBtn.disabled = true;
-        exitBtn.disabled = true;
+        if (exitBtn) exitBtn.disabled = true;
         entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Manual Entry`;
     } else if (status === "Hold") {
         statusBadgeEl.classList.add("status-hold");
         entryBtn.disabled = true;
-        exitBtn.disabled = true;
+        if (exitBtn) exitBtn.disabled = true;
         entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Market Hold`;
     } else if (status === "Suspended") {
         statusBadgeEl.classList.add("status-suspended");
         entryBtn.disabled = true;
-        exitBtn.disabled = true;
+        if (exitBtn) exitBtn.disabled = true;
         entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Suspended`;
     }
 
@@ -492,9 +489,6 @@ function updateDashboard(data) {
     
     syncCheckboxField(checkboxTarget, data.auto_target_enabled);
     syncInputField(inputAutoTargetVal, data.auto_target_val);
-    
-    syncCheckboxField(checkboxSl, data.auto_sl_enabled);
-    syncInputField(inputAutoSlVal, data.auto_sl_val);
     
     syncInputField(inputSpreadBuffer, data.spread_buffer);
     syncCheckboxField(checkboxContractionEntry, data.auto_contraction_enabled);
@@ -673,7 +667,7 @@ function updateDashboard(data) {
             if (status === "Pending") {
                 actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c;">Cancel</button>`;
             } else if (status === "Open") {
-                actionBtn = `<button class="action-btn exit-button" onclick="exitManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0;">Square Off</button>`;
+                actionBtn = `<span style="color: var(--text-muted); font-size: 0.75rem;">--</span>`;
             } else {
                 actionBtn = `<button class="metallic-button" onclick="dismissManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
             }
@@ -833,7 +827,7 @@ function updateDashboard(data) {
             
             let actionBtn = "";
             if (status === "Open") {
-                actionBtn = `<button class="action-btn exit-button" onclick="exitTaTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0;">Square Off</button>`;
+                actionBtn = `<span style="color: var(--text-muted); font-size: 0.75rem;">--</span>`;
             } else {
                 actionBtn = `<button class="metallic-button" onclick="dismissTaTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
             }
@@ -1152,10 +1146,12 @@ entryBtn.addEventListener("click", () => {
 });
 
 // Handle manual Position Exit square-off action
-exitBtn.addEventListener("click", () => {
-    logLocalMessage("[SYSTEM] Dispatching manual square-off command...");
-    postAction("exit");
-});
+if (exitBtn) {
+    exitBtn.addEventListener("click", () => {
+        logLocalMessage("[SYSTEM] Dispatching manual square-off command...");
+        postAction("exit");
+    });
+}
 
 // Handle Emergency Kill Switch action
 killSwitchBtn.addEventListener("click", () => {
@@ -1193,9 +1189,6 @@ function saveParameters() {
     
     const autoTarget = checkboxTarget.checked;
     const autoTargetVal = parseFloat(inputAutoTargetVal.value);
-    
-    const autoSl = checkboxSl.checked;
-    const autoSlVal = parseFloat(inputAutoSlVal.value);
     
     const paperMode = paperModeInput.checked;
     const autoTrading = autoTradingInput.checked;
@@ -1236,7 +1229,7 @@ function saveParameters() {
 
     const tradeQtyVal = parseInt(quantityInput.value) || 1;
 
-    if (isNaN(entryVal) || isNaN(targetVal) || isNaN(slVal) || isNaN(autoTargetVal) || isNaN(autoSlVal) || isNaN(totalCapitalVal) || isNaN(tradeQtyVal) || isNaN(spreadBufferVal)) {
+    if (isNaN(entryVal) || isNaN(targetVal) || isNaN(slVal) || isNaN(autoTargetVal) || isNaN(totalCapitalVal) || isNaN(tradeQtyVal) || isNaN(spreadBufferVal)) {
         logLocalMessage("[SYSTEM] Error: Numeric config fields must hold valid values.");
         return;
     }
@@ -1252,8 +1245,8 @@ function saveParameters() {
         trade_quantity: tradeQtyVal,
         auto_target_enabled: autoTarget,
         auto_target_val: autoTargetVal,
-        auto_sl_enabled: autoSl,
-        auto_sl_val: autoSlVal,
+        auto_sl_enabled: false,
+        auto_sl_val: -3000.0,
         auto_square_off_enabled: false,
         auto_square_off_time: "23:30",
         auto_trading_enabled: autoTrading,
@@ -1303,7 +1296,7 @@ function saveParameters() {
 // Track user modifications (dirty fields)
 const inputsToTrack = [
     entryInput, targetInput, slInput, capitalInput, quantityInput,
-    inputSpreadBuffer, inputAutoTargetVal, inputAutoSlVal,
+    inputSpreadBuffer, inputAutoTargetVal,
     growwClientId, growwApiKey, growwSecret, growwPetalSymbol, growwMiniSymbol,
     angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken,
     upstoxClientId, upstoxSecret, upstoxAccessToken, upstoxPetalSymbol, upstoxMiniSymbol,
@@ -1318,7 +1311,7 @@ inputsToTrack.forEach(input => {
 });
 
 const checkboxesToTrack = [
-    checkboxTarget, checkboxSl, checkboxContractionEntry, checkboxSpreadExit
+    checkboxTarget, checkboxContractionEntry, checkboxSpreadExit
 ];
 checkboxesToTrack.forEach(cb => {
     if (cb) {
@@ -1333,7 +1326,6 @@ updateParamsBtn.addEventListener("click", saveParameters);
 paperModeInput.addEventListener("change", saveParameters);
 autoTradingInput.addEventListener("change", saveParameters);
 checkboxTarget.addEventListener("change", saveParameters);
-checkboxSl.addEventListener("change", saveParameters);
 checkboxContractionEntry.addEventListener("change", saveParameters);
 checkboxSpreadExit.addEventListener("change", saveParameters);
 inputSpreadBuffer.addEventListener("change", saveParameters);
