@@ -511,7 +511,7 @@ function updateDashboard(data) {
             tradingModeBadge.style.color = "#ef4444";
         }
     }
-    if (document.activeElement !== autoTradingInput && data.auto_trading_enabled !== undefined) {
+    if (autoTradingInput && document.activeElement !== autoTradingInput && data.auto_trading_enabled !== undefined) {
         autoTradingInput.checked = data.auto_trading_enabled;
     }
     
@@ -1130,7 +1130,7 @@ entryBtn.addEventListener("click", () => {
     const modeStr = (paperModeInput && paperModeInput.checked) ? "PAPER ORDER" : "REAL ORDER";
     const symbolStr = (window.latestDataPayload && window.latestDataPayload.petal_symbol) ? window.latestDataPayload.petal_symbol : "Selected Month";
 
-    const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nKya aap ye order place karna chahte hain?`;
+    const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nAre you sure you want to place this order?`;
     if (!confirm(confirmMsg)) {
         return;
     }
@@ -1182,27 +1182,19 @@ window.dismissManualTrade = function(tradeId) {
 
 // Submit strategy rules & config form parameters to the backend
 function saveParameters() {
-    const entryVal = parseFloat(entryInput.value);
-    const targetVal = parseFloat(targetInput.value);
-    const slVal = parseFloat(slInput.value);
-    const totalCapitalVal = parseFloat(capitalInput.value);
+    const entryVal = (entryInput ? parseFloat(entryInput.value) : (window.latestDataPayload && window.latestDataPayload.entry_threshold)) || 1000.0;
+    const targetVal = (targetInput ? parseFloat(targetInput.value) : (window.latestDataPayload && window.latestDataPayload.target_threshold)) || 1150.0;
+    const slVal = (slInput ? parseFloat(slInput.value) : (window.latestDataPayload && window.latestDataPayload.sl_threshold)) || 600.0;
+    const totalCapitalVal = (capitalInput ? parseFloat(capitalInput.value) : (window.latestDataPayload && window.latestDataPayload.total_capital)) || 500000.0;
     
-    const autoTarget = checkboxTarget.checked;
-    const autoTargetVal = parseFloat(inputAutoTargetVal.value);
-    
-    const paperMode = paperModeInput.checked;
-    const autoTrading = autoTradingInput.checked;
-    
-    const spreadBufferVal = parseFloat(inputSpreadBuffer.value) || 0.0;
-    const autoContraction = checkboxContractionEntry.checked;
-    const autoSpreadExit = checkboxSpreadExit.checked;
+    const paperMode = paperModeInput ? paperModeInput.checked : true;
 
     // Broker configs
     const broker = selectBroker.value;
-    const clientIdVal = angeloneClientId.value.trim();
-    const passwordVal = angelonePassword.value.trim();
-    const totpVal = angeloneTotp.value.trim();
-    const apiKeyVal = angeloneApiKey.value.trim();
+    const clientIdVal = angeloneClientId ? angeloneClientId.value.trim() : "";
+    const passwordVal = angelonePassword ? angelonePassword.value.trim() : "";
+    const totpVal = angeloneTotp ? angeloneTotp.value.trim() : "";
+    const apiKeyVal = angeloneApiKey ? angeloneApiKey.value.trim() : "";
     const petalSymbol = angelonePetalSymbol ? angelonePetalSymbol.value.trim() : "";
     const petalToken = angelonePetalToken ? angelonePetalToken.value.trim() : "";
     const miniSymbol = angeloneMiniSymbol ? angeloneMiniSymbol.value.trim() : "";
@@ -1227,13 +1219,7 @@ function saveParameters() {
     const upstoxPetalSymbolVal = upstoxPetalSymbol ? upstoxPetalSymbol.value.trim() : "";
     const upstoxMiniSymbolVal = upstoxMiniSymbol ? upstoxMiniSymbol.value.trim() : "";
 
-    const tradeQtyVal = parseInt(quantityInput.value) || 1;
-
-    if (isNaN(entryVal) || isNaN(targetVal) || isNaN(slVal) || isNaN(autoTargetVal) || isNaN(totalCapitalVal) || isNaN(tradeQtyVal) || isNaN(spreadBufferVal)) {
-        logLocalMessage("[SYSTEM] Error: Numeric config fields must hold valid values.");
-        return;
-    }
-    
+    const tradeQtyVal = (quantityInput ? parseInt(quantityInput.value) : 1) || 1;
 
     logLocalMessage("[SYSTEM] Syncing configurations with backend...");
     postAction("update-rules", {
@@ -1243,16 +1229,16 @@ function saveParameters() {
         total_capital: totalCapitalVal,
         paper_trading_mode: paperMode,
         trade_quantity: tradeQtyVal,
-        auto_target_enabled: autoTarget,
-        auto_target_val: autoTargetVal,
+        auto_target_enabled: false,
+        auto_target_val: 5000.0,
         auto_sl_enabled: false,
         auto_sl_val: -3000.0,
         auto_square_off_enabled: false,
         auto_square_off_time: "23:30",
-        auto_trading_enabled: autoTrading,
-        spread_buffer: spreadBufferVal,
-        auto_contraction_enabled: autoContraction,
-        auto_spread_exit_enabled: autoSpreadExit,
+        auto_trading_enabled: false,
+        spread_buffer: 0.0,
+        auto_contraction_enabled: false,
+        auto_spread_exit_enabled: false,
         broker: broker,
         api_key: apiKeyVal,
         client_id: clientIdVal,
@@ -1287,18 +1273,16 @@ function saveParameters() {
             if (selectBroker) delete selectBroker.dataset.isDirty;
             
             const mode = paperMode ? "Paper Mode" : "Live Mode";
-            const autoState = autoTrading ? "ON" : "OFF";
-            logLocalMessage(`[SYSTEM] System updated. Capital: ${totalCapitalVal.toLocaleString()} INR. Broker: ${broker}. Mode: ${mode}.`);
+            logLocalMessage(`[SYSTEM] Configurations saved. Broker: ${broker}. Mode: ${mode}.`);
         }
     });
 }
 
 // Track user modifications (dirty fields)
 const inputsToTrack = [
-    entryInput, targetInput, slInput, capitalInput, quantityInput,
-    inputSpreadBuffer, inputAutoTargetVal,
     growwClientId, growwApiKey, growwSecret, growwPetalSymbol, growwMiniSymbol,
     angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken,
+    dhanClientId, dhanAccessToken, dhanPetalSymbol, dhanPetalToken, dhanMiniSymbol, dhanMiniToken,
     upstoxClientId, upstoxSecret, upstoxAccessToken, upstoxPetalSymbol, upstoxMiniSymbol,
     taInputEntryDiff, taInputAveragingStep, taInputExitGap, taInputQuantity
 ];
@@ -1310,9 +1294,7 @@ inputsToTrack.forEach(input => {
     }
 });
 
-const checkboxesToTrack = [
-    checkboxTarget, checkboxContractionEntry, checkboxSpreadExit
-];
+const checkboxesToTrack = [];
 checkboxesToTrack.forEach(cb => {
     if (cb) {
         cb.addEventListener("change", () => {
@@ -1323,12 +1305,8 @@ checkboxesToTrack.forEach(cb => {
 
 // Event listener bindings for parameter saves and mode toggles
 updateParamsBtn.addEventListener("click", saveParameters);
-paperModeInput.addEventListener("change", saveParameters);
-autoTradingInput.addEventListener("change", saveParameters);
-checkboxTarget.addEventListener("change", saveParameters);
-checkboxContractionEntry.addEventListener("change", saveParameters);
-checkboxSpreadExit.addEventListener("change", saveParameters);
-inputSpreadBuffer.addEventListener("change", saveParameters);
+if (paperModeInput) paperModeInput.addEventListener("change", saveParameters);
+if (autoTradingInput) autoTradingInput.addEventListener("change", saveParameters);
 
 selectBroker.addEventListener("change", () => {
     selectBroker.dataset.isDirty = "true";
