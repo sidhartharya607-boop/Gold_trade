@@ -3554,10 +3554,10 @@ class UpdateParamsPayload(BaseModel):
     upstox_mini_symbol: str = ""
 
 class MonthMasterMapping(BaseModel):
-    petal_symbol: str
-    petal_token: str
-    mini_symbol: str
-    mini_token: str
+    petal_symbol: str = ""
+    petal_token: str = ""
+    mini_symbol: str = ""
+    mini_token: str = ""
 
 class MonthMasterPayload(BaseModel):
     mappings: List[MonthMasterMapping]
@@ -3570,10 +3570,39 @@ async def api_get_month_master(token: str = None, authorization: str = Header(No
 @app.post("/api/month-master")
 async def api_post_month_master(payload: MonthMasterPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    system_state.month_master = [m.dict() for m in payload.mappings]
+    resolved_mappings = []
+    for m in payload.mappings:
+        item = m.dict()
+        p_sym = item.get("petal_symbol", "").strip()
+        m_sym = item.get("mini_symbol", "").strip()
+        p_tok = item.get("petal_token", "").strip()
+        m_tok = item.get("mini_token", "").strip()
+        
+        if not p_sym and not m_sym:
+            continue
+            
+        if not p_tok and p_sym:
+            if system_state.broker == "Dhan":
+                p_tok = system_state.resolve_dhan_token(p_sym)
+            else:
+                p_tok = system_state.resolve_scrip_token_via_api(p_sym)
+        if not m_tok and m_sym:
+            if system_state.broker == "Dhan":
+                m_tok = system_state.resolve_dhan_token(m_sym)
+            else:
+                m_tok = system_state.resolve_scrip_token_via_api(m_sym)
+                
+        item["petal_symbol"] = p_sym
+        item["petal_token"] = p_tok
+        item["mini_symbol"] = m_sym
+        item["mini_token"] = m_tok
+        resolved_mappings.append(item)
+        
+    system_state.month_master = resolved_mappings
     system_state.save_month_master()
+    system_state.log(f"[MONTH MASTER] Updated month master mappings ({len(system_state.month_master)} pair(s) active).")
     await broadcast_system_state()
-    return {"status": "SUCCESS", "message": "Month Master mappings updated successfully."}
+    return {"status": "SUCCESS", "message": "Month Master mappings updated successfully.", "mappings": system_state.month_master}
 
 class TAConfigItem(BaseModel):
     month_idx: int

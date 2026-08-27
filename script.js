@@ -1853,11 +1853,19 @@ window.deleteMonthMasterMapping = function(index) {
 };
 
 function saveMonthMasterMappings(mappings) {
+    // Immediately update UI optimistically
+    updateMonthMasterUI(mappings);
+    lastMonthMasterStr = JSON.stringify(mappings);
+
     logLocalMessage("[SYSTEM] Updating Month Master mappings in backend...");
     postAction("month-master", { mappings: mappings })
     .then(data => {
         if (data && data.status === "SUCCESS") {
             logLocalMessage("[SYSTEM] Month Master mappings updated successfully.");
+            if (data.mappings) {
+                updateMonthMasterUI(data.mappings);
+                lastMonthMasterStr = JSON.stringify(data.mappings);
+            }
         } else {
             logLocalMessage("[SYSTEM] Error updating Month Master mappings.");
         }
@@ -1866,13 +1874,13 @@ function saveMonthMasterMappings(mappings) {
 
 if (addMmMappingBtn) {
     addMmMappingBtn.addEventListener("click", () => {
-        const pSym = mmPetalSymbol.value.trim();
-        const pTok = mmPetalToken.value.trim();
-        const mSym = mmMiniSymbol.value.trim();
-        const mTok = mmMiniToken.value.trim();
+        const pSym = mmPetalSymbol ? mmPetalSymbol.value.trim() : "";
+        const pTok = mmPetalToken ? mmPetalToken.value.trim() : "";
+        const mSym = mmMiniSymbol ? mmMiniSymbol.value.trim() : "";
+        const mTok = mmMiniToken ? mmMiniToken.value.trim() : "";
         
         if (!pSym || !mSym) {
-            alert("Leg 1 and Leg 2 symbols are required!");
+            alert("Leg 1 (Petal) Symbol and Leg 2 (Mini) Symbol are required!");
             return;
         }
         
@@ -1881,6 +1889,13 @@ if (addMmMappingBtn) {
             currentMappings = JSON.parse(lastMonthMasterStr || "[]");
         } catch(e) {
             currentMappings = [];
+        }
+        
+        // Prevent duplicate symbols
+        const exists = currentMappings.some(m => m.petal_symbol.toUpperCase() === pSym.toUpperCase() && m.mini_symbol.toUpperCase() === mSym.toUpperCase());
+        if (exists) {
+            alert("This Month Master pair mapping already exists!");
+            return;
         }
         
         currentMappings.push({
@@ -1892,10 +1907,10 @@ if (addMmMappingBtn) {
         
         saveMonthMasterMappings(currentMappings);
         
-        mmPetalSymbol.value = "";
-        mmPetalToken.value = "";
-        mmMiniSymbol.value = "";
-        mmMiniToken.value = "";
+        if (mmPetalSymbol) mmPetalSymbol.value = "";
+        if (mmPetalToken) mmPetalToken.value = "";
+        if (mmMiniSymbol) mmMiniSymbol.value = "";
+        if (mmMiniToken) mmMiniToken.value = "";
     });
 }
 

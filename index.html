@@ -265,6 +265,16 @@
             </div>
         </main>
 
+        <!-- Month Master Monitored Live Feeds (Shown when month mappings exist) -->
+        <section id="month-master-live-section" style="margin-bottom: 1.25rem; display: none; width: 100%;">
+            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.4rem;">
+                <span>📡 Monitored Month Master Pairs (Live Depth Feeds)</span>
+            </div>
+            <div id="month-master-live-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.75rem;">
+                <!-- Dynamically populated live feed cards for month master pairs -->
+            </div>
+        </section>
+
         <!-- Section 1: Active & Pending Manual Trades (Now at the top) -->
         <section class="manual-trades-section" style="margin-bottom: 1.25rem; width: 100%;">
             <div class="data-card manual-trades-panel" style="width: 100%;">
