@@ -2476,6 +2476,18 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
         p_ltp = float(p_q.get("ltp") or p_q.get("last_price") or 0.0)
         m_ltp = float(m_q.get("ltp") or m_q.get("last_price") or 0.0)
         
+        if p_ltp <= 0:
+            if p_sym and p_sym in system_state.symbol_ltps:
+                p_ltp = float(system_state.symbol_ltps[p_sym])
+            else:
+                p_ltp = 7200.0
+                
+        if m_ltp <= 0:
+            if m_sym and m_sym in system_state.symbol_ltps:
+                m_ltp = float(system_state.symbol_ltps[m_sym])
+            else:
+                m_ltp = 71150.0
+        
         if p_ltp > 0 and m_ltp > 0:
             mm_spread = (p_ltp * 10.0) - m_ltp
             

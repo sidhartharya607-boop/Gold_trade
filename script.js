@@ -995,34 +995,69 @@ function updateDashboard(data) {
     logsContainer.scrollTop = logsContainer.scrollHeight;
     
     // Render Month Master Live spreads
+    const monthMasterMappings = data.month_master || [];
     const monthMasterLive = data.month_master_live || [];
     if (monthMasterLiveSection && monthMasterLiveCards) {
-        if (monthMasterLive.length === 0) {
+        if (monthMasterMappings.length === 0 && monthMasterLive.length === 0) {
             monthMasterLiveSection.style.display = "none";
         } else {
             monthMasterLiveSection.style.display = "block";
             let cardsHtml = "";
+            
+            const liveMap = {};
             monthMasterLive.forEach(item => {
-                const spreadChange = item.spread;
-                const spreadClass = spreadChange >= 0 ? "text-green" : "text-red";
+                const key = `${item.petal_symbol}_${item.mini_symbol}`;
+                liveMap[key] = item;
+            });
+            
+            // Prefer iterating over monthMasterMappings to show all added pairs
+            const listToIterate = monthMasterMappings.length > 0 ? monthMasterMappings : monthMasterLive;
+            listToIterate.forEach(mapping => {
+                const pSym = mapping.petal_symbol || "";
+                const mSym = mapping.mini_symbol || "";
+                const key = `${pSym}_${mSym}`;
+                const liveItem = liveMap[key];
+                
+                let spread = 0.0;
+                let depthBuySpread = 0.0;
+                let depthSellSpread = 0.0;
+                let isLive = false;
+                
+                if (liveItem) {
+                    spread = Number(liveItem.spread) || 0.0;
+                    depthBuySpread = Number(liveItem.depth_buy_spread) || 0.0;
+                    depthSellSpread = Number(liveItem.depth_sell_spread) || 0.0;
+                    isLive = true;
+                } else if (mapping.spread !== undefined) {
+                    spread = Number(mapping.spread) || 0.0;
+                    depthBuySpread = Number(mapping.depth_buy_spread) || 0.0;
+                    depthSellSpread = Number(mapping.depth_sell_spread) || 0.0;
+                    isLive = true;
+                } else if (data.current_spread !== undefined) {
+                    spread = Number(data.current_spread) || 0.0;
+                    depthBuySpread = Number(data.depth_buy_spread) || 0.0;
+                    depthSellSpread = Number(data.depth_sell_spread) || 0.0;
+                }
+                
+                const spreadClass = spread >= 0 ? "text-green" : "text-red";
                 cardsHtml += `
                     <div class="metric-card month-master-live-card" style="padding: 0.75rem 1rem; border-radius: 8px; background: linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.35rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
                         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">
-                            <span>${item.petal_symbol} / ${item.mini_symbol}</span>
-                            <span style="font-size: 0.62rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60A5FA;">Live Feed</span>
+                            <span>${pSym} / ${mSym}</span>
+                            <span style="font-size: 0.62rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60A5FA;">${isLive ? 'Live Feed' : 'Active Pair'}</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.1rem 0;">
                             <span style="font-size: 0.7rem; color: var(--text-muted);">LTP Spread:</span>
-                            <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${item.spread.toFixed(2)}</span>
+                            <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${spread.toFixed(2)}</span>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.65rem; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.15rem;">
                             <div style="display: flex; flex-direction: column; gap: 0.05rem;">
                                 <span style="color: var(--text-muted);">Depth Buy:</span>
-                                <strong class="font-mono text-green" style="font-size: 0.72rem;">${item.depth_buy_spread.toFixed(2)}</strong>
+                                <strong class="font-mono text-green" style="font-size: 0.72rem;">${depthBuySpread.toFixed(2)}</strong>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 0.05rem; align-items: flex-end;">
                                 <span style="color: var(--text-muted);">Depth Sell:</span>
-                                <strong class="font-mono text-red" style="font-size: 0.72rem;">${item.depth_sell_spread.toFixed(2)}</strong>
+                                <strong class="font-mono text-red" style="font-size: 0.72rem;">${depthSellSpread.toFixed(2)}</strong>
                             </div>
                         </div>
                     </div>
