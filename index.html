@@ -265,16 +265,6 @@
             </div>
         </main>
 
-        <!-- Month Master Monitored Live Feeds (Shown when month mappings exist) -->
-        <section id="month-master-live-section" style="margin-bottom: 1.25rem; display: none; width: 100%;">
-            <div style="font-size: 0.75rem; font-weight: 700; color: var(--text-secondary); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; display: flex; align-items: center; gap: 0.4rem;">
-                <span>📡 Monitored Month Master Pairs (Live Depth Feeds)</span>
-            </div>
-            <div id="month-master-live-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.75rem;">
-                <!-- Dynamically populated live feed cards for month master pairs -->
-            </div>
-        </section>
-
         <!-- Section 1: Active & Pending Manual Trades (Now at the top) -->
         <section class="manual-trades-section" style="margin-bottom: 1.25rem; width: 100%;">
             <div class="data-card manual-trades-panel" style="width: 100%;">
@@ -377,9 +367,9 @@
             <div class="control-card configs-panel collapsible-card" id="card-configs">
                 <div class="card-header-toggle" onclick="toggleCard('card-configs')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">Broker Configuration & Safety</h2>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transform: rotate(180deg); transition: transform 0.2s;">▼</span>
                 </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
+                <div class="card-content" style="display: flex; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
                     <div class="broker-configs-section" style="padding-top: 0; margin-top: 0;">
                         <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap;">
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -677,9 +667,9 @@
             <div class="control-card month-master-panel collapsible-card" id="card-month-master" style="width: 100%;">
                 <div class="card-header-toggle" onclick="toggleCard('card-month-master')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
                     <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">📅 Month Master Mapping Manager</h2>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transform: rotate(180deg); transition: transform 0.2s;">▼</span>
                 </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1rem;">
+                <div class="card-content" style="display: flex; margin-top: 1rem; flex-direction: column; gap: 1rem;">
                     <!-- Form to Add Mapping -->
                     <div class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
                         <div class="config-item">
