@@ -487,24 +487,24 @@ function updateDashboard(data) {
     }
 
     // 6. Form Fields Sync (only updates if user is not currently focusing on the field)
-    syncInputField(entryInput, data.entry_threshold);
-    syncInputField(targetInput, data.target_threshold);
-    syncInputField(slInput, data.sl_threshold);
-    syncInputField(capitalInput, data.total_capital);
-    syncInputField(quantityInput, data.trade_quantity);
+    if (entryInput) syncInputField(entryInput, data.entry_threshold);
+    if (targetInput) syncInputField(targetInput, data.target_threshold);
+    if (slInput) syncInputField(slInput, data.sl_threshold);
+    if (capitalInput) syncInputField(capitalInput, data.total_capital);
+    if (quantityInput) syncInputField(quantityInput, data.trade_quantity);
     
-    syncCheckboxField(checkboxTarget, data.auto_target_enabled);
-    syncInputField(inputAutoTargetVal, data.auto_target_val);
+    if (checkboxTarget) syncCheckboxField(checkboxTarget, data.auto_target_enabled);
+    if (inputAutoTargetVal) syncInputField(inputAutoTargetVal, data.auto_target_val);
     
-    syncCheckboxField(checkboxSl, data.auto_sl_enabled);
-    syncInputField(inputAutoSlVal, data.auto_sl_val);
+    if (checkboxSl) syncCheckboxField(checkboxSl, data.auto_sl_enabled);
+    if (inputAutoSlVal) syncInputField(inputAutoSlVal, data.auto_sl_val);
     
-    syncCheckboxField(checkboxSquareoff, data.auto_square_off_enabled);
-    syncInputField(inputAutoSquareoffTime, data.auto_square_off_time);
+    if (checkboxSquareoff) syncCheckboxField(checkboxSquareoff, data.auto_square_off_enabled);
+    if (inputAutoSquareoffTime) syncInputField(inputAutoSquareoffTime, data.auto_square_off_time);
     
-    syncInputField(inputSpreadBuffer, data.spread_buffer);
-    syncCheckboxField(checkboxContractionEntry, data.auto_contraction_enabled);
-    syncCheckboxField(checkboxSpreadExit, data.auto_spread_exit_enabled);
+    if (inputSpreadBuffer) syncInputField(inputSpreadBuffer, data.spread_buffer);
+    if (checkboxContractionEntry) syncCheckboxField(checkboxContractionEntry, data.auto_contraction_enabled);
+    if (checkboxSpreadExit) syncCheckboxField(checkboxSpreadExit, data.auto_spread_exit_enabled);
     
     if (document.activeElement !== paperModeInput) {
         paperModeInput.checked = data.paper_trading_mode;
@@ -603,14 +603,15 @@ function updateDashboard(data) {
     if (!manualTradesBody) {
         // Guard if element is missing
     } else if (manualTrades.length === 0) {
-        manualTradesBody.innerHTML = `<tr><td colspan="9" class="empty-table">No active or pending manual trades.</td></tr>`;
+        manualTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table">No active or pending manual trades.</td></tr>`;
     } else {
         manualTradesBody.innerHTML = "";
-        // Optimize: Show all active/pending manual trades, and only last 10 closed ones to prevent DOM rendering lag
-        const activeManual = manualTrades.filter(t => t.status === "Open" || t.status === "Pending" || !t.status);
+        // Optimize & Sort: Pending orders at the very top, then Open orders, then recent closed/failed trades
+        const pendingManual = manualTrades.filter(t => t.status === "Pending");
+        const openManual = manualTrades.filter(t => t.status === "Open" || !t.status);
         const closedManual = manualTrades.filter(t => t.status !== "Open" && t.status !== "Pending" && t.status);
         const limitedClosedManual = closedManual.slice(-10);
-        const manualTradesToRender = [...activeManual, ...limitedClosedManual];
+        const manualTradesToRender = [...pendingManual, ...openManual, ...limitedClosedManual];
 
         manualTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
@@ -1142,7 +1143,7 @@ entryBtn.addEventListener("click", () => {
     const modeStr = (paperModeInput && paperModeInput.checked) ? "PAPER ORDER" : "REAL ORDER";
     const symbolStr = (window.latestDataPayload && window.latestDataPayload.petal_symbol) ? window.latestDataPayload.petal_symbol : "Selected Month";
 
-    const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nKya aap ye order place karna chahte hain?`;
+    const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nDo you want to place this order?`;
     if (!confirm(confirmMsg)) {
         return;
     }
@@ -1157,11 +1158,13 @@ entryBtn.addEventListener("click", () => {
     }
 });
 
-// Handle manual Position Exit square-off action
-exitBtn.addEventListener("click", () => {
-    logLocalMessage("[SYSTEM] Dispatching manual square-off command...");
-    postAction("exit");
-});
+// Handle manual Position Exit square-off action (if button exists)
+if (exitBtn) {
+    exitBtn.addEventListener("click", () => {
+        logLocalMessage("[SYSTEM] Dispatching manual square-off command...");
+        postAction("exit");
+    });
+}
 
 // Handle Emergency Kill Switch action
 killSwitchBtn.addEventListener("click", () => {
@@ -1192,32 +1195,32 @@ window.dismissManualTrade = function(tradeId) {
 
 // Submit strategy rules & config form parameters to the backend
 function saveParameters() {
-    const entryVal = parseFloat(entryInput.value);
-    const targetVal = parseFloat(targetInput.value);
-    const slVal = parseFloat(slInput.value);
-    const totalCapitalVal = parseFloat(capitalInput.value);
+    const entryVal = entryInput ? (parseFloat(entryInput.value) || 1000.0) : 1000.0;
+    const targetVal = targetInput ? (parseFloat(targetInput.value) || 1150.0) : 1150.0;
+    const slVal = slInput ? (parseFloat(slInput.value) || 600.0) : 600.0;
+    const totalCapitalVal = capitalInput ? (parseFloat(capitalInput.value) || 500000.0) : 500000.0;
     
-    const autoTarget = checkboxTarget.checked;
-    const autoTargetVal = parseFloat(inputAutoTargetVal.value);
+    const autoTarget = checkboxTarget ? checkboxTarget.checked : false;
+    const autoTargetVal = inputAutoTargetVal ? (parseFloat(inputAutoTargetVal.value) || 5000.0) : 5000.0;
     
-    const autoSl = checkboxSl.checked;
-    const autoSlVal = parseFloat(inputAutoSlVal.value);
+    const autoSl = checkboxSl ? checkboxSl.checked : false;
+    const autoSlVal = inputAutoSlVal ? (parseFloat(inputAutoSlVal.value) || -3000.0) : -3000.0;
     
-    const autoSquareoff = checkboxSquareoff.checked;
-    const autoSquareoffTime = inputAutoSquareoffTime.value.trim();
-    const paperMode = paperModeInput.checked;
-    const autoTrading = autoTradingInput.checked;
+    const autoSquareoff = checkboxSquareoff ? checkboxSquareoff.checked : false;
+    const autoSquareoffTime = inputAutoSquareoffTime ? inputAutoSquareoffTime.value.trim() : "23:30";
+    const paperMode = paperModeInput ? paperModeInput.checked : true;
+    const autoTrading = autoTradingInput ? autoTradingInput.checked : false;
     
-    const spreadBufferVal = parseFloat(inputSpreadBuffer.value) || 0.0;
-    const autoContraction = checkboxContractionEntry.checked;
-    const autoSpreadExit = checkboxSpreadExit.checked;
+    const spreadBufferVal = inputSpreadBuffer ? (parseFloat(inputSpreadBuffer.value) || 0.0) : 0.0;
+    const autoContraction = checkboxContractionEntry ? checkboxContractionEntry.checked : false;
+    const autoSpreadExit = checkboxSpreadExit ? checkboxSpreadExit.checked : false;
 
     // Broker configs
-    const broker = selectBroker.value;
-    const clientIdVal = angeloneClientId.value.trim();
-    const passwordVal = angelonePassword.value.trim();
-    const totpVal = angeloneTotp.value.trim();
-    const apiKeyVal = angeloneApiKey.value.trim();
+    const broker = selectBroker ? selectBroker.value : "AngelOne";
+    const clientIdVal = angeloneClientId ? angeloneClientId.value.trim() : "";
+    const passwordVal = angelonePassword ? angelonePassword.value.trim() : "";
+    const totpVal = angeloneTotp ? angeloneTotp.value.trim() : "";
+    const apiKeyVal = angeloneApiKey ? angeloneApiKey.value.trim() : "";
     const petalSymbol = angelonePetalSymbol ? angelonePetalSymbol.value.trim() : "";
     const petalToken = angelonePetalToken ? angelonePetalToken.value.trim() : "";
     const miniSymbol = angeloneMiniSymbol ? angeloneMiniSymbol.value.trim() : "";
@@ -1242,13 +1245,8 @@ function saveParameters() {
     const upstoxPetalSymbolVal = upstoxPetalSymbol ? upstoxPetalSymbol.value.trim() : "";
     const upstoxMiniSymbolVal = upstoxMiniSymbol ? upstoxMiniSymbol.value.trim() : "";
 
-    const tradeQtyVal = parseInt(quantityInput.value) || 1;
+    const tradeQtyVal = quantityInput ? (parseInt(quantityInput.value) || 1) : 1;
 
-    if (isNaN(entryVal) || isNaN(targetVal) || isNaN(slVal) || isNaN(autoTargetVal) || isNaN(autoSlVal) || isNaN(totalCapitalVal) || isNaN(tradeQtyVal) || isNaN(spreadBufferVal)) {
-        logLocalMessage("[SYSTEM] Error: Numeric config fields must hold valid values.");
-        return;
-    }
-    
     const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (autoSquareoff && !timeRegex.test(autoSquareoffTime)) {
         logLocalMessage("[SYSTEM] Error: Auto square-off time must match HH:MM format (24-hour).");
@@ -1308,7 +1306,7 @@ function saveParameters() {
             
             const mode = paperMode ? "Paper Mode" : "Live Mode";
             const autoState = autoTrading ? "ON" : "OFF";
-            logLocalMessage(`[SYSTEM] System updated. Capital: ${totalCapitalVal.toLocaleString()} INR. Broker: ${broker}. Mode: ${mode}.`);
+            logLocalMessage(`[SYSTEM] Configurations updated successfully. Broker: ${broker}. Mode: ${mode}.`);
         }
     });
 }
@@ -1342,15 +1340,15 @@ checkboxesToTrack.forEach(cb => {
 });
 
 // Event listener bindings for parameter saves and mode toggles
-updateParamsBtn.addEventListener("click", saveParameters);
-paperModeInput.addEventListener("change", saveParameters);
-autoTradingInput.addEventListener("change", saveParameters);
-checkboxTarget.addEventListener("change", saveParameters);
-checkboxSl.addEventListener("change", saveParameters);
-checkboxSquareoff.addEventListener("change", saveParameters);
-checkboxContractionEntry.addEventListener("change", saveParameters);
-checkboxSpreadExit.addEventListener("change", saveParameters);
-inputSpreadBuffer.addEventListener("change", saveParameters);
+if (updateParamsBtn) updateParamsBtn.addEventListener("click", saveParameters);
+if (paperModeInput) paperModeInput.addEventListener("change", saveParameters);
+if (autoTradingInput) autoTradingInput.addEventListener("change", saveParameters);
+if (checkboxTarget) checkboxTarget.addEventListener("change", saveParameters);
+if (checkboxSl) checkboxSl.addEventListener("change", saveParameters);
+if (checkboxSquareoff) checkboxSquareoff.addEventListener("change", saveParameters);
+if (checkboxContractionEntry) checkboxContractionEntry.addEventListener("change", saveParameters);
+if (checkboxSpreadExit) checkboxSpreadExit.addEventListener("change", saveParameters);
+if (inputSpreadBuffer) inputSpreadBuffer.addEventListener("change", saveParameters);
 
 selectBroker.addEventListener("change", () => {
     selectBroker.dataset.isDirty = "true";

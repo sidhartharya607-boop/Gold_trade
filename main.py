@@ -3511,31 +3511,31 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
 
 # REST Strategy parameters update form submission endpoint
 class UpdateParamsPayload(BaseModel):
-    entry_threshold: float
-    target_threshold: float
-    stop_loss_threshold: float
-    total_capital: float
-    paper_trading_mode: bool
-    trade_quantity: int
-    auto_target_enabled: bool
-    auto_target_val: float
-    auto_sl_enabled: bool
-    auto_sl_val: float
-    auto_square_off_enabled: bool
-    auto_square_off_time: str
-    auto_trading_enabled: bool
-    spread_buffer: float
-    auto_contraction_enabled: bool
-    auto_spread_exit_enabled: bool
-    broker: str
-    api_key: str
-    client_id: str
-    password: str
-    totp_secret: str
-    petal_symbol: str
-    petal_token: str
-    mini_symbol: str
-    mini_token: str
+    entry_threshold: float = 1000.0
+    target_threshold: float = 1150.0
+    stop_loss_threshold: float = 600.0
+    total_capital: float = 500000.0
+    paper_trading_mode: bool = True
+    trade_quantity: int = 1
+    auto_target_enabled: bool = False
+    auto_target_val: float = 5000.0
+    auto_sl_enabled: bool = False
+    auto_sl_val: float = -3000.0
+    auto_square_off_enabled: bool = False
+    auto_square_off_time: str = "23:30"
+    auto_trading_enabled: bool = False
+    spread_buffer: float = 0.0
+    auto_contraction_enabled: bool = False
+    auto_spread_exit_enabled: bool = False
+    broker: str = "AngelOne"
+    api_key: str = ""
+    client_id: str = ""
+    password: str = ""
+    totp_secret: str = ""
+    petal_symbol: str = ""
+    petal_token: str = ""
+    mini_symbol: str = ""
+    mini_token: str = ""
     groww_api_key: str = ""
     groww_client_id: str = ""
     groww_secret: str = ""
