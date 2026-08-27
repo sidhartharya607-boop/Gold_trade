@@ -1138,6 +1138,14 @@ entryBtn.addEventListener("click", () => {
         alert("Please enter a valid trigger difference value, or leave it empty.");
         return;
     }
+
+    const modeStr = (paperModeInput && paperModeInput.checked) ? "PAPER ORDER" : "REAL ORDER";
+    const symbolStr = (window.latestDataPayload && window.latestDataPayload.petal_symbol) ? window.latestDataPayload.petal_symbol : "Selected Month";
+
+    const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nKya aap ye order place karna chahte hain?`;
+    if (!confirm(confirmMsg)) {
+        return;
+    }
     
     if (triggerDiff !== null) {
         logLocalMessage(`[SYSTEM] Dispatching manual ${direction} entry command with trigger difference ${triggerDiff}...`);

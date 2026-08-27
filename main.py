@@ -249,6 +249,34 @@ class TradingSystem:
         
         self.load_ta_trades()
         self.load_ta_configs()
+        self.load_angel_master()
+        
+    def load_angel_master(self):
+        try:
+            if os.path.exists("angel_master.json"):
+                with open("angel_master.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if data.get("api_key"): self.api_key = data["api_key"]
+                    if data.get("client_id"): self.client_id = data["client_id"]
+                    if data.get("password"): self.password = data["password"]
+                    if data.get("totp_secret"): self.totp_secret = data["totp_secret"]
+                self.log("[PERSISTENCE] Loaded Angel One master credentials from angel_master.json.")
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to load Angel One master config: {e}")
+
+    def save_angel_master(self):
+        try:
+            data = {
+                "api_key": self.api_key,
+                "client_id": self.client_id,
+                "password": self.password,
+                "totp_secret": self.totp_secret
+            }
+            with open("angel_master.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            self.log("[PERSISTENCE] Saved Angel One master credentials.")
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to save Angel One master config: {e}")
         
     def load_trade_history(self):
         try:
@@ -1364,7 +1392,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             
             if not petal_filled:
                 status = status_map.get(petal_order_id)
-                if status == "COMPLETE":
+                if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
                     petal_filled = True
                     petal_fill_price = petal_ltp
                     system_state.log(f"[LIVE MARKET FILL] Leg 1: {target_petal_symbol} filled @ MARKET {petal_fill_price:.2f}")
@@ -1374,7 +1402,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                     
             if not mini_filled:
                 status = status_map.get(mini_order_id)
-                if status == "COMPLETE":
+                if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
                     mini_filled = True
                     mini_fill_price = mini_ltp
                     system_state.log(f"[LIVE MARKET FILL] Leg 2: {target_mini_symbol} filled @ MARKET {mini_fill_price:.2f}")
@@ -3670,6 +3698,7 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     system_state.client_id = payload.client_id
     system_state.password = payload.password
     system_state.totp_secret = payload.totp_secret
+    system_state.save_angel_master()
     
     system_state.groww_api_key = payload.groww_api_key
     system_state.groww_client_id = payload.groww_client_id
