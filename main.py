@@ -2476,18 +2476,6 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
         p_ltp = float(p_q.get("ltp") or p_q.get("last_price") or 0.0)
         m_ltp = float(m_q.get("ltp") or m_q.get("last_price") or 0.0)
         
-        if p_ltp <= 0:
-            if p_sym and p_sym in system_state.symbol_ltps:
-                p_ltp = float(system_state.symbol_ltps[p_sym])
-            else:
-                p_ltp = 7200.0
-                
-        if m_ltp <= 0:
-            if m_sym and m_sym in system_state.symbol_ltps:
-                m_ltp = float(system_state.symbol_ltps[m_sym])
-            else:
-                m_ltp = 71150.0
-        
         if p_ltp > 0 and m_ltp > 0:
             mm_spread = (p_ltp * 10.0) - m_ltp
             
@@ -3523,31 +3511,31 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
 
 # REST Strategy parameters update form submission endpoint
 class UpdateParamsPayload(BaseModel):
-    entry_threshold: float = 1000.0
-    target_threshold: float = 1150.0
-    stop_loss_threshold: float = 600.0
-    total_capital: float = 500000.0
-    paper_trading_mode: bool = True
-    trade_quantity: int = 1
-    auto_target_enabled: bool = False
-    auto_target_val: float = 5000.0
-    auto_sl_enabled: bool = False
-    auto_sl_val: float = -3000.0
-    auto_square_off_enabled: bool = False
-    auto_square_off_time: str = "23:30"
-    auto_trading_enabled: bool = False
-    spread_buffer: float = 0.0
-    auto_contraction_enabled: bool = False
-    auto_spread_exit_enabled: bool = False
-    broker: str = "AngelOne"
-    api_key: str = ""
-    client_id: str = ""
-    password: str = ""
-    totp_secret: str = ""
-    petal_symbol: str = ""
-    petal_token: str = ""
-    mini_symbol: str = ""
-    mini_token: str = ""
+    entry_threshold: float
+    target_threshold: float
+    stop_loss_threshold: float
+    total_capital: float
+    paper_trading_mode: bool
+    trade_quantity: int
+    auto_target_enabled: bool
+    auto_target_val: float
+    auto_sl_enabled: bool
+    auto_sl_val: float
+    auto_square_off_enabled: bool
+    auto_square_off_time: str
+    auto_trading_enabled: bool
+    spread_buffer: float
+    auto_contraction_enabled: bool
+    auto_spread_exit_enabled: bool
+    broker: str
+    api_key: str
+    client_id: str
+    password: str
+    totp_secret: str
+    petal_symbol: str
+    petal_token: str
+    mini_symbol: str
+    mini_token: str
     groww_api_key: str = ""
     groww_client_id: str = ""
     groww_secret: str = ""
@@ -3566,10 +3554,10 @@ class UpdateParamsPayload(BaseModel):
     upstox_mini_symbol: str = ""
 
 class MonthMasterMapping(BaseModel):
-    petal_symbol: str = ""
-    petal_token: str = ""
-    mini_symbol: str = ""
-    mini_token: str = ""
+    petal_symbol: str
+    petal_token: str
+    mini_symbol: str
+    mini_token: str
 
 class MonthMasterPayload(BaseModel):
     mappings: List[MonthMasterMapping]
@@ -3582,39 +3570,10 @@ async def api_get_month_master(token: str = None, authorization: str = Header(No
 @app.post("/api/month-master")
 async def api_post_month_master(payload: MonthMasterPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    resolved_mappings = []
-    for m in payload.mappings:
-        item = m.dict()
-        p_sym = item.get("petal_symbol", "").strip()
-        m_sym = item.get("mini_symbol", "").strip()
-        p_tok = item.get("petal_token", "").strip()
-        m_tok = item.get("mini_token", "").strip()
-        
-        if not p_sym and not m_sym:
-            continue
-            
-        if not p_tok and p_sym:
-            if system_state.broker == "Dhan":
-                p_tok = system_state.resolve_dhan_token(p_sym)
-            else:
-                p_tok = system_state.resolve_scrip_token_via_api(p_sym)
-        if not m_tok and m_sym:
-            if system_state.broker == "Dhan":
-                m_tok = system_state.resolve_dhan_token(m_sym)
-            else:
-                m_tok = system_state.resolve_scrip_token_via_api(m_sym)
-                
-        item["petal_symbol"] = p_sym
-        item["petal_token"] = p_tok
-        item["mini_symbol"] = m_sym
-        item["mini_token"] = m_tok
-        resolved_mappings.append(item)
-        
-    system_state.month_master = resolved_mappings
+    system_state.month_master = [m.dict() for m in payload.mappings]
     system_state.save_month_master()
-    system_state.log(f"[MONTH MASTER] Updated month master mappings ({len(system_state.month_master)} pair(s) active).")
     await broadcast_system_state()
-    return {"status": "SUCCESS", "message": "Month Master mappings updated successfully.", "mappings": system_state.month_master}
+    return {"status": "SUCCESS", "message": "Month Master mappings updated successfully."}
 
 class TAConfigItem(BaseModel):
     month_idx: int

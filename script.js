@@ -487,24 +487,24 @@ function updateDashboard(data) {
     }
 
     // 6. Form Fields Sync (only updates if user is not currently focusing on the field)
-    if (entryInput) syncInputField(entryInput, data.entry_threshold);
-    if (targetInput) syncInputField(targetInput, data.target_threshold);
-    if (slInput) syncInputField(slInput, data.sl_threshold);
-    if (capitalInput) syncInputField(capitalInput, data.total_capital);
-    if (quantityInput) syncInputField(quantityInput, data.trade_quantity);
+    syncInputField(entryInput, data.entry_threshold);
+    syncInputField(targetInput, data.target_threshold);
+    syncInputField(slInput, data.sl_threshold);
+    syncInputField(capitalInput, data.total_capital);
+    syncInputField(quantityInput, data.trade_quantity);
     
-    if (checkboxTarget) syncCheckboxField(checkboxTarget, data.auto_target_enabled);
-    if (inputAutoTargetVal) syncInputField(inputAutoTargetVal, data.auto_target_val);
+    syncCheckboxField(checkboxTarget, data.auto_target_enabled);
+    syncInputField(inputAutoTargetVal, data.auto_target_val);
     
-    if (checkboxSl) syncCheckboxField(checkboxSl, data.auto_sl_enabled);
-    if (inputAutoSlVal) syncInputField(inputAutoSlVal, data.auto_sl_val);
+    syncCheckboxField(checkboxSl, data.auto_sl_enabled);
+    syncInputField(inputAutoSlVal, data.auto_sl_val);
     
-    if (checkboxSquareoff) syncCheckboxField(checkboxSquareoff, data.auto_square_off_enabled);
-    if (inputAutoSquareoffTime) syncInputField(inputAutoSquareoffTime, data.auto_square_off_time);
+    syncCheckboxField(checkboxSquareoff, data.auto_square_off_enabled);
+    syncInputField(inputAutoSquareoffTime, data.auto_square_off_time);
     
-    if (inputSpreadBuffer) syncInputField(inputSpreadBuffer, data.spread_buffer);
-    if (checkboxContractionEntry) syncCheckboxField(checkboxContractionEntry, data.auto_contraction_enabled);
-    if (checkboxSpreadExit) syncCheckboxField(checkboxSpreadExit, data.auto_spread_exit_enabled);
+    syncInputField(inputSpreadBuffer, data.spread_buffer);
+    syncCheckboxField(checkboxContractionEntry, data.auto_contraction_enabled);
+    syncCheckboxField(checkboxSpreadExit, data.auto_spread_exit_enabled);
     
     if (document.activeElement !== paperModeInput) {
         paperModeInput.checked = data.paper_trading_mode;
@@ -603,15 +603,14 @@ function updateDashboard(data) {
     if (!manualTradesBody) {
         // Guard if element is missing
     } else if (manualTrades.length === 0) {
-        manualTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table">No active or pending manual trades.</td></tr>`;
+        manualTradesBody.innerHTML = `<tr><td colspan="9" class="empty-table">No active or pending manual trades.</td></tr>`;
     } else {
         manualTradesBody.innerHTML = "";
-        // Optimize & Sort: Pending orders at the very top, then Open orders, then recent closed/failed trades
-        const pendingManual = manualTrades.filter(t => t.status === "Pending");
-        const openManual = manualTrades.filter(t => t.status === "Open" || !t.status);
+        // Optimize: Show all active/pending manual trades, and only last 10 closed ones to prevent DOM rendering lag
+        const activeManual = manualTrades.filter(t => t.status === "Open" || t.status === "Pending" || !t.status);
         const closedManual = manualTrades.filter(t => t.status !== "Open" && t.status !== "Pending" && t.status);
         const limitedClosedManual = closedManual.slice(-10);
-        const manualTradesToRender = [...pendingManual, ...openManual, ...limitedClosedManual];
+        const manualTradesToRender = [...activeManual, ...limitedClosedManual];
 
         manualTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
@@ -995,69 +994,34 @@ function updateDashboard(data) {
     logsContainer.scrollTop = logsContainer.scrollHeight;
     
     // Render Month Master Live spreads
-    const monthMasterMappings = data.month_master || [];
     const monthMasterLive = data.month_master_live || [];
     if (monthMasterLiveSection && monthMasterLiveCards) {
-        if (monthMasterMappings.length === 0 && monthMasterLive.length === 0) {
+        if (monthMasterLive.length === 0) {
             monthMasterLiveSection.style.display = "none";
         } else {
             monthMasterLiveSection.style.display = "block";
             let cardsHtml = "";
-            
-            const liveMap = {};
             monthMasterLive.forEach(item => {
-                const key = `${item.petal_symbol}_${item.mini_symbol}`;
-                liveMap[key] = item;
-            });
-            
-            // Prefer iterating over monthMasterMappings to show all added pairs
-            const listToIterate = monthMasterMappings.length > 0 ? monthMasterMappings : monthMasterLive;
-            listToIterate.forEach(mapping => {
-                const pSym = mapping.petal_symbol || "";
-                const mSym = mapping.mini_symbol || "";
-                const key = `${pSym}_${mSym}`;
-                const liveItem = liveMap[key];
-                
-                let spread = 0.0;
-                let depthBuySpread = 0.0;
-                let depthSellSpread = 0.0;
-                let isLive = false;
-                
-                if (liveItem) {
-                    spread = Number(liveItem.spread) || 0.0;
-                    depthBuySpread = Number(liveItem.depth_buy_spread) || 0.0;
-                    depthSellSpread = Number(liveItem.depth_sell_spread) || 0.0;
-                    isLive = true;
-                } else if (mapping.spread !== undefined) {
-                    spread = Number(mapping.spread) || 0.0;
-                    depthBuySpread = Number(mapping.depth_buy_spread) || 0.0;
-                    depthSellSpread = Number(mapping.depth_sell_spread) || 0.0;
-                    isLive = true;
-                } else if (data.current_spread !== undefined) {
-                    spread = Number(data.current_spread) || 0.0;
-                    depthBuySpread = Number(data.depth_buy_spread) || 0.0;
-                    depthSellSpread = Number(data.depth_sell_spread) || 0.0;
-                }
-                
-                const spreadClass = spread >= 0 ? "text-green" : "text-red";
+                const spreadChange = item.spread;
+                const spreadClass = spreadChange >= 0 ? "text-green" : "text-red";
                 cardsHtml += `
                     <div class="metric-card month-master-live-card" style="padding: 0.75rem 1rem; border-radius: 8px; background: linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.35rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
                         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">
-                            <span>${pSym} / ${mSym}</span>
-                            <span style="font-size: 0.62rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60A5FA;">${isLive ? 'Live Feed' : 'Active Pair'}</span>
+                            <span>${item.petal_symbol} / ${item.mini_symbol}</span>
+                            <span style="font-size: 0.62rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60A5FA;">Live Feed</span>
                         </div>
                         <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.1rem 0;">
                             <span style="font-size: 0.7rem; color: var(--text-muted);">LTP Spread:</span>
-                            <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${spread.toFixed(2)}</span>
+                            <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${item.spread.toFixed(2)}</span>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.65rem; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.15rem;">
                             <div style="display: flex; flex-direction: column; gap: 0.05rem;">
                                 <span style="color: var(--text-muted);">Depth Buy:</span>
-                                <strong class="font-mono text-green" style="font-size: 0.72rem;">${depthBuySpread.toFixed(2)}</strong>
+                                <strong class="font-mono text-green" style="font-size: 0.72rem;">${item.depth_buy_spread.toFixed(2)}</strong>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 0.05rem; align-items: flex-end;">
                                 <span style="color: var(--text-muted);">Depth Sell:</span>
-                                <strong class="font-mono text-red" style="font-size: 0.72rem;">${depthSellSpread.toFixed(2)}</strong>
+                                <strong class="font-mono text-red" style="font-size: 0.72rem;">${item.depth_sell_spread.toFixed(2)}</strong>
                             </div>
                         </div>
                     </div>
@@ -1178,7 +1142,7 @@ entryBtn.addEventListener("click", () => {
     const modeStr = (paperModeInput && paperModeInput.checked) ? "PAPER ORDER" : "REAL ORDER";
     const symbolStr = (window.latestDataPayload && window.latestDataPayload.petal_symbol) ? window.latestDataPayload.petal_symbol : "Selected Month";
 
-    const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nDo you want to place this order?`;
+    const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nKya aap ye order place karna chahte hain?`;
     if (!confirm(confirmMsg)) {
         return;
     }
@@ -1193,13 +1157,11 @@ entryBtn.addEventListener("click", () => {
     }
 });
 
-// Handle manual Position Exit square-off action (if button exists)
-if (exitBtn) {
-    exitBtn.addEventListener("click", () => {
-        logLocalMessage("[SYSTEM] Dispatching manual square-off command...");
-        postAction("exit");
-    });
-}
+// Handle manual Position Exit square-off action
+exitBtn.addEventListener("click", () => {
+    logLocalMessage("[SYSTEM] Dispatching manual square-off command...");
+    postAction("exit");
+});
 
 // Handle Emergency Kill Switch action
 killSwitchBtn.addEventListener("click", () => {
@@ -1230,32 +1192,32 @@ window.dismissManualTrade = function(tradeId) {
 
 // Submit strategy rules & config form parameters to the backend
 function saveParameters() {
-    const entryVal = entryInput ? (parseFloat(entryInput.value) || 1000.0) : 1000.0;
-    const targetVal = targetInput ? (parseFloat(targetInput.value) || 1150.0) : 1150.0;
-    const slVal = slInput ? (parseFloat(slInput.value) || 600.0) : 600.0;
-    const totalCapitalVal = capitalInput ? (parseFloat(capitalInput.value) || 500000.0) : 500000.0;
+    const entryVal = parseFloat(entryInput.value);
+    const targetVal = parseFloat(targetInput.value);
+    const slVal = parseFloat(slInput.value);
+    const totalCapitalVal = parseFloat(capitalInput.value);
     
-    const autoTarget = checkboxTarget ? checkboxTarget.checked : false;
-    const autoTargetVal = inputAutoTargetVal ? (parseFloat(inputAutoTargetVal.value) || 5000.0) : 5000.0;
+    const autoTarget = checkboxTarget.checked;
+    const autoTargetVal = parseFloat(inputAutoTargetVal.value);
     
-    const autoSl = checkboxSl ? checkboxSl.checked : false;
-    const autoSlVal = inputAutoSlVal ? (parseFloat(inputAutoSlVal.value) || -3000.0) : -3000.0;
+    const autoSl = checkboxSl.checked;
+    const autoSlVal = parseFloat(inputAutoSlVal.value);
     
-    const autoSquareoff = checkboxSquareoff ? checkboxSquareoff.checked : false;
-    const autoSquareoffTime = inputAutoSquareoffTime ? inputAutoSquareoffTime.value.trim() : "23:30";
-    const paperMode = paperModeInput ? paperModeInput.checked : true;
-    const autoTrading = autoTradingInput ? autoTradingInput.checked : false;
+    const autoSquareoff = checkboxSquareoff.checked;
+    const autoSquareoffTime = inputAutoSquareoffTime.value.trim();
+    const paperMode = paperModeInput.checked;
+    const autoTrading = autoTradingInput.checked;
     
-    const spreadBufferVal = inputSpreadBuffer ? (parseFloat(inputSpreadBuffer.value) || 0.0) : 0.0;
-    const autoContraction = checkboxContractionEntry ? checkboxContractionEntry.checked : false;
-    const autoSpreadExit = checkboxSpreadExit ? checkboxSpreadExit.checked : false;
+    const spreadBufferVal = parseFloat(inputSpreadBuffer.value) || 0.0;
+    const autoContraction = checkboxContractionEntry.checked;
+    const autoSpreadExit = checkboxSpreadExit.checked;
 
     // Broker configs
-    const broker = selectBroker ? selectBroker.value : "AngelOne";
-    const clientIdVal = angeloneClientId ? angeloneClientId.value.trim() : "";
-    const passwordVal = angelonePassword ? angelonePassword.value.trim() : "";
-    const totpVal = angeloneTotp ? angeloneTotp.value.trim() : "";
-    const apiKeyVal = angeloneApiKey ? angeloneApiKey.value.trim() : "";
+    const broker = selectBroker.value;
+    const clientIdVal = angeloneClientId.value.trim();
+    const passwordVal = angelonePassword.value.trim();
+    const totpVal = angeloneTotp.value.trim();
+    const apiKeyVal = angeloneApiKey.value.trim();
     const petalSymbol = angelonePetalSymbol ? angelonePetalSymbol.value.trim() : "";
     const petalToken = angelonePetalToken ? angelonePetalToken.value.trim() : "";
     const miniSymbol = angeloneMiniSymbol ? angeloneMiniSymbol.value.trim() : "";
@@ -1280,8 +1242,13 @@ function saveParameters() {
     const upstoxPetalSymbolVal = upstoxPetalSymbol ? upstoxPetalSymbol.value.trim() : "";
     const upstoxMiniSymbolVal = upstoxMiniSymbol ? upstoxMiniSymbol.value.trim() : "";
 
-    const tradeQtyVal = quantityInput ? (parseInt(quantityInput.value) || 1) : 1;
+    const tradeQtyVal = parseInt(quantityInput.value) || 1;
 
+    if (isNaN(entryVal) || isNaN(targetVal) || isNaN(slVal) || isNaN(autoTargetVal) || isNaN(autoSlVal) || isNaN(totalCapitalVal) || isNaN(tradeQtyVal) || isNaN(spreadBufferVal)) {
+        logLocalMessage("[SYSTEM] Error: Numeric config fields must hold valid values.");
+        return;
+    }
+    
     const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
     if (autoSquareoff && !timeRegex.test(autoSquareoffTime)) {
         logLocalMessage("[SYSTEM] Error: Auto square-off time must match HH:MM format (24-hour).");
@@ -1341,7 +1308,7 @@ function saveParameters() {
             
             const mode = paperMode ? "Paper Mode" : "Live Mode";
             const autoState = autoTrading ? "ON" : "OFF";
-            logLocalMessage(`[SYSTEM] Configurations updated successfully. Broker: ${broker}. Mode: ${mode}.`);
+            logLocalMessage(`[SYSTEM] System updated. Capital: ${totalCapitalVal.toLocaleString()} INR. Broker: ${broker}. Mode: ${mode}.`);
         }
     });
 }
@@ -1375,15 +1342,15 @@ checkboxesToTrack.forEach(cb => {
 });
 
 // Event listener bindings for parameter saves and mode toggles
-if (updateParamsBtn) updateParamsBtn.addEventListener("click", saveParameters);
-if (paperModeInput) paperModeInput.addEventListener("change", saveParameters);
-if (autoTradingInput) autoTradingInput.addEventListener("change", saveParameters);
-if (checkboxTarget) checkboxTarget.addEventListener("change", saveParameters);
-if (checkboxSl) checkboxSl.addEventListener("change", saveParameters);
-if (checkboxSquareoff) checkboxSquareoff.addEventListener("change", saveParameters);
-if (checkboxContractionEntry) checkboxContractionEntry.addEventListener("change", saveParameters);
-if (checkboxSpreadExit) checkboxSpreadExit.addEventListener("change", saveParameters);
-if (inputSpreadBuffer) inputSpreadBuffer.addEventListener("change", saveParameters);
+updateParamsBtn.addEventListener("click", saveParameters);
+paperModeInput.addEventListener("change", saveParameters);
+autoTradingInput.addEventListener("change", saveParameters);
+checkboxTarget.addEventListener("change", saveParameters);
+checkboxSl.addEventListener("change", saveParameters);
+checkboxSquareoff.addEventListener("change", saveParameters);
+checkboxContractionEntry.addEventListener("change", saveParameters);
+checkboxSpreadExit.addEventListener("change", saveParameters);
+inputSpreadBuffer.addEventListener("change", saveParameters);
 
 selectBroker.addEventListener("change", () => {
     selectBroker.dataset.isDirty = "true";
@@ -1888,19 +1855,11 @@ window.deleteMonthMasterMapping = function(index) {
 };
 
 function saveMonthMasterMappings(mappings) {
-    // Immediately update UI optimistically
-    updateMonthMasterUI(mappings);
-    lastMonthMasterStr = JSON.stringify(mappings);
-
     logLocalMessage("[SYSTEM] Updating Month Master mappings in backend...");
     postAction("month-master", { mappings: mappings })
     .then(data => {
         if (data && data.status === "SUCCESS") {
             logLocalMessage("[SYSTEM] Month Master mappings updated successfully.");
-            if (data.mappings) {
-                updateMonthMasterUI(data.mappings);
-                lastMonthMasterStr = JSON.stringify(data.mappings);
-            }
         } else {
             logLocalMessage("[SYSTEM] Error updating Month Master mappings.");
         }
@@ -1909,13 +1868,13 @@ function saveMonthMasterMappings(mappings) {
 
 if (addMmMappingBtn) {
     addMmMappingBtn.addEventListener("click", () => {
-        const pSym = mmPetalSymbol ? mmPetalSymbol.value.trim() : "";
-        const pTok = mmPetalToken ? mmPetalToken.value.trim() : "";
-        const mSym = mmMiniSymbol ? mmMiniSymbol.value.trim() : "";
-        const mTok = mmMiniToken ? mmMiniToken.value.trim() : "";
+        const pSym = mmPetalSymbol.value.trim();
+        const pTok = mmPetalToken.value.trim();
+        const mSym = mmMiniSymbol.value.trim();
+        const mTok = mmMiniToken.value.trim();
         
         if (!pSym || !mSym) {
-            alert("Leg 1 (Petal) Symbol and Leg 2 (Mini) Symbol are required!");
+            alert("Leg 1 and Leg 2 symbols are required!");
             return;
         }
         
@@ -1924,13 +1883,6 @@ if (addMmMappingBtn) {
             currentMappings = JSON.parse(lastMonthMasterStr || "[]");
         } catch(e) {
             currentMappings = [];
-        }
-        
-        // Prevent duplicate symbols
-        const exists = currentMappings.some(m => m.petal_symbol.toUpperCase() === pSym.toUpperCase() && m.mini_symbol.toUpperCase() === mSym.toUpperCase());
-        if (exists) {
-            alert("This Month Master pair mapping already exists!");
-            return;
         }
         
         currentMappings.push({
@@ -1942,10 +1894,10 @@ if (addMmMappingBtn) {
         
         saveMonthMasterMappings(currentMappings);
         
-        if (mmPetalSymbol) mmPetalSymbol.value = "";
-        if (mmPetalToken) mmPetalToken.value = "";
-        if (mmMiniSymbol) mmMiniSymbol.value = "";
-        if (mmMiniToken) mmMiniToken.value = "";
+        mmPetalSymbol.value = "";
+        mmPetalToken.value = "";
+        mmMiniSymbol.value = "";
+        mmMiniToken.value = "";
     });
 }
 
