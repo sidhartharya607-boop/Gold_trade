@@ -3521,8 +3521,8 @@ class UpdateParamsPayload(BaseModel):
     auto_target_val: float
     auto_sl_enabled: bool
     auto_sl_val: float
-    auto_square_off_enabled: bool
-    auto_square_off_time: str
+    auto_square_off_enabled: bool = False
+    auto_square_off_time: str = "23:30"
     auto_trading_enabled: bool
     spread_buffer: float
     auto_contraction_enabled: bool

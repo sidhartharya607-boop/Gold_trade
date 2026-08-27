@@ -79,9 +79,6 @@ const inputAutoTargetVal = document.getElementById("input-auto-target-val");
 const checkboxSl = document.getElementById("checkbox-sl");
 const inputAutoSlVal = document.getElementById("input-auto-sl-val");
 
-const checkboxSquareoff = document.getElementById("checkbox-squareoff");
-const inputAutoSquareoffTime = document.getElementById("input-auto-squareoff-time");
-
 const paperModeInput = document.getElementById("input-paper-mode");
 const autoTradingInput = document.getElementById("input-auto-trading");
 
@@ -498,9 +495,6 @@ function updateDashboard(data) {
     
     syncCheckboxField(checkboxSl, data.auto_sl_enabled);
     syncInputField(inputAutoSlVal, data.auto_sl_val);
-    
-    syncCheckboxField(checkboxSquareoff, data.auto_square_off_enabled);
-    syncInputField(inputAutoSquareoffTime, data.auto_square_off_time);
     
     syncInputField(inputSpreadBuffer, data.spread_buffer);
     syncCheckboxField(checkboxContractionEntry, data.auto_contraction_enabled);
@@ -1203,8 +1197,6 @@ function saveParameters() {
     const autoSl = checkboxSl.checked;
     const autoSlVal = parseFloat(inputAutoSlVal.value);
     
-    const autoSquareoff = checkboxSquareoff.checked;
-    const autoSquareoffTime = inputAutoSquareoffTime.value.trim();
     const paperMode = paperModeInput.checked;
     const autoTrading = autoTradingInput.checked;
     
@@ -1249,11 +1241,6 @@ function saveParameters() {
         return;
     }
     
-    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
-    if (autoSquareoff && !timeRegex.test(autoSquareoffTime)) {
-        logLocalMessage("[SYSTEM] Error: Auto square-off time must match HH:MM format (24-hour).");
-        return;
-    }
 
     logLocalMessage("[SYSTEM] Syncing configurations with backend...");
     postAction("update-rules", {
@@ -1267,8 +1254,8 @@ function saveParameters() {
         auto_target_val: autoTargetVal,
         auto_sl_enabled: autoSl,
         auto_sl_val: autoSlVal,
-        auto_square_off_enabled: autoSquareoff,
-        auto_square_off_time: autoSquareoffTime,
+        auto_square_off_enabled: false,
+        auto_square_off_time: "23:30",
         auto_trading_enabled: autoTrading,
         spread_buffer: spreadBufferVal,
         auto_contraction_enabled: autoContraction,
@@ -1316,7 +1303,7 @@ function saveParameters() {
 // Track user modifications (dirty fields)
 const inputsToTrack = [
     entryInput, targetInput, slInput, capitalInput, quantityInput,
-    inputSpreadBuffer, inputAutoTargetVal, inputAutoSlVal, inputAutoSquareoffTime,
+    inputSpreadBuffer, inputAutoTargetVal, inputAutoSlVal,
     growwClientId, growwApiKey, growwSecret, growwPetalSymbol, growwMiniSymbol,
     angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken,
     upstoxClientId, upstoxSecret, upstoxAccessToken, upstoxPetalSymbol, upstoxMiniSymbol,
@@ -1331,7 +1318,7 @@ inputsToTrack.forEach(input => {
 });
 
 const checkboxesToTrack = [
-    checkboxTarget, checkboxSl, checkboxSquareoff, checkboxContractionEntry, checkboxSpreadExit
+    checkboxTarget, checkboxSl, checkboxContractionEntry, checkboxSpreadExit
 ];
 checkboxesToTrack.forEach(cb => {
     if (cb) {
@@ -1347,7 +1334,6 @@ paperModeInput.addEventListener("change", saveParameters);
 autoTradingInput.addEventListener("change", saveParameters);
 checkboxTarget.addEventListener("change", saveParameters);
 checkboxSl.addEventListener("change", saveParameters);
-checkboxSquareoff.addEventListener("change", saveParameters);
 checkboxContractionEntry.addEventListener("change", saveParameters);
 checkboxSpreadExit.addEventListener("change", saveParameters);
 inputSpreadBuffer.addEventListener("change", saveParameters);
