@@ -972,7 +972,7 @@ def is_liquidity_sufficient(petal_action: str, mini_action: str, qty: int) -> bo
 
     return True
 
-async def check_real_orders_status(order_ids: List[str]) -> Dict[str, str]:
+async def check_real_orders_status(order_ids: List[str]) -> Dict[str, Dict]:
     if not system_state.smart_connect:
         return {}
     try:
@@ -985,9 +985,19 @@ async def check_real_orders_status(order_ids: List[str]) -> Dict[str, str]:
             order_list = response.get("data", [])
             status_map = {}
             for o in order_list:
-                oid = o.get("orderid")
+                oid = str(o.get("orderid", ""))
                 if oid in order_ids:
-                    status_map[oid] = o.get("status", "").upper()
+                    status = o.get("status", "").upper()
+                    avg_price = 0.0
+                    for k in ["averageprice", "avgprice", "price"]:
+                        if o.get(k):
+                            try:
+                                avg_price = float(o[k])
+                                if avg_price > 0:
+                                    break
+                            except (ValueError, TypeError):
+                                pass
+                    status_map[oid] = {"status": status, "average_price": avg_price}
             return status_map
     except Exception as e:
         system_state.log(f"[LIVE ORDER STATUS] Error checking order book: {e}")
@@ -1006,7 +1016,7 @@ async def cancel_real_order(order_id: str, variety: str = "NORMAL"):
     except Exception as e:
         system_state.log(f"[LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
 
-async def check_dhan_orders_status(order_ids: List[str]) -> Dict[str, str]:
+async def check_dhan_orders_status(order_ids: List[str]) -> Dict[str, Dict]:
     if not system_state.dhan_client:
         return {}
     try:
@@ -1023,9 +1033,19 @@ async def check_dhan_orders_status(order_ids: List[str]) -> Dict[str, str]:
                 if oid in order_ids:
                     raw_status = o.get("orderStatus", "").upper()
                     if raw_status == "TRADED":
-                        status_map[oid] = "COMPLETE"
+                        status = "COMPLETE"
                     else:
-                        status_map[oid] = raw_status
+                        status = raw_status
+                    avg_price = 0.0
+                    for k in ["tradedPrice", "averagePrice", "price"]:
+                        if o.get(k):
+                            try:
+                                avg_price = float(o[k])
+                                if avg_price > 0:
+                                    break
+                            except (ValueError, TypeError):
+                                pass
+                    status_map[oid] = {"status": status, "average_price": avg_price}
             return status_map
     except Exception as e:
         system_state.log(f"[DHAN LIVE ORDER STATUS] Error checking order book: {e}")
@@ -1044,7 +1064,7 @@ async def cancel_dhan_order(order_id: str):
     except Exception as e:
         system_state.log(f"[DHAN LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
 
-async def check_groww_orders_status(order_ids: List[str]) -> Dict[str, str]:
+async def check_groww_orders_status(order_ids: List[str]) -> Dict[str, Dict]:
     if not system_state.groww_client:
         return {}
     try:
@@ -1058,15 +1078,25 @@ async def check_groww_orders_status(order_ids: List[str]) -> Dict[str, str]:
             if isinstance(response, dict):
                 raw_status = response.get("order_status", "").upper()
                 if raw_status in ["SUCCESS", "COMPLETE", "TRADED"]:
-                    status_map[oid] = "COMPLETE"
+                    status = "COMPLETE"
                 elif raw_status == "OPEN":
-                    status_map[oid] = "OPEN"
+                    status = "OPEN"
                 elif raw_status in ["FAILED", "REJECTED"]:
-                    status_map[oid] = "REJECTED"
+                    status = "REJECTED"
                 elif raw_status == "CANCELLED":
-                    status_map[oid] = "CANCELLED"
+                    status = "CANCELLED"
                 else:
-                    status_map[oid] = raw_status
+                    status = raw_status
+                avg_price = 0.0
+                for k in ["average_price", "price"]:
+                    if response.get(k):
+                        try:
+                            avg_price = float(response[k])
+                            if avg_price > 0:
+                                break
+                        except (ValueError, TypeError):
+                            pass
+                status_map[oid] = {"status": status, "average_price": avg_price}
         return status_map
     except Exception as e:
         system_state.log(f"[GROWW LIVE ORDER STATUS] Error checking order book: {e}")
@@ -1391,21 +1421,31 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             status_map = await check_status_func([petal_order_id, mini_order_id])
             
             if not petal_filled:
-                status = status_map.get(petal_order_id)
+                val = status_map.get(petal_order_id, {})
+                status = val.get("status", "") if isinstance(val, dict) else str(val).upper()
+                avg_p = val.get("average_price", 0.0) if isinstance(val, dict) else 0.0
                 if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
                     petal_filled = True
-                    petal_fill_price = petal_ltp
-                    system_state.log(f"[LIVE MARKET FILL] Leg 1: {target_petal_symbol} filled @ MARKET {petal_fill_price:.2f}")
+                    if avg_p and avg_p > 0:
+                        petal_fill_price = avg_p
+                    else:
+                        petal_fill_price = petal_ltp
+                    system_state.log(f"[LIVE MARKET FILL] Leg 1: {target_petal_symbol} filled @ MARKET {petal_fill_price:.2f} (Traded Avg)")
                 elif status in ["REJECTED", "CANCELLED"]:
                     system_state.log(f"[LIVE ORDER CANCEL/REJECT] Leg 1: {target_petal_symbol} order {status.lower()}")
                     break
                     
             if not mini_filled:
-                status = status_map.get(mini_order_id)
+                val = status_map.get(mini_order_id, {})
+                status = val.get("status", "") if isinstance(val, dict) else str(val).upper()
+                avg_p = val.get("average_price", 0.0) if isinstance(val, dict) else 0.0
                 if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
                     mini_filled = True
-                    mini_fill_price = mini_ltp
-                    system_state.log(f"[LIVE MARKET FILL] Leg 2: {target_mini_symbol} filled @ MARKET {mini_fill_price:.2f}")
+                    if avg_p and avg_p > 0:
+                        mini_fill_price = avg_p
+                    else:
+                        mini_fill_price = mini_ltp
+                    system_state.log(f"[LIVE MARKET FILL] Leg 2: {target_mini_symbol} filled @ MARKET {mini_fill_price:.2f} (Traded Avg)")
                 elif status in ["REJECTED", "CANCELLED"]:
                     system_state.log(f"[LIVE ORDER CANCEL/REJECT] Leg 2: {target_mini_symbol} order {status.lower()}")
                     break
