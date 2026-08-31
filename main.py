@@ -1693,7 +1693,7 @@ async def run_auto_exit(exit_reason: str, expected_exit_spread: float):
         system_state.execution_in_progress = False
         await broadcast_system_state()
 
-async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread: float, paper_mode: bool):
+async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread: float, paper_mode: bool, exit_gap: float = 100.0):
     if system_state.ta_execution_in_progress:
         return
     system_state.ta_execution_in_progress = True
@@ -1727,6 +1727,7 @@ async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread:
                 "mini_entry_price": result["mini_fill_price"],
                 "entry_spread": (result["petal_fill_price"] * 10.0) - result["mini_fill_price"],
                 "expected_entry_spread": expected_spread,
+                "exit_gap": exit_gap,
                 "petal_entry_type": result["petal_order_type"],
                 "mini_entry_type": result["mini_order_type"],
                 "petal_exit_price": 0.0,
@@ -1899,16 +1900,17 @@ async def run_trade_automation_checks():
         # Check exits first
         for trade in open_trades:
             entry_spread = trade["entry_spread"]
+            t_exit_gap = trade.get("exit_gap", exit_gap)
             exit_triggered = False
             if direction == "Expansion":
-                if sell_spread >= entry_spread + exit_gap:
+                if sell_spread >= entry_spread + t_exit_gap:
                     exit_triggered = True
             elif direction == "Contraction":
-                if buy_spread <= entry_spread - exit_gap:
+                if buy_spread <= entry_spread - t_exit_gap:
                     exit_triggered = True
                     
             if exit_triggered:
-                system_state.log(f"[TA TRIGGER] Exit met for trade ID {trade['id']} ({p_sym}/{m_sym}). Entry: {entry_spread:.2f}, Exit: {sell_spread if direction == 'Expansion' else buy_spread:.2f}")
+                system_state.log(f"[TA TRIGGER] Exit met for trade ID {trade['id']} ({p_sym}/{m_sym}). Entry: {entry_spread:.2f}, Exit: {sell_spread if direction == 'Expansion' else buy_spread:.2f} (Target Gap: {t_exit_gap:.2f})")
                 await run_ta_exit(trade, mapping, paper_mode)
                 return # Process one action at a time to prevent concurrency conflicts
                 
@@ -1925,7 +1927,7 @@ async def run_trade_automation_checks():
                     
             if entry_triggered:
                 system_state.log(f"[TA TRIGGER] First entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {entry_diff:.2f})")
-                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode)
+                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
                 return
         else:
             # Check averaging entry
@@ -1942,7 +1944,7 @@ async def run_trade_automation_checks():
                     
             if averaging_triggered:
                 system_state.log(f"[TA TRIGGER] Averaging entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Last: {last_entry_spread:.2f}, Step: {averaging_step:.2f})")
-                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode)
+                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
                 return
 
 async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None) -> dict:

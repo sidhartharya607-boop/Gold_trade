@@ -774,12 +774,25 @@ function updateDashboard(data) {
             
             const entrySpreadVal = trade.entry_spread !== undefined ? parseFloat(trade.entry_spread).toFixed(2) : "--";
             let spreadDisplay = "";
+            let currentExitGap = 100.0;
+            if (trade.exit_gap !== undefined && trade.exit_gap !== null) {
+                currentExitGap = parseFloat(trade.exit_gap);
+            } else if (Array.isArray(data.ta_configs) && Array.isArray(data.month_master)) {
+                const matchingConfig = data.ta_configs.find(cfg => {
+                    const mm = data.month_master[cfg.month_idx];
+                    return mm && mm.petal_symbol === trade.petal_symbol && mm.mini_symbol === trade.mini_symbol;
+                });
+                if (matchingConfig && matchingConfig.exit_gap !== undefined && matchingConfig.exit_gap !== null) {
+                    currentExitGap = parseFloat(matchingConfig.exit_gap);
+                }
+            }
+
             if (status === "Open") {
-                const targetExitSpread = parseFloat(trade.entry_spread) + (trade.direction === "Expansion" ? (data.ta_exit_gap || 100.0) : -(data.ta_exit_gap || 100.0));
+                const targetExitSpread = parseFloat(trade.entry_spread) + (trade.direction === "Expansion" ? currentExitGap : -currentExitGap);
                 spreadDisplay = `
                     <div style="font-size: 0.72rem; line-height: 1.4;">
                         <div>Ent: <strong class="font-mono">${entrySpreadVal}</strong></div>
-                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono">${targetExitSpread.toFixed(2)}</span></div>
+                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono">${targetExitSpread.toFixed(2)}</span> <small style="color: #60a5fa; font-size: 0.65rem;">(Gap: ${currentExitGap})</small></div>
                     </div>
                 `;
             } else {
