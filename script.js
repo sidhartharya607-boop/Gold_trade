@@ -2161,24 +2161,16 @@ window.saveEditTaTrade = async function() {
     }
     
     try {
-        const response = await fetch("/api/ta-edit-trade", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": AUTH_TOKEN
-            },
-            body: JSON.stringify({
-                trade_id: tradeId,
-                exit_gap: newGap
-            })
+        const result = await postAction("ta-edit-trade", {
+            trade_id: tradeId,
+            exit_gap: newGap
         });
         
-        const result = await response.json();
-        if (response.ok) {
+        if (result && result.status === "SUCCESS") {
             logLocalMessage(`[SYSTEM] Target for Trade ID ${tradeId} updated to Gap: ${newGap} (Target Spread: ${result.target_spread})`);
             closeEditTaTradeModal();
-        } else {
-            alert(`Error: ${result.detail || result.message || "Failed to update target."}`);
+        } else if (result && result.message) {
+            alert(`Error: ${result.message}`);
         }
     } catch (err) {
         alert(`Network Error: ${err.message}`);
