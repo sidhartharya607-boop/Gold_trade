@@ -840,7 +840,12 @@ function updateDashboard(data) {
             
             let actionBtn = "";
             if (status === "Open") {
-                actionBtn = `<span style="color: var(--text-muted); font-size: 0.75rem;">--</span>`;
+                actionBtn = `
+                    <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
+                        <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${currentExitGap}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap / Target Spread for this trade">✏️ Edit Tgt</button>
+                        <button class="metallic-button" onclick="exitTaTrade(${trade.id})" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Square off this trade immediately">Exit</button>
+                    </div>
+                `;
             } else {
                 actionBtn = `<button class="metallic-button" onclick="dismissTaTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
             }
@@ -2074,3 +2079,129 @@ if (taExportBtn) {
         logLocalMessage("[SYSTEM] Trade Automation CSV log file exported successfully.");
     });
 }
+
+// ==========================================
+// Trade Automation: Edit Trade Target Modal Handlers
+// ==========================================
+const taEditModal = document.getElementById("ta-edit-modal");
+const taEditModalTitle = document.getElementById("ta-edit-modal-title");
+const taEditTradeId = document.getElementById("ta-edit-trade-id");
+const taEditTradeDirection = document.getElementById("ta-edit-trade-direction");
+const taEditTradeEntrySpread = document.getElementById("ta-edit-trade-entry-spread");
+const taEditDispDirection = document.getElementById("ta-edit-disp-direction");
+const taEditDispEntrySpread = document.getElementById("ta-edit-disp-entry-spread");
+const taEditInputGap = document.getElementById("ta-edit-input-gap");
+const taEditInputTargetSpread = document.getElementById("ta-edit-input-target-spread");
+const taEditSaveBtn = document.getElementById("ta-edit-save-btn");
+
+window.openEditTaTradeModal = function(tradeId, currentGap, entrySpread, direction) {
+    if (!taEditModal) return;
+    
+    taEditTradeId.value = tradeId;
+    taEditTradeDirection.value = direction;
+    taEditTradeEntrySpread.value = entrySpread;
+    
+    if (taEditModalTitle) taEditModalTitle.innerText = `Edit Target - Trade #${tradeId}`;
+    if (taEditDispDirection) taEditDispDirection.innerText = direction;
+    if (taEditDispEntrySpread) taEditDispEntrySpread.innerText = Number(entrySpread).toFixed(2);
+    
+    const gap = parseFloat(currentGap) || 100.0;
+    taEditInputGap.value = gap;
+    
+    const targetSpread = direction === "Expansion" ? (entrySpread + gap) : (entrySpread - gap);
+    taEditInputTargetSpread.value = targetSpread.toFixed(2);
+    
+    taEditModal.style.display = "flex";
+    taEditInputGap.focus();
+    taEditInputGap.select();
+};
+
+window.closeEditTaTradeModal = function() {
+    if (taEditModal) {
+        taEditModal.style.display = "none";
+    }
+};
+
+if (taEditInputGap) {
+    taEditInputGap.addEventListener("input", () => {
+        const entry = parseFloat(taEditTradeEntrySpread.value) || 0.0;
+        const dir = taEditTradeDirection.value || "Expansion";
+        const gap = parseFloat(taEditInputGap.value);
+        if (!isNaN(gap)) {
+            const tgt = dir === "Expansion" ? (entry + gap) : (entry - gap);
+            taEditInputTargetSpread.value = tgt.toFixed(2);
+        }
+    });
+}
+
+if (taEditInputTargetSpread) {
+    taEditInputTargetSpread.addEventListener("input", () => {
+        const entry = parseFloat(taEditTradeEntrySpread.value) || 0.0;
+        const dir = taEditTradeDirection.value || "Expansion";
+        const tgt = parseFloat(taEditInputTargetSpread.value);
+        if (!isNaN(tgt)) {
+            const gap = dir === "Expansion" ? (tgt - entry) : (entry - tgt);
+            taEditInputGap.value = gap.toFixed(2);
+        }
+    });
+}
+
+window.saveEditTaTrade = async function() {
+    const tradeId = parseInt(taEditTradeId.value);
+    const newGap = parseFloat(taEditInputGap.value);
+    
+    if (isNaN(tradeId) || isNaN(newGap) || newGap <= 0) {
+        alert("Please enter a valid target gap greater than 0.");
+        return;
+    }
+    
+    if (taEditSaveBtn) {
+        taEditSaveBtn.disabled = true;
+        taEditSaveBtn.innerText = "Saving...";
+    }
+    
+    try {
+        const response = await fetch("/api/ta-edit-trade", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": AUTH_TOKEN
+            },
+            body: JSON.stringify({
+                trade_id: tradeId,
+                exit_gap: newGap
+            })
+        });
+        
+        const result = await response.json();
+        if (response.ok) {
+            logLocalMessage(`[SYSTEM] Target for Trade ID ${tradeId} updated to Gap: ${newGap} (Target Spread: ${result.target_spread})`);
+            closeEditTaTradeModal();
+        } else {
+            alert(`Error: ${result.detail || result.message || "Failed to update target."}`);
+        }
+    } catch (err) {
+        alert(`Network Error: ${err.message}`);
+    } finally {
+        if (taEditSaveBtn) {
+            taEditSaveBtn.disabled = false;
+            taEditSaveBtn.innerText = "💾 Save Target";
+        }
+    }
+};
+
+// Close modal on Escape key or outside click
+window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && taEditModal && taEditModal.style.display === "flex") {
+        closeEditTaTradeModal();
+    }
+});
+
+if (taEditModal) {
+    taEditModal.addEventListener("click", (e) => {
+        if (e.target === taEditModal) {
+            closeEditTaTradeModal();
+        }
+    });
+}
+

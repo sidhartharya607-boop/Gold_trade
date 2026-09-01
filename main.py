@@ -3705,6 +3705,59 @@ async def api_ta_dismiss_trade(payload: TADismissTradePayload, token: str = None
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Trade dismissed successfully."}
 
+class TAEditTradePayload(BaseModel):
+    trade_id: int
+    exit_gap: Optional[float] = None
+    target_spread: Optional[float] = None
+
+@app.post("/api/ta-edit-trade")
+async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    trade = None
+    for t in system_state.ta_trades:
+        if t.get("id") == payload.trade_id:
+            trade = t
+            break
+            
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade Automation trade not found.")
+        
+    if trade.get("status") != "Open":
+        raise HTTPException(status_code=400, detail="Only OPEN trades can have their target edited.")
+        
+    direction = trade.get("direction", "Expansion")
+    entry_spread = float(trade.get("entry_spread", 0.0))
+    old_gap = float(trade.get("exit_gap", 100.0))
+    
+    if payload.exit_gap is not None:
+        new_gap = float(payload.exit_gap)
+    elif payload.target_spread is not None:
+        target_spread = float(payload.target_spread)
+        if direction == "Expansion":
+            new_gap = target_spread - entry_spread
+        else:
+            new_gap = entry_spread - target_spread
+    else:
+        raise HTTPException(status_code=400, detail="Either exit_gap or target_spread must be provided.")
+        
+    if new_gap <= 0:
+        raise HTTPException(status_code=400, detail="Target gap must be greater than 0.")
+        
+    trade["exit_gap"] = round(new_gap, 2)
+    system_state.save_ta_trades()
+    
+    target_val = (entry_spread + new_gap) if direction == "Expansion" else (entry_spread - new_gap)
+    system_state.log(f"[TA EDIT] Trade ID {trade['id']} target updated: Gap {old_gap:.2f} -> {new_gap:.2f} (Target Spread: {target_val:.2f})")
+    
+    await broadcast_system_state()
+    return {
+        "status": "SUCCESS", 
+        "message": f"Trade ID {trade['id']} target updated successfully.", 
+        "exit_gap": round(new_gap, 2), 
+        "target_spread": round(target_val, 2)
+    }
+
 @app.post("/api/update-rules")
 async def api_update_rules(payload: UpdateParamsPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)

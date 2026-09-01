@@ -769,6 +769,50 @@
         </section>
     </div>
     
+    <!-- Modal: Edit Trade Target Gap / Target Spread -->
+    <div id="ta-edit-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1.1rem;">✏️</span>
+                    <h3 id="ta-edit-modal-title" style="margin: 0; font-size: 0.95rem; font-weight: 700; color: var(--text-primary);">Edit Trade Target</h3>
+                </div>
+                <button type="button" class="modal-close-btn" onclick="closeEditTaTradeModal()">&times;</button>
+            </div>
+            <div class="modal-body" style="display: flex; flex-direction: column; gap: 0.85rem; padding: 1rem 0;">
+                <input type="hidden" id="ta-edit-trade-id" value="">
+                <input type="hidden" id="ta-edit-trade-direction" value="">
+                <input type="hidden" id="ta-edit-trade-entry-spread" value="">
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; background: rgba(255,255,255,0.03); padding: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color);">
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); display: block;">Direction</span>
+                        <strong id="ta-edit-disp-direction" class="font-mono" style="font-size: 0.82rem; color: var(--text-primary);">--</strong>
+                    </div>
+                    <div>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); display: block;">Filled Entry Spread</span>
+                        <strong id="ta-edit-disp-entry-spread" class="font-mono" style="font-size: 0.82rem; color: #38bdf8;">--</strong>
+                    </div>
+                </div>
+
+                <div class="config-item">
+                    <label for="ta-edit-input-gap" class="rule-label" style="font-size: 0.75rem; color: var(--text-secondary);">Target Gap (Spread Points Difference)</label>
+                    <input type="number" step="0.1" id="ta-edit-input-gap" class="rule-input font-mono" placeholder="e.g. 110" style="width: 100%; box-sizing: border-box; font-weight: 700; font-size: 0.9rem;">
+                    <small style="color: var(--text-muted); font-size: 0.68rem; margin-top: 0.2rem; display: block;">Adjusting gap changes the target exit spread for this specific order.</small>
+                </div>
+
+                <div class="config-item">
+                    <label for="ta-edit-input-target-spread" class="rule-label" style="font-size: 0.75rem; color: var(--text-secondary);">Calculated Target Exit Spread</label>
+                    <input type="number" step="0.1" id="ta-edit-input-target-spread" class="rule-input font-mono" placeholder="Target Exit Spread" style="width: 100%; box-sizing: border-box; font-weight: 700; font-size: 0.9rem; color: #34d399;">
+                </div>
+            </div>
+            <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--border-color);">
+                <button type="button" class="metallic-button" onclick="closeEditTaTradeModal()" style="padding: 0.4rem 1rem; font-size: 0.78rem;">Cancel</button>
+                <button type="button" id="ta-edit-save-btn" class="update-button" onclick="saveEditTaTrade()" style="width: auto; padding: 0.4rem 1.25rem; font-size: 0.78rem; font-weight: 700;">💾 Save Target</button>
+            </div>
+        </div>
+    </div>
+    
     <script src="script.js?v=1.4"></script>
 </body>
 </html>
