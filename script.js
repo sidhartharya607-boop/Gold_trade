@@ -140,9 +140,11 @@ const taInputEntryDiff = document.getElementById("ta-input-entry-diff");
 const taInputAveragingStep = document.getElementById("ta-input-averaging-step");
 const taInputExitGap = document.getElementById("ta-input-exit-gap");
 const taInputQuantity = document.getElementById("ta-input-quantity");
+const taInputMaxOrders = document.getElementById("ta-input-max-orders");
 const taSelectDirection = document.getElementById("ta-select-direction");
 const taCheckboxPaperMode = document.getElementById("ta-checkbox-paper-mode");
 const taAddConfigBtn = document.getElementById("ta-add-config-btn");
+const taClearAllTradesBtn = document.getElementById("ta-clear-all-trades-btn");
 const taConfigsBody = document.getElementById("ta-configs-body");
 const taTradesBody = document.getElementById("ta-trades-body");
 
@@ -734,6 +736,7 @@ function updateDashboard(data) {
                 <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.averaging_step}</td>
                 <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.exit_gap}</td>
                 <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.quantity}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.max_orders || 5}</td>
                 <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${config.paper_mode ? "Paper" : "Real"}</td>
                 <td style="padding: 0.5rem; text-align: center;">${statusToggle}</td>
                 <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">
@@ -1927,6 +1930,7 @@ if (taAddConfigBtn) {
         const averagingStep = parseFloat(taInputAveragingStep.value);
         const exitGap = parseFloat(taInputExitGap.value);
         const qty = parseInt(taInputQuantity.value);
+        const maxOrders = taInputMaxOrders ? parseInt(taInputMaxOrders.value) || 5 : 5;
         const direction = taSelectDirection.value;
         const paperMode = taCheckboxPaperMode.checked;
         
@@ -1950,6 +1954,7 @@ if (taAddConfigBtn) {
             averaging_step: averagingStep,
             exit_gap: exitGap,
             quantity: qty,
+            max_orders: maxOrders,
             direction: direction,
             paper_mode: paperMode,
             enabled: true
@@ -1964,6 +1969,20 @@ if (taAddConfigBtn) {
                 logLocalMessage("[SYSTEM] Trade Automation instance added successfully.");
             }
         });
+    });
+}
+
+if (taClearAllTradesBtn) {
+    taClearAllTradesBtn.addEventListener("click", () => {
+        if (confirm("Are you sure you want to clear all Trade Automation orders? This will wipe all current automation trades.")) {
+            logLocalMessage("[SYSTEM] Clearing all Trade Automation orders...");
+            postAction("clear-ta-trades", {})
+            .then(res => {
+                if (res && res.status === "SUCCESS") {
+                    logLocalMessage(`[SYSTEM] ${res.message}`);
+                }
+            });
+        }
     });
 }
 

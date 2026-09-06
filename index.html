@@ -572,6 +572,10 @@
                             <input type="number" id="ta-input-quantity" class="rule-input font-mono" value="1" min="1" style="width: 100%; box-sizing: border-box;">
                         </div>
                         <div class="config-item">
+                            <label class="rule-label">Max Orders Limit</label>
+                            <input type="number" id="ta-input-max-orders" class="rule-input font-mono" value="5" min="1" max="50" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div class="config-item">
                             <label class="rule-label">Strategy Direction</label>
                             <select id="ta-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
                                 <option value="Expansion">Spread Expansion</option>
@@ -607,14 +611,15 @@
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Step</th>
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Gap</th>
                                         <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Mode</th>
-                                        <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
-                                        <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px; padding-right: 1.5rem;">Action</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Max Orders</th>
+                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Mode</th>
+                                        <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
+                                        <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 75px; padding-right: 1.5rem;">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody id="ta-configs-body">
                                     <tr>
-                                        <td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td>
+                                        <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -625,7 +630,10 @@
                     <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
                             <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">📋 Active & Closed Automation Trades</h3>
-                            <button id="ta-export-btn" class="metallic-button" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Export Trade Log (CSV)</button>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button id="ta-clear-all-trades-btn" class="metallic-button" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Orders</button>
+                                <button id="ta-export-btn" class="metallic-button" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Export Trade Log (CSV)</button>
+                            </div>
                         </div>
                         <div class="table-container" style="max-height: 250px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
                             <table class="history-table" style="width: 100%; border-collapse: collapse;">

@@ -1915,37 +1915,37 @@ async def run_trade_automation_checks():
                 return # Process one action at a time to prevent concurrency conflicts
                 
         # Check entries
-        if len(open_trades) == 0:
-            # Check first entry
-            entry_triggered = False
-            if direction == "Expansion":
-                if buy_spread <= entry_diff:
-                    entry_triggered = True
-            elif direction == "Contraction":
-                if sell_spread >= entry_diff:
-                    entry_triggered = True
-                    
-            if entry_triggered:
-                system_state.log(f"[TA TRIGGER] First entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {entry_diff:.2f})")
-                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
-                return
+        num_open = len(open_trades)
+        max_orders = config.get("max_orders", 5)
+        
+        if num_open >= max_orders:
+            # Reached max order limit for this bot instance - skip taking new entry/averaging trades
+            continue
+
+        if num_open == 0:
+            target_spread = entry_diff
         else:
-            # Check averaging entry
-            last_trade = open_trades[-1]
-            last_entry_spread = last_trade["entry_spread"]
-            
-            averaging_triggered = False
+            # Base Entry Diff Anchored Averaging:
+            # Target is anchored to entry_diff - (num_open * averaging_step) for Expansion
+            # and entry_diff + (num_open * averaging_step) for Contraction
             if direction == "Expansion":
-                if buy_spread <= last_entry_spread - averaging_step:
-                    averaging_triggered = True
-            elif direction == "Contraction":
-                if sell_spread >= last_entry_spread + averaging_step:
-                    averaging_triggered = True
-                    
-            if averaging_triggered:
-                system_state.log(f"[TA TRIGGER] Averaging entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Last: {last_entry_spread:.2f}, Step: {averaging_step:.2f})")
-                await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
-                return
+                target_spread = entry_diff - (num_open * averaging_step)
+            else:
+                target_spread = entry_diff + (num_open * averaging_step)
+
+        entry_triggered = False
+        if direction == "Expansion":
+            if buy_spread <= target_spread:
+                entry_triggered = True
+        elif direction == "Contraction":
+            if sell_spread >= target_spread:
+                entry_triggered = True
+
+        if entry_triggered:
+            trigger_label = "First" if num_open == 0 else f"Averaging #{num_open+1}"
+            system_state.log(f"[TA TRIGGER] {trigger_label} entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {target_spread:.2f}, Base: {entry_diff:.2f}, Step: {averaging_step:.2f})")
+            await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
+            return
 
 async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None) -> dict:
     global system_state
@@ -3626,6 +3626,7 @@ class TAConfigItem(BaseModel):
     direction: str
     paper_mode: bool
     enabled: bool
+    max_orders: Optional[int] = 5
 
 class TAConfigPayload(BaseModel):
     configs: List[TAConfigItem]
@@ -3645,6 +3646,16 @@ async def api_post_ta_config(payload: TAConfigPayload, token: str = None, author
     system_state.log(f"Trade Automation configs updated: {len(system_state.ta_configs)} active instance(s).")
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Trade Automation configurations updated successfully."}
+
+@app.post("/api/clear-ta-trades")
+async def api_clear_ta_trades(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    count = len(system_state.ta_trades)
+    system_state.ta_trades = []
+    system_state.save_ta_trades()
+    system_state.log(f"[TA] Cleared all {count} Trade Automation trades.")
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": f"Cleared all {count} Trade Automation trades successfully."}
 
 class TAExitTradePayload(BaseModel):
     trade_id: int
