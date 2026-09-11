@@ -56,7 +56,11 @@ def get_ist_time_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 def get_market_session_status() -> str:
     """
     Returns:
-      "HOLD" - if morning hold time (09:00:00 to 09:02:59 IST)
+      "HOLD" - if within scheduled volatility blackout windows (no trading/movement allowed):
+               - 09:00:00 to 09:02:59 IST (Morning market open)
+               - 09:13:00 to 09:16:59 IST (Opening settlement)
+               - 13:27:00 to 13:32:59 IST (1:27 PM to 1:33 PM London open)
+               - 17:58:00 to 18:09:59 IST (5:58 PM to 6:10 PM US open)
       "SUSPENDED" - if evening/night suspension time (23:27:00 to 08:59:59 IST)
       "OPEN" - otherwise (trading allowed)
     """
@@ -64,11 +68,23 @@ def get_market_session_status() -> str:
     h = now.hour
     m = now.minute
     
-    # Morning hold: 9:00 to 9:02:59 (inclusive of 9:00, 9:01, 9:02)
+    # 1. Morning open hold: 09:00 to 09:02:59 (inclusive of 9:00, 9:01, 9:02)
     if h == 9 and 0 <= m < 3:
         return "HOLD"
         
-    # Evening suspension: 23:27:00 to 08:59:59 next day
+    # 2. Morning settlement hold: 09:13 to 09:16:59 (inclusive of 9:13, 9:14, 9:15, 9:16)
+    if h == 9 and 13 <= m < 17:
+        return "HOLD"
+        
+    # 3. London open hold: 13:27 to 13:32:59 (1:27 PM to 1:33 PM)
+    if h == 13 and 27 <= m < 33:
+        return "HOLD"
+        
+    # 4. US open hold: 17:58 to 18:09:59 (5:58 PM to 6:10 PM)
+    if (h == 17 and m >= 58) or (h == 18 and m < 10):
+        return "HOLD"
+        
+    # 5. Evening / Overnight suspension: 23:27:00 to 08:59:59 next day
     if (h == 23 and m >= 27) or (h < 9):
         return "SUSPENDED"
         
@@ -250,7 +266,93 @@ class TradingSystem:
         self.load_ta_trades()
         self.load_ta_configs()
         self.load_angel_master()
+        self.load_rules()
         
+    def load_rules(self):
+        try:
+            if os.path.exists("rules_config.json"):
+                with open("rules_config.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if "entry_threshold" in data: self.entry_threshold = float(data["entry_threshold"])
+                    if "target_threshold" in data: self.target_threshold = float(data["target_threshold"])
+                    if "sl_threshold" in data: self.sl_threshold = float(data["sl_threshold"])
+                    if "total_capital" in data: self.total_capital = float(data["total_capital"])
+                    if "trade_quantity" in data: self.trade_quantity = max(1, int(data["trade_quantity"]))
+                    if "spread_buffer" in data: self.spread_buffer = float(data["spread_buffer"])
+                    if "auto_contraction_enabled" in data: self.auto_contraction_enabled = bool(data["auto_contraction_enabled"])
+                    if "auto_spread_exit_enabled" in data: self.auto_spread_exit_enabled = bool(data["auto_spread_exit_enabled"])
+                    if "paper_trading_mode" in data: self.paper_trading_mode = bool(data["paper_trading_mode"])
+                    if "auto_trading_enabled" in data: self.auto_trading_enabled = bool(data["auto_trading_enabled"])
+                    if "auto_target_enabled" in data: self.auto_target_enabled = bool(data["auto_target_enabled"])
+                    if "auto_target_val" in data: self.auto_target_val = float(data["auto_target_val"])
+                    if "auto_sl_enabled" in data: self.auto_sl_enabled = bool(data["auto_sl_enabled"])
+                    if "auto_sl_val" in data: self.auto_sl_val = float(data["auto_sl_val"])
+                    if "auto_square_off_enabled" in data: self.auto_square_off_enabled = bool(data["auto_square_off_enabled"])
+                    if "auto_square_off_time" in data: self.auto_square_off_time = str(data["auto_square_off_time"])
+                    if "broker" in data: self.broker = str(data["broker"])
+                    if "groww_api_key" in data: self.groww_api_key = str(data["groww_api_key"])
+                    if "groww_client_id" in data: self.groww_client_id = str(data["groww_client_id"])
+                    if "groww_secret" in data: self.groww_secret = str(data["groww_secret"])
+                    if "groww_petal_symbol" in data: self.groww_petal_symbol = str(data["groww_petal_symbol"])
+                    if "groww_mini_symbol" in data: self.groww_mini_symbol = str(data["groww_mini_symbol"])
+                    if "dhan_client_id" in data: self.dhan_client_id = str(data["dhan_client_id"])
+                    if "dhan_access_token" in data: self.dhan_access_token = str(data["dhan_access_token"])
+                    if "dhan_petal_symbol" in data: self.dhan_petal_symbol = str(data["dhan_petal_symbol"])
+                    if "dhan_petal_token" in data: self.dhan_petal_token = str(data["dhan_petal_token"])
+                    if "dhan_mini_symbol" in data: self.dhan_mini_symbol = str(data["dhan_mini_symbol"])
+                    if "dhan_mini_token" in data: self.dhan_mini_token = str(data["dhan_mini_token"])
+                    if "upstox_client_id" in data: self.upstox_client_id = str(data["upstox_client_id"])
+                    if "upstox_secret" in data: self.upstox_secret = str(data["upstox_secret"])
+                    if "upstox_access_token" in data: self.upstox_access_token = str(data["upstox_access_token"])
+                    if "upstox_petal_symbol" in data: self.upstox_petal_symbol = str(data["upstox_petal_symbol"])
+                    if "upstox_mini_symbol" in data: self.upstox_mini_symbol = str(data["upstox_mini_symbol"])
+                self.log("[PERSISTENCE] Loaded strategy rules from rules_config.json.")
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to load rules config: {e}")
+
+    def save_rules(self):
+        try:
+            data = {
+                "entry_threshold": self.entry_threshold,
+                "target_threshold": self.target_threshold,
+                "sl_threshold": self.sl_threshold,
+                "total_capital": self.total_capital,
+                "trade_quantity": self.trade_quantity,
+                "spread_buffer": self.spread_buffer,
+                "auto_contraction_enabled": self.auto_contraction_enabled,
+                "auto_spread_exit_enabled": self.auto_spread_exit_enabled,
+                "paper_trading_mode": self.paper_trading_mode,
+                "auto_trading_enabled": self.auto_trading_enabled,
+                "auto_target_enabled": self.auto_target_enabled,
+                "auto_target_val": self.auto_target_val,
+                "auto_sl_enabled": self.auto_sl_enabled,
+                "auto_sl_val": self.auto_sl_val,
+                "auto_square_off_enabled": self.auto_square_off_enabled,
+                "auto_square_off_time": self.auto_square_off_time,
+                "broker": self.broker,
+                "groww_api_key": self.groww_api_key,
+                "groww_client_id": self.groww_client_id,
+                "groww_secret": self.groww_secret,
+                "groww_petal_symbol": self.groww_petal_symbol,
+                "groww_mini_symbol": self.groww_mini_symbol,
+                "dhan_client_id": self.dhan_client_id,
+                "dhan_access_token": self.dhan_access_token,
+                "dhan_petal_symbol": self.dhan_petal_symbol,
+                "dhan_petal_token": self.dhan_petal_token,
+                "dhan_mini_symbol": self.dhan_mini_symbol,
+                "dhan_mini_token": self.dhan_mini_token,
+                "upstox_client_id": self.upstox_client_id,
+                "upstox_secret": self.upstox_secret,
+                "upstox_access_token": self.upstox_access_token,
+                "upstox_petal_symbol": self.upstox_petal_symbol,
+                "upstox_mini_symbol": self.upstox_mini_symbol
+            }
+            with open("rules_config.json", "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
+            self.log("[PERSISTENCE] Saved strategy rules to rules_config.json.")
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to save rules config: {e}")
+
     def load_angel_master(self):
         try:
             if os.path.exists("angel_master.json"):
@@ -999,8 +1101,15 @@ async def check_real_orders_status(order_ids: List[str]) -> Dict[str, Dict]:
                                 pass
                     status_map[oid] = {"status": status, "average_price": avg_price}
             return status_map
+        elif response and isinstance(response, dict) and "exceeding access rate" in str(response.get("message", "")).lower():
+            system_state.log("[ANGELONE API] Rate limit warning: Exceeded access rate on orderBook(). Backing off 0.5s...")
+            await asyncio.sleep(0.5)
     except Exception as e:
-        system_state.log(f"[LIVE ORDER STATUS] Error checking order book: {e}")
+        if "exceeding access rate" in str(e).lower():
+            system_state.log("[ANGELONE API] Rate limit hit checking order book. Pausing 0.5s...")
+            await asyncio.sleep(0.5)
+        else:
+            system_state.log(f"[LIVE ORDER STATUS] Error checking order book: {e}")
     return {}
 
 async def cancel_real_order(order_id: str, variety: str = "NORMAL"):
@@ -1409,9 +1518,9 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
         petal_type = "MARKET"
         mini_type = "MARKET"
         
-        timeout = 5.0
+        timeout = 6.0
         elapsed = 0.0
-        interval = 0.2
+        interval = 0.6
         
         while elapsed < timeout:
             await asyncio.sleep(interval)
@@ -3900,10 +4009,7 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     # Reactivate from Halted status if rules are saved
     if system_state.system_status == "Halted":
         system_state.system_status = "Active"
-        system_state.log("Parameters saved. System reactivated and reset to Active.")
-    else:
-        system_state.log("Parameters updated successfully.")
-        
+    system_state.save_rules()
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Parameters updated successfully."}
 

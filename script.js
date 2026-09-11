@@ -1242,6 +1242,17 @@ function saveParameters() {
 
     const tradeQtyVal = (quantityInput ? parseInt(quantityInput.value) : 1) || 1;
 
+    const autoTargetEnabled = checkboxTarget ? checkboxTarget.checked : ((window.latestDataPayload && window.latestDataPayload.auto_target_enabled) || false);
+    const autoTargetVal = (inputAutoTargetVal && inputAutoTargetVal.value !== "") ? parseFloat(inputAutoTargetVal.value) : ((window.latestDataPayload && window.latestDataPayload.auto_target_val) || 5000.0);
+    const autoSlEnabled = (window.latestDataPayload && window.latestDataPayload.auto_sl_enabled) || false;
+    const autoSlVal = (window.latestDataPayload && window.latestDataPayload.auto_sl_val) || -3000.0;
+    const autoSquareOffEnabled = (window.latestDataPayload && window.latestDataPayload.auto_square_off_enabled) || false;
+    const autoSquareOffTime = (window.latestDataPayload && window.latestDataPayload.auto_square_off_time) || "23:30";
+    const autoTradingEnabled = autoTradingInput ? autoTradingInput.checked : ((window.latestDataPayload && window.latestDataPayload.auto_trading_enabled) || false);
+    const spreadBuffer = (inputSpreadBuffer && inputSpreadBuffer.value !== "") ? parseFloat(inputSpreadBuffer.value) : ((window.latestDataPayload && window.latestDataPayload.spread_buffer) || 0.0);
+    const autoContractionEnabled = checkboxContractionEntry ? checkboxContractionEntry.checked : ((window.latestDataPayload && window.latestDataPayload.auto_contraction_enabled) || false);
+    const autoSpreadExitEnabled = checkboxSpreadExit ? checkboxSpreadExit.checked : (((window.latestDataPayload && window.latestDataPayload.auto_spread_exit_enabled) !== undefined) ? window.latestDataPayload.auto_spread_exit_enabled : true);
+
     logLocalMessage("[SYSTEM] Syncing configurations with backend...");
     postAction("update-rules", {
         entry_threshold: entryVal,
@@ -1250,16 +1261,16 @@ function saveParameters() {
         total_capital: totalCapitalVal,
         paper_trading_mode: paperMode,
         trade_quantity: tradeQtyVal,
-        auto_target_enabled: false,
-        auto_target_val: 5000.0,
-        auto_sl_enabled: false,
-        auto_sl_val: -3000.0,
-        auto_square_off_enabled: false,
-        auto_square_off_time: "23:30",
-        auto_trading_enabled: false,
-        spread_buffer: 0.0,
-        auto_contraction_enabled: false,
-        auto_spread_exit_enabled: false,
+        auto_target_enabled: autoTargetEnabled,
+        auto_target_val: autoTargetVal,
+        auto_sl_enabled: autoSlEnabled,
+        auto_sl_val: autoSlVal,
+        auto_square_off_enabled: autoSquareOffEnabled,
+        auto_square_off_time: autoSquareOffTime,
+        auto_trading_enabled: autoTradingEnabled,
+        spread_buffer: spreadBuffer,
+        auto_contraction_enabled: autoContractionEnabled,
+        auto_spread_exit_enabled: autoSpreadExitEnabled,
         broker: broker,
         api_key: apiKeyVal,
         client_id: clientIdVal,
@@ -1301,6 +1312,7 @@ function saveParameters() {
 
 // Track user modifications (dirty fields)
 const inputsToTrack = [
+    entryInput, targetInput, slInput, capitalInput, quantityInput, inputSpreadBuffer, inputAutoTargetVal,
     growwClientId, growwApiKey, growwSecret, growwPetalSymbol, growwMiniSymbol,
     angeloneClientId, angelonePassword, angeloneTotp, angeloneApiKey, angelonePetalSymbol, angelonePetalToken, angeloneMiniSymbol, angeloneMiniToken,
     dhanClientId, dhanAccessToken, dhanPetalSymbol, dhanPetalToken, dhanMiniSymbol, dhanMiniToken,
@@ -1315,7 +1327,9 @@ inputsToTrack.forEach(input => {
     }
 });
 
-const checkboxesToTrack = [];
+const checkboxesToTrack = [
+    checkboxTarget, checkboxContractionEntry, checkboxSpreadExit, paperModeInput, autoTradingInput
+];
 checkboxesToTrack.forEach(cb => {
     if (cb) {
         cb.addEventListener("change", () => {
