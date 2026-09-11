@@ -57,7 +57,7 @@ def get_market_session_status() -> str:
     """
     Returns:
       "HOLD" - if morning hold time (09:00:00 to 09:02:59 IST)
-      "SUSPENDED" - if evening/night suspension time (23:25:00 to 08:59:59 IST)
+      "SUSPENDED" - if evening/night suspension time (23:27:00 to 08:59:59 IST)
       "OPEN" - otherwise (trading allowed)
     """
     now = get_ist_time()
@@ -68,8 +68,8 @@ def get_market_session_status() -> str:
     if h == 9 and 0 <= m < 3:
         return "HOLD"
         
-    # Evening suspension: 23:25:00 to 08:59:59 next day
-    if (h == 23 and m >= 25) or (h < 9):
+    # Evening suspension: 23:27:00 to 08:59:59 next day
+    if (h == 23 and m >= 27) or (h < 9):
         return "SUSPENDED"
         
     return "OPEN"
@@ -1922,16 +1922,20 @@ async def run_trade_automation_checks():
             # Reached max order limit for this bot instance - skip taking new entry/averaging trades
             continue
 
-        if num_open == 0:
-            target_spread = entry_diff
+        # Enforce minimum 5-second time gap between consecutive orders for this bot instance
+        last_order_time = config.get("last_order_time", 0.0)
+        if time.time() - last_order_time < 5.0:
+            continue
+
+        # Fixed Anchor Grid (Slippage-Independent)
+        # Order 1 (num_open=0): Base +- (1 * Step) -> e.g. 1000 + 50 = 1050
+        # Order 2 (num_open=1): Base +- (2 * Step) -> e.g. 1000 + 100 = 1100
+        # Order 3 (num_open=2): Base +- (3 * Step) -> e.g. 1000 + 150 = 1150
+        order_index = num_open + 1
+        if direction == "Expansion":
+            target_spread = entry_diff - (order_index * averaging_step)
         else:
-            # Base Entry Diff Anchored Averaging:
-            # Target is anchored to entry_diff - (num_open * averaging_step) for Expansion
-            # and entry_diff + (num_open * averaging_step) for Contraction
-            if direction == "Expansion":
-                target_spread = entry_diff - (num_open * averaging_step)
-            else:
-                target_spread = entry_diff + (num_open * averaging_step)
+            target_spread = entry_diff + (order_index * averaging_step)
 
         entry_triggered = False
         if direction == "Expansion":
@@ -1942,8 +1946,9 @@ async def run_trade_automation_checks():
                 entry_triggered = True
 
         if entry_triggered:
+            config["last_order_time"] = time.time()
             trigger_label = "First" if num_open == 0 else f"Averaging #{num_open+1}"
-            system_state.log(f"[TA TRIGGER] {trigger_label} entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {target_spread:.2f}, Base: {entry_diff:.2f}, Step: {averaging_step:.2f})")
+            system_state.log(f"[TA TRIGGER] {trigger_label} (Order #{order_index}) entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {target_spread:.2f}, Base: {entry_diff:.2f}, Step: {averaging_step:.2f})")
             await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
             return
 
@@ -2381,11 +2386,11 @@ async def process_market_data(data: dict):
         
     session_status = get_market_session_status()
     if session_status == "SUSPENDED":
-        # Check specifically for evening shutdown window (23:25 to 23:59)
+        # Check specifically for evening shutdown window (23:27 to 23:59)
         now = get_ist_time()
-        if now.hour == 23 and now.minute >= 25:
-            system_state.log("[EMERGENCY SHUTDOWN] Time is 23:25 or later. Shutting down server immediately.")
-            print("[EMERGENCY SHUTDOWN] Time is 23:25 or later. Shutting down server immediately.")
+        if now.hour == 23 and now.minute >= 27:
+            system_state.log("[EMERGENCY SHUTDOWN] Time is 23:27 or later. Shutting down server immediately.")
+            print("[EMERGENCY SHUTDOWN] Time is 23:27 or later. Shutting down server immediately.")
             os._exit(0)
 
     # If the session is HOLD or SUSPENDED, skip all trade execution and automated checks.
@@ -3209,7 +3214,7 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
     if session_status == "HOLD":
         raise HTTPException(status_code=400, detail="Trading is suspended during morning hold (09:00 - 09:03).")
     elif session_status == "SUSPENDED":
-        raise HTTPException(status_code=400, detail="Trading is suspended after market close (23:25 - 09:00).")
+        raise HTTPException(status_code=400, detail="Trading is suspended after market close (23:27 - 09:00).")
 
     if system_state.system_status == "Halted":
         raise HTTPException(status_code=400, detail="Terminal is Halted due to Kill Switch or Stop Loss.")
@@ -3639,7 +3644,7 @@ async def api_post_ta_config(payload: TAConfigPayload, token: str = None, author
     if session_status == "SUSPENDED":
         has_enabled = any(c.dict().get("enabled") for c in payload.configs)
         if has_enabled:
-            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation configs after market close (23:25 - 09:00).")
+            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation configs after market close (23:27 - 09:00).")
 
     system_state.ta_configs = [c.dict() for c in payload.configs]
     system_state.save_ta_configs()
@@ -3776,7 +3781,7 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     session_status = get_market_session_status()
     if session_status == "SUSPENDED":
         if payload.auto_trading_enabled:
-            raise HTTPException(status_code=400, detail="Cannot enable Auto Trading after market close (23:25 - 09:00).")
+            raise HTTPException(status_code=400, detail="Cannot enable Auto Trading after market close (23:27 - 09:00).")
 
     system_state.entry_threshold = payload.entry_threshold
     system_state.target_threshold = payload.target_threshold
