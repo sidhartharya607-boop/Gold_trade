@@ -60,6 +60,7 @@ def get_market_session_status() -> str:
                - 09:00:00 to 09:02:59 IST (Morning market open)
                - 09:13:00 to 09:16:59 IST (Opening settlement)
                - 13:27:00 to 13:32:59 IST (1:27 PM to 1:33 PM London open)
+               - 16:58:00 to 17:04:59 IST (4:58 PM to 5:05 PM Evening session)
                - 17:58:00 to 18:09:59 IST (5:58 PM to 6:10 PM US open)
       "SUSPENDED" - if evening/night suspension time (23:27:00 to 08:59:59 IST)
       "OPEN" - otherwise (trading allowed)
@@ -80,11 +81,15 @@ def get_market_session_status() -> str:
     if h == 13 and 27 <= m < 33:
         return "HOLD"
         
-    # 4. US open hold: 17:58 to 18:09:59 (5:58 PM to 6:10 PM)
+    # 4. Evening hold: 16:58 to 17:04:59 (4:58 PM to 5:05 PM)
+    if (h == 16 and m >= 58) or (h == 17 and m < 5):
+        return "HOLD"
+        
+    # 5. US open hold: 17:58 to 18:09:59 (5:58 PM to 6:10 PM)
     if (h == 17 and m >= 58) or (h == 18 and m < 10):
         return "HOLD"
         
-    # 5. Evening / Overnight suspension: 23:27:00 to 08:59:59 next day
+    # 6. Evening / Overnight suspension: 23:27:00 to 08:59:59 next day
     if (h == 23 and m >= 27) or (h < 9):
         return "SUSPENDED"
         
@@ -3321,7 +3326,7 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
     
     session_status = get_market_session_status()
     if session_status == "HOLD":
-        raise HTTPException(status_code=400, detail="Trading is suspended during morning hold (09:00 - 09:03).")
+        raise HTTPException(status_code=400, detail="Trading is suspended during market hold window.")
     elif session_status == "SUSPENDED":
         raise HTTPException(status_code=400, detail="Trading is suspended after market close (23:27 - 09:00).")
 
