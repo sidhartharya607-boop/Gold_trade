@@ -1,0 +1,23 @@
+{
+  "name": "Gold Spread Arbitrage Terminal",
+  "short_name": "Gold Trade",
+  "description": "Real-time Gold Spread Arbitrage Trading Terminal",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F0F4F8",
+  "theme_color": "#3B82F6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

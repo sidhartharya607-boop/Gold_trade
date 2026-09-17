@@ -4261,8 +4261,21 @@ async def get_style():
 async def get_script():
     return FileResponse(os.path.join(BASE_DIR, "script.js"), media_type="application/javascript")
 
+@app.get("/manifest.json")
+async def get_manifest():
+    return FileResponse(os.path.join(BASE_DIR, "manifest.json"), media_type="application/manifest+json")
+
+@app.get("/icon.svg")
+async def get_icon():
+    return FileResponse(os.path.join(BASE_DIR, "icon.svg"), media_type="image/svg+xml")
+
+@app.get("/apple-touch-icon.png")
+async def get_apple_touch_icon():
+    return FileResponse(os.path.join(BASE_DIR, "icon.svg"), media_type="image/svg+xml")
+
 if __name__ == "__main__":
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", 7890))
     logger.info(f"Starting server on http://{host}:{port}")
     uvicorn.run("main:app", host=host, port=port, log_level="info")
+

@@ -1553,3 +1553,193 @@ body {
     from { transform: scale(0.95) translateY(10px); opacity: 0; }
     to { transform: scale(1) translateY(0); opacity: 1; }
 }
+
+/* ==========================================================================
+   Mobile & PWA Responsive Touch Design (@media max-width: 768px)
+   ========================================================================== */
+@media (max-width: 768px) {
+    /* Viewport & Body Adjustments */
+    body {
+        padding: 0.35rem 0.45rem;
+        padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+        padding-top: calc(0.35rem + env(safe-area-inset-top, 0px));
+    }
+
+    .dashboard-container {
+        gap: 0.65rem;
+        max-width: 100%;
+    }
+
+    /* Header Layout */
+    .dashboard-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+        padding-bottom: 0.5rem;
+    }
+
+    .dashboard-header .header-left {
+        width: 100%;
+    }
+
+    .dashboard-header h1 {
+        font-size: 1.15rem;
+    }
+
+    .dashboard-header .subtitle {
+        font-size: 0.68rem;
+    }
+
+    .dashboard-header .header-right {
+        width: 100%;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.35rem;
+    }
+
+    .stats-badge-container {
+        display: flex;
+        gap: 0.35rem;
+        flex-wrap: wrap;
+    }
+
+    .stat-badge {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.45rem;
+    }
+
+    .logout-btn {
+        margin-left: auto;
+        padding: 0.25rem 0.5rem;
+        font-size: 0.68rem;
+    }
+
+    /* Stats Grid: Single column for mobile */
+    .stats-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0.65rem;
+    }
+
+    .metric-card {
+        padding: 0.75rem;
+        border-radius: 10px;
+    }
+
+    .metric-header {
+        margin-bottom: 0.35rem;
+    }
+
+    .metric-body .price-value {
+        font-size: 1.45rem;
+    }
+
+    /* Month Master Live Cards Grid */
+    #month-master-live-cards {
+        grid-template-columns: 1fr !important;
+        gap: 0.5rem !important;
+    }
+
+    /* Configs & Form Inputs Grid */
+    .configs-inputs-grid {
+        grid-template-columns: 1fr !important;
+        gap: 0.6rem !important;
+    }
+
+    .config-item {
+        width: 100%;
+    }
+
+    .rule-input, select.rule-input {
+        height: 42px !important;
+        font-size: 0.82rem !important;
+        padding: 0.4rem 0.6rem !important;
+        border-radius: 8px !important;
+    }
+
+    /* Action Buttons: Touch Friendly */
+    .action-btn, .update-button, .metallic-button, .kill-switch-button {
+        min-height: 44px;
+        font-size: 0.82rem;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+    }
+
+    .execution-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .safety-bottom-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.75rem;
+    }
+
+    .action-buttons-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        width: 100%;
+    }
+
+    .action-buttons-group button {
+        width: 100%;
+    }
+
+    /* Direction Radio Buttons */
+    .toggle-buttons {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+    }
+
+    .dir-btn {
+        padding: 0.5rem 0.25rem;
+        font-size: 0.72rem;
+    }
+
+    /* Tables in Scroll Containers */
+    .table-container {
+        -webkit-overflow-scrolling: touch;
+        border-radius: 8px;
+        max-height: 320px;
+    }
+
+    .history-table th, .history-table td {
+        padding: 0.45rem 0.4rem;
+        font-size: 0.7rem;
+        white-space: nowrap;
+    }
+
+    /* Modal Touch Optimization */
+    .modal-card {
+        width: 95%;
+        max-width: 95%;
+        padding: 1rem;
+        border-radius: 14px;
+    }
+
+    .modal-card input {
+        height: 44px !important;
+        font-size: 0.9rem !important;
+    }
+
+    /* Workflow Banner */
+    .workflow-banner {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        padding: 0.4rem 0.2rem;
+    }
+
+    .workflow-flow-top {
+        min-width: 480px;
+    }
+}
+
