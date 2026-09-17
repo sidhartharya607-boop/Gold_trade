@@ -1555,19 +1555,164 @@ body {
 }
 
 /* ==========================================================================
+   Mobile Bottom Tab Navigation Bar (Desktop Default: Hidden)
+   ========================================================================== */
+.mobile-bottom-nav {
+    display: none;
+}
+
+/* ==========================================================================
    Mobile & PWA Responsive Touch Design (@media max-width: 768px)
    ========================================================================== */
 @media (max-width: 768px) {
     /* Viewport & Body Adjustments */
     body {
         padding: 0.35rem 0.45rem;
-        padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+        padding-bottom: calc(75px + env(safe-area-inset-bottom, 12px)) !important;
         padding-top: calc(0.35rem + env(safe-area-inset-top, 0px));
     }
 
     .dashboard-container {
         gap: 0.65rem;
         max-width: 100%;
+    }
+
+    /* Fixed Glassmorphic Mobile Bottom Navigation Bar */
+    .mobile-bottom-nav {
+        display: flex !important;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: calc(56px + env(safe-area-inset-bottom, 12px));
+        padding-bottom: env(safe-area-inset-bottom, 12px);
+        background: rgba(15, 23, 42, 0.94);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        z-index: 9990;
+        justify-content: space-around;
+        align-items: center;
+        box-shadow: 0 -4px 25px rgba(0, 0, 0, 0.45);
+    }
+
+    .nav-tab {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        background: transparent;
+        border: none;
+        color: #94A3B8;
+        padding: 6px 0;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+        position: relative;
+    }
+
+    .nav-tab-icon {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.2s ease;
+    }
+
+    .nav-tab-label {
+        font-size: 0.65rem;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        transition: color 0.2s ease;
+    }
+
+    /* Active Tab Highlighting */
+    .nav-tab.active {
+        color: #38BDF8;
+    }
+
+    .nav-tab.active .nav-tab-icon {
+        transform: translateY(-2px);
+        color: #38BDF8;
+        filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.5));
+    }
+
+    .nav-tab.active .nav-tab-label {
+        font-weight: 700;
+        color: #38BDF8;
+    }
+
+    .nav-tab.active::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 20%;
+        right: 20%;
+        height: 2.5px;
+        background: linear-gradient(90deg, #38BDF8, #60A5FA);
+        border-radius: 0 0 4px 4px;
+        box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+    }
+
+    /* Live Open Trades Badge on Tab */
+    .nav-badge {
+        position: absolute;
+        top: -4px;
+        right: -9px;
+        background: #EF4444;
+        color: #FFFFFF;
+        font-size: 0.6rem;
+        font-weight: 800;
+        padding: 1px 5px;
+        border-radius: 10px;
+        min-width: 14px;
+        text-align: center;
+        line-height: 1.2;
+        box-shadow: 0 2px 5px rgba(239, 68, 68, 0.5);
+        animation: pulseBadge 2s infinite;
+    }
+
+    @keyframes pulseBadge {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+    }
+
+    /* Tab Switching Visibility Rules */
+    body[data-mobile-tab="spreads"] [data-tab]:not([data-tab*="spreads"]),
+    body[data-mobile-tab="automation"] [data-tab]:not([data-tab*="automation"]),
+    body[data-mobile-tab="trades"] [data-tab]:not([data-tab*="trades"]),
+    body[data-mobile-tab="settings"] [data-tab]:not([data-tab*="settings"]) {
+        display: none !important;
+    }
+
+    /* Auto-expand card contents on active mobile tabs for seamless immediate view */
+    body[data-mobile-tab="automation"] #card-trade-automation .card-content {
+        display: flex !important;
+    }
+    body[data-mobile-tab="settings"] #card-execution .card-content,
+    body[data-mobile-tab="settings"] #card-configs .card-content,
+    body[data-mobile-tab="settings"] #card-month-master .card-content,
+    body[data-mobile-tab="settings"] #card-logs .card-content {
+        display: flex !important;
+    }
+
+    /* Smooth animated fade-in for section appearance */
+    [data-tab] {
+        animation: mobileTabFade 0.22s ease-out;
+    }
+
+    @keyframes mobileTabFade {
+        from {
+            opacity: 0;
+            transform: translateY(6px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     /* Header Layout */
@@ -1742,4 +1887,5 @@ body {
         min-width: 480px;
     }
 }
+
 

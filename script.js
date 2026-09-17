@@ -1048,6 +1048,20 @@ function updateDashboard(data) {
         }
     }
 
+    // Update Mobile Open Trades Badge
+    const mobileBadge = document.getElementById("mobile-open-trades-badge");
+    if (mobileBadge) {
+        const openTaCount = (data.ta_trades || []).filter(t => t.status === "Open" || !t.status).length;
+        const openManualCount = (data.manual_trades || []).filter(t => t.status === "Open" || t.status === "Pending" || !t.status).length;
+        const totalOpen = openTaCount + openManualCount;
+        if (totalOpen > 0) {
+            mobileBadge.innerText = totalOpen;
+            mobileBadge.style.display = "inline-block";
+        } else {
+            mobileBadge.style.display = "none";
+        }
+    }
+
     // Update Bot Execution Timeline Pipeline
     updatePipelineTimeline(data);
 }
@@ -2229,4 +2243,48 @@ if (taEditModal) {
         }
     });
 }
+
+// ==========================================
+// Mobile Bottom Tab Navigation Switching
+// ==========================================
+window.switchMobileTab = function(tabName) {
+    document.body.dataset.mobileTab = tabName;
+    try {
+        localStorage.setItem("activeMobileTab", tabName);
+    } catch (e) {}
+
+    // Update active class on tab buttons
+    document.querySelectorAll(".nav-tab").forEach(tab => {
+        tab.classList.remove("active");
+    });
+    
+    const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+    if (activeBtn) {
+        activeBtn.classList.add("active");
+    }
+
+    // Scroll to top smoothly on tab switch
+    window.scrollTo({ top: 0, behavior: "smooth" });
+};
+
+// Initialize default/persisted mobile tab
+document.addEventListener("DOMContentLoaded", () => {
+    const savedTab = localStorage.getItem("activeMobileTab") || "spreads";
+    if (window.innerWidth <= 768) {
+        window.switchMobileTab(savedTab);
+    } else {
+        document.body.dataset.mobileTab = "spreads";
+    }
+});
+
+// Also trigger immediately in case DOM is already ready
+(function() {
+    const savedTab = localStorage.getItem("activeMobileTab") || "spreads";
+    if (window.innerWidth <= 768) {
+        window.switchMobileTab(savedTab);
+    } else {
+        document.body.dataset.mobileTab = "spreads";
+    }
+})();
+
 

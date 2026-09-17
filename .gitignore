@@ -1,0 +1,22 @@
+# Private API Keys and Settings
+.env
+
+# Local database & trade metrics files
+manual_trades.json
+trade_history.json
+month_master.json
+ta_trades.json
+ta_configs.json
+angel_master.json
+
+# Excel/CSV logged market logs
+*.csv
+
+# Python bytecodes
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDE configurations
+.vscode/
+.idea/
