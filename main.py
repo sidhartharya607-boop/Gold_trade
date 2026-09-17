@@ -1848,6 +1848,7 @@ async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread:
                 "mini_exit_price": 0.0,
                 "exit_spread": 0.0,
                 "actual_exit_spread": 0.0,
+                "paper_mode": paper_mode,
                 "petal_exit_type": "--",
                 "mini_exit_type": "--",
                 "exit_time": "--",
@@ -1976,6 +1977,73 @@ async def run_trade_automation_checks():
     if system_state.ta_execution_in_progress:
         return
         
+    # 1. Autonomous Exit Monitoring for ALL Open Trade Automation trades (Instance-Independent)
+    open_trades = [t for t in system_state.ta_trades if t.get("status") == "Open"]
+    for trade in open_trades:
+        p_sym = trade.get("petal_symbol")
+        m_sym = trade.get("mini_symbol")
+        
+        # Find matching live stat in system_state.month_master_live
+        live_stat = None
+        for stat in system_state.month_master_live:
+            if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
+                live_stat = stat
+                break
+                
+        if not live_stat:
+            # Fallback if active streamed instrument matches
+            if system_state.petal_symbol == p_sym and system_state.mini_symbol == m_sym:
+                live_stat = {
+                    "depth_buy_spread": system_state.depth_buy_spread,
+                    "depth_sell_spread": system_state.depth_sell_spread
+                }
+            else:
+                continue
+                
+        buy_spread = live_stat["depth_buy_spread"]
+        sell_spread = live_stat["depth_sell_spread"]
+        
+        direction = trade.get("direction", "Expansion")
+        entry_spread = float(trade.get("entry_spread", 0.0))
+        t_exit_gap = float(trade.get("exit_gap", 100.0))
+        
+        exit_triggered = False
+        if direction == "Expansion":
+            if sell_spread >= entry_spread + t_exit_gap:
+                exit_triggered = True
+        elif direction == "Contraction":
+            if buy_spread <= entry_spread - t_exit_gap:
+                exit_triggered = True
+                
+        if exit_triggered:
+            # Find month mapping
+            mapping = None
+            for m in system_state.month_master:
+                if m.get("petal_symbol") == p_sym and m.get("mini_symbol") == m_sym:
+                    mapping = m
+                    break
+            if not mapping:
+                mapping = {
+                    "petal_symbol": p_sym,
+                    "petal_token": getattr(system_state, "petal_token", "") if system_state.petal_symbol == p_sym else "",
+                    "mini_symbol": m_sym,
+                    "mini_token": getattr(system_state, "mini_token", "") if system_state.mini_symbol == m_sym else ""
+                }
+                
+            paper_mode = trade.get("paper_mode", True)
+            for cfg in system_state.ta_configs:
+                c_idx = cfg.get("month_idx", -1)
+                if 0 <= c_idx < len(system_state.month_master):
+                    cm = system_state.month_master[c_idx]
+                    if cm.get("petal_symbol") == p_sym and cm.get("mini_symbol") == m_sym:
+                        paper_mode = cfg.get("paper_mode", True)
+                        break
+                        
+            system_state.log(f"[TA TRIGGER] Autonomous Exit met for trade ID {trade['id']} ({p_sym}/{m_sym}). Entry: {entry_spread:.2f}, Exit: {sell_spread if direction == 'Expansion' else buy_spread:.2f} (Target Gap: {t_exit_gap:.2f})")
+            await run_ta_exit(trade, mapping, paper_mode)
+            return # Process one action at a time to prevent concurrency conflicts
+
+    # 2. Check Entries / Grid Averaging for active bot instances
     for config in system_state.ta_configs:
         if not config.get("enabled", False):
             continue
@@ -2002,7 +2070,7 @@ async def run_trade_automation_checks():
         sell_spread = live_stat["depth_sell_spread"]
         
         # Get active (Open) Trade Automation trades for this specific month pair
-        open_trades = [t for t in system_state.ta_trades if t["status"] == "Open" and t["petal_symbol"] == p_sym and t["mini_symbol"] == m_sym]
+        pair_open_trades = [t for t in system_state.ta_trades if t["status"] == "Open" and t["petal_symbol"] == p_sym and t["mini_symbol"] == m_sym]
         
         direction = config.get("direction", "Expansion")
         qty = config.get("quantity", 1)
@@ -2011,25 +2079,8 @@ async def run_trade_automation_checks():
         exit_gap = config.get("exit_gap", 100.0)
         paper_mode = config.get("paper_mode", True)
         
-        # Check exits first
-        for trade in open_trades:
-            entry_spread = trade["entry_spread"]
-            t_exit_gap = trade.get("exit_gap", exit_gap)
-            exit_triggered = False
-            if direction == "Expansion":
-                if sell_spread >= entry_spread + t_exit_gap:
-                    exit_triggered = True
-            elif direction == "Contraction":
-                if buy_spread <= entry_spread - t_exit_gap:
-                    exit_triggered = True
-                    
-            if exit_triggered:
-                system_state.log(f"[TA TRIGGER] Exit met for trade ID {trade['id']} ({p_sym}/{m_sym}). Entry: {entry_spread:.2f}, Exit: {sell_spread if direction == 'Expansion' else buy_spread:.2f} (Target Gap: {t_exit_gap:.2f})")
-                await run_ta_exit(trade, mapping, paper_mode)
-                return # Process one action at a time to prevent concurrency conflicts
-                
         # Check entries
-        num_open = len(open_trades)
+        num_open = len(pair_open_trades)
         max_orders = config.get("max_orders", 5)
         
         if num_open >= max_orders:
@@ -2588,8 +2639,8 @@ async def process_market_data(data: dict):
             elif system_state.auto_contraction_enabled and (system_state.depth_sell_spread >= (system_state.target_threshold - buffer)):
                 asyncio.create_task(run_auto_entry("Contraction", "SELL", "BUY", system_state.target_threshold))
  
-    # Process Trade Automation Strategy Checks
-    if system_state.ta_configs:
+    # Process Trade Automation Strategy Checks (Entries & Autonomous Exits)
+    if system_state.ta_configs or any(t.get("status") == "Open" for t in system_state.ta_trades):
         asyncio.create_task(run_trade_automation_checks())
 
     await broadcast_system_state()
@@ -3646,8 +3697,8 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
                     "mini_symbol": trade["mini_symbol"],
                     "mini_token": ""
                 }
-            # Find config to get paper mode
-            paper_mode = True
+            # Find config to get paper mode, fallback to trade's own paper_mode
+            paper_mode = trade.get("paper_mode", True)
             for config in system_state.ta_configs:
                 idx = config.get("month_idx", -1)
                 if 0 <= idx < len(system_state.month_master):
@@ -3810,8 +3861,8 @@ async def api_ta_exit_trade(payload: TAExitTradePayload, token: str = None, auth
             "mini_token": ""
         }
         
-    # Find config for the trade's month mapping to get the paper mode
-    paper_mode = True
+    # Find config for the trade's month mapping to get the paper mode, fallback to trade's own paper_mode
+    paper_mode = trade.get("paper_mode", True)
     for config in system_state.ta_configs:
         idx = config.get("month_idx", -1)
         if 0 <= idx < len(system_state.month_master):
