@@ -743,6 +743,24 @@ class TradingSystem:
             self.log(f"[API LOOKUP] Search failed for '{symbol}': Rate limit error ({e}).")
         return ""
 
+    def get_tokens_for_pair(self, petal_symbol: str, mini_symbol: str) -> tuple:
+        p_tok = ""
+        m_tok = ""
+        for m in self.month_master:
+            if m.get("petal_symbol") == petal_symbol and m.get("petal_token"):
+                p_tok = m["petal_token"]
+            if m.get("mini_symbol") == mini_symbol and m.get("mini_token"):
+                m_tok = m["mini_token"]
+        if not p_tok and self.petal_symbol == petal_symbol:
+            p_tok = self.petal_token
+        if not m_tok and self.mini_symbol == mini_symbol:
+            m_tok = self.mini_token
+        if not p_tok and petal_symbol:
+            p_tok = self.resolve_scrip_token_via_api(petal_symbol)
+        if not m_tok and mini_symbol:
+            m_tok = self.resolve_scrip_token_via_api(mini_symbol)
+        return p_tok, m_tok
+
 
 
 # Global State Instance
@@ -2117,11 +2135,21 @@ async def run_trade_automation_checks():
             await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
             return
 
-async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None) -> dict:
+async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None,
+                                       petal_symbol: str = None, mini_symbol: str = None) -> dict:
     global system_state
     
-    # 1. Calculate how much quantity we can net
-    opposite_trades = [t for t in system_state.manual_trades if t.get("status") == "Open" and t.get("direction") != new_direction]
+    # Target symbols & tokens
+    p_sym = petal_symbol or (pending_trade.get("petal_symbol") if pending_trade else None) or system_state.petal_symbol
+    m_sym = mini_symbol or (pending_trade.get("mini_symbol") if pending_trade else None) or system_state.mini_symbol
+    p_tok, m_tok = system_state.get_tokens_for_pair(p_sym, m_sym)
+    
+    # 1. Calculate how much quantity we can net FOR THIS SPECIFIC PAIR
+    opposite_trades = [
+        t for t in system_state.manual_trades 
+        if t.get("status") == "Open" and t.get("direction") != new_direction
+        and (t.get("petal_symbol", system_state.petal_symbol) == p_sym and t.get("mini_symbol", system_state.mini_symbol) == m_sym)
+    ]
     opposite_qty = sum(t.get("quantity", 0) for t in opposite_trades)
     
     net_qty = min(qty, opposite_qty)
@@ -2137,15 +2165,24 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
     
     # 2. Process Netting Portion
     if net_qty > 0:
-        system_state.log(f"[NETTING] Executing offsetting orders for quantity {net_qty} in direction {new_direction}...")
-        result = await execute_trade(petal_action, mini_action, check_liquidity=True, is_entry=True, qty=net_qty)
+        system_state.log(f"[NETTING] Executing offsetting orders for quantity {net_qty} in direction {new_direction} for {p_sym}/{m_sym}...")
+        result = await execute_trade(
+            petal_action, mini_action, 
+            check_liquidity=True, 
+            is_entry=True, 
+            qty=net_qty,
+            alt_petal_symbol=p_sym,
+            alt_petal_token=p_tok,
+            alt_mini_symbol=m_sym,
+            alt_mini_token=m_tok
+        )
         if result["success"]:
             petal_exit = result["petal_fill_price"]
             mini_exit = result["mini_fill_price"]
             petal_exit_type = result["petal_order_type"]
             mini_exit_type = result["mini_order_type"]
             actual_exit_spread = (petal_exit * 10.0) - mini_exit
-            expected_exit_spread = system_state.depth_sell_spread if new_direction == "Contraction" else system_state.depth_buy_spread
+            expected_exit_spread = expected_entry_spread
             
             remaining_net_qty = net_qty
             for t in opposite_trades:
@@ -2291,6 +2328,8 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                 if pending_trade:
                     pending_trade["status"] = "Closed"
                     pending_trade["reason"] = "Triggered (Netted)"
+                    pending_trade["petal_symbol"] = p_sym
+                    pending_trade["mini_symbol"] = m_sym
                     pending_trade["petal_entry_price"] = petal_exit
                     pending_trade["mini_entry_price"] = mini_exit
                     pending_trade["entry_spread"] = actual_exit_spread
@@ -2313,8 +2352,17 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
             
     # 3. Process Remaining New Open Portion
     if net_success and open_qty > 0:
-        system_state.log(f"[NETTING] Opening remaining quantity {open_qty} in direction {new_direction}...")
-        result_open = await execute_trade(petal_action, mini_action, check_liquidity=True, is_entry=True, qty=open_qty)
+        system_state.log(f"[NETTING] Opening remaining quantity {open_qty} in direction {new_direction} for {p_sym}/{m_sym}...")
+        result_open = await execute_trade(
+            petal_action, mini_action, 
+            check_liquidity=True, 
+            is_entry=True, 
+            qty=open_qty,
+            alt_petal_symbol=p_sym,
+            alt_petal_token=p_tok,
+            alt_mini_symbol=m_sym,
+            alt_mini_token=m_tok
+        )
         if result_open["success"]:
             petal_price = result_open["petal_fill_price"]
             mini_price = result_open["mini_fill_price"]
@@ -2328,6 +2376,8 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
             if pending_trade:
                 pending_trade["status"] = "Open"
                 pending_trade["quantity"] = open_qty
+                pending_trade["petal_symbol"] = p_sym
+                pending_trade["mini_symbol"] = m_sym
                 pending_trade["petal_entry_price"] = petal_price
                 pending_trade["mini_entry_price"] = mini_price
                 pending_trade["entry_spread"] = entry_spread
@@ -2346,8 +2396,8 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                     "status": "Open",
                     "entry_time": time.strftime("%H:%M:%S"),
                     "entry_date": time.strftime("%Y-%m-%d"),
-                    "petal_symbol": system_state.petal_symbol,
-                    "mini_symbol": system_state.mini_symbol,
+                    "petal_symbol": p_sym,
+                    "mini_symbol": m_sym,
                     "petal_entry_price": petal_price,
                     "mini_entry_price": mini_price,
                     "entry_spread": entry_spread,
@@ -2385,14 +2435,33 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
         return {"success": False, "reason": open_reason}
     return {"success": True}
 
-async def trigger_manual_trade_execution(trade: dict):
+async def trigger_manual_trade_execution(trade: dict, expected_entry_spread: float = None):
     global system_state
     direction = trade["direction"]
-    expected_entry_spread = system_state.depth_buy_spread if direction == "Expansion" else system_state.depth_sell_spread
+    p_sym = trade.get("petal_symbol") or system_state.petal_symbol
+    m_sym = trade.get("mini_symbol") or system_state.mini_symbol
     
-    system_state.log(f"[MANUAL TRIGGER] Pending manual trade ID {trade['id']} triggered. Processing netting/entry...")
+    if expected_entry_spread is None:
+        if p_sym == system_state.petal_symbol and m_sym == system_state.mini_symbol:
+            expected_entry_spread = system_state.depth_buy_spread if direction == "Expansion" else system_state.depth_sell_spread
+        else:
+            for stat in system_state.month_master_live:
+                if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
+                    expected_entry_spread = stat["depth_buy_spread"] if direction == "Expansion" else stat["depth_sell_spread"]
+                    break
+            if expected_entry_spread is None:
+                expected_entry_spread = 0.0
+                
+    system_state.log(f"[MANUAL TRIGGER] Pending manual trade ID {trade['id']} ({p_sym}/{m_sym}) triggered. Processing netting/entry...")
     
-    result = await execute_netting_manual_trades(direction, trade["quantity"], expected_entry_spread, pending_trade=trade)
+    result = await execute_netting_manual_trades(
+        direction, 
+        trade["quantity"], 
+        expected_entry_spread, 
+        pending_trade=trade,
+        petal_symbol=p_sym,
+        mini_symbol=m_sym
+    )
     if not result["success"]:
         trade["status"] = "Failed"
         trade["reason"] = result.get("reason", "Unknown execution error")
@@ -2505,12 +2574,17 @@ async def process_market_data(data: dict):
         if trade.get("status") == "Open":
             t_qty = trade.get("quantity", 1)
             t_dir = trade.get("direction")
+            t_petal_symbol = trade.get("petal_symbol") or system_state.petal_symbol
+            t_mini_symbol = trade.get("mini_symbol") or system_state.mini_symbol
+            t_petal_ltp = system_state.symbol_ltps.get(t_petal_symbol) or petal_ltp
+            t_mini_ltp = system_state.symbol_ltps.get(t_mini_symbol) or mini_ltp
+            
             if t_dir == "Expansion":
-                t_petal_pnl = (petal_ltp - trade.get("petal_entry_price", 0.0)) * 100.0 * t_qty
-                t_mini_pnl = (trade.get("mini_entry_price", 0.0) - mini_ltp) * 10.0 * t_qty
+                t_petal_pnl = (t_petal_ltp - trade.get("petal_entry_price", 0.0)) * 100.0 * t_qty
+                t_mini_pnl = (trade.get("mini_entry_price", 0.0) - t_mini_ltp) * 10.0 * t_qty
             else:
-                t_petal_pnl = (trade.get("petal_entry_price", 0.0) - petal_ltp) * 100.0 * t_qty
-                t_mini_pnl = (mini_ltp - trade.get("mini_entry_price", 0.0)) * 10.0 * t_qty
+                t_petal_pnl = (trade.get("petal_entry_price", 0.0) - t_petal_ltp) * 100.0 * t_qty
+                t_mini_pnl = (t_mini_ltp - trade.get("mini_entry_price", 0.0)) * 10.0 * t_qty
             trade["petal_pnl"] = t_petal_pnl
             trade["mini_pnl"] = t_mini_pnl
             trade["unrealized_pnl"] = t_petal_pnl + t_mini_pnl
@@ -2563,23 +2637,45 @@ async def process_market_data(data: dict):
         await broadcast_system_state()
         return
 
-    # Process pending manual trade triggers
+    # Process pending manual trade triggers across ALL month pairs independently
     for trade in system_state.manual_trades:
         if trade.get("status") == "Pending":
-            # Bug Fix: Ensure the pending trade's contract symbols match the active streamed ones
-            if trade.get("petal_symbol") != system_state.petal_symbol or trade.get("mini_symbol") != system_state.mini_symbol:
+            t_petal_symbol = trade.get("petal_symbol") or system_state.petal_symbol
+            t_mini_symbol = trade.get("mini_symbol") or system_state.mini_symbol
+            
+            # Resolve live depth spreads for this specific pair
+            live_stat = None
+            if t_petal_symbol == system_state.petal_symbol and t_mini_symbol == system_state.mini_symbol:
+                live_stat = {
+                    "depth_buy_spread": system_state.depth_buy_spread,
+                    "depth_sell_spread": system_state.depth_sell_spread
+                }
+            else:
+                for stat in system_state.month_master_live:
+                    if stat.get("petal_symbol") == t_petal_symbol and stat.get("mini_symbol") == t_mini_symbol:
+                        live_stat = stat
+                        break
+            
+            if not live_stat:
                 continue
+                
+            buy_spread = live_stat["depth_buy_spread"]
+            sell_spread = live_stat["depth_sell_spread"]
+            
             triggered = False
+            expected_spread = 0.0
             if trade.get("direction") == "Expansion":
-                if system_state.depth_buy_spread <= trade.get("trigger_diff", 0.0):
+                if buy_spread <= trade.get("trigger_diff", 0.0):
                     triggered = True
+                    expected_spread = buy_spread
             elif trade.get("direction") == "Contraction":
-                if system_state.depth_sell_spread >= trade.get("trigger_diff", 0.0):
+                if sell_spread >= trade.get("trigger_diff", 0.0):
                     triggered = True
+                    expected_spread = sell_spread
             
             if triggered:
                 trade["status"] = "Executing"
-                asyncio.create_task(trigger_manual_trade_execution(trade))
+                asyncio.create_task(trigger_manual_trade_execution(trade, expected_spread))
         
     # Check execution lock or halted state: skip automations to prevent overlaps
     if system_state.execution_in_progress or system_state.system_status == "Halted":
@@ -3370,6 +3466,8 @@ class EntryPayload(BaseModel):
     direction: str
     trigger_diff: float = None
     quantity: int = None
+    petal_symbol: str = None
+    mini_symbol: str = None
 
 @app.post("/api/entry")
 async def api_entry(payload: EntryPayload, token: str = None, authorization: str = Header(None)):
@@ -3388,6 +3486,8 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
         raise HTTPException(status_code=400, detail="Invalid trade direction selected.")
         
     qty = payload.quantity if payload.quantity is not None else system_state.trade_quantity
+    target_petal = payload.petal_symbol or system_state.petal_symbol
+    target_mini = payload.mini_symbol or system_state.mini_symbol
     
     if payload.trigger_diff is not None:
         # Create pending manual trade
@@ -3400,8 +3500,8 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
             "status": "Pending",
             "entry_time": time.strftime("%H:%M:%S"),
             "entry_date": time.strftime("%Y-%m-%d"),
-            "petal_symbol": system_state.petal_symbol,
-            "mini_symbol": system_state.mini_symbol,
+            "petal_symbol": target_petal,
+            "mini_symbol": target_mini,
             "petal_entry_price": 0.0,
             "mini_entry_price": 0.0,
             "entry_spread": 0.0,
@@ -3427,14 +3527,17 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
         }
         system_state.manual_trades.append(new_trade)
         system_state.save_manual_trades()
-        system_state.log(f"MANUAL PENDING ENTRY CREATED: ID {trade_id}, Dir {payload.direction}, Trigger Diff {payload.trigger_diff}, Qty {qty}")
+        system_state.log(f"MANUAL PENDING ENTRY CREATED: ID {trade_id}, Dir {payload.direction}, Trigger Diff {payload.trigger_diff}, Qty {qty} ({target_petal}/{target_mini})")
         await broadcast_system_state()
         return {"status": "SUCCESS", "message": f"Pending manual trade ID {trade_id} created."}
         
     # Immediate execution
     expected_entry_spread = system_state.depth_buy_spread if payload.direction == "Expansion" else system_state.depth_sell_spread
     
-    result = await execute_netting_manual_trades(payload.direction, qty, expected_entry_spread)
+    result = await execute_netting_manual_trades(
+        payload.direction, qty, expected_entry_spread,
+        petal_symbol=target_petal, mini_symbol=target_mini
+    )
     if not result["success"]:
         raise HTTPException(status_code=400, detail=f"Trade execution failed: {result['reason']}")
         
@@ -3487,9 +3590,33 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
     petal_action = "SELL" if direction == "Expansion" else "BUY"
     mini_action = "BUY" if direction == "Expansion" else "SELL"
     
-    system_state.log(f"[MANUAL EXIT] Squaring off manual trade ID {trade['id']} ({direction})...")
+    p_sym = trade.get("petal_symbol") or system_state.petal_symbol
+    m_sym = trade.get("mini_symbol") or system_state.mini_symbol
+    p_tok, m_tok = system_state.get_tokens_for_pair(p_sym, m_sym)
     
-    result = await execute_trade(petal_action, mini_action, check_liquidity=False, is_entry=False, qty=trade["quantity"])
+    # Resolve live spread for this pair
+    if p_sym == system_state.petal_symbol and m_sym == system_state.mini_symbol:
+        expected_exit_spread = system_state.depth_sell_spread if direction == "Expansion" else system_state.depth_buy_spread
+    else:
+        for stat in system_state.month_master_live:
+            if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
+                expected_exit_spread = stat["depth_sell_spread"] if direction == "Expansion" else stat["depth_buy_spread"]
+                break
+        else:
+            expected_exit_spread = 0.0
+            
+    system_state.log(f"[MANUAL EXIT] Squaring off manual trade ID {trade['id']} ({direction}) for {p_sym}/{m_sym}...")
+    
+    result = await execute_trade(
+        petal_action, mini_action, 
+        check_liquidity=False, 
+        is_entry=False, 
+        qty=trade["quantity"],
+        alt_petal_symbol=p_sym,
+        alt_petal_token=p_tok,
+        alt_mini_symbol=m_sym,
+        alt_mini_token=m_tok
+    )
     if not result["success"]:
         raise HTTPException(status_code=400, detail=f"Square off trade execution failed: {result['reason']}")
         
