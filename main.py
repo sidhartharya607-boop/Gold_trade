@@ -154,7 +154,7 @@ def get_gold_contract_specs(symbol: str) -> dict:
             "lot_size_grams": 100,
             "lots_per_unit_mini": 1,        # 1 lot per unit (100g)
             "price_scale_to_10g": 1.0,      # Quote is per 10g -> x1.0
-            "api_lot_multiplier": 1,        # 1 lot per unit in API (passes 1)
+            "api_lot_multiplier": 100,      # Angel One requires 100 in quantity (lot size in grams)
             "pnl_multiplier": 10.0,
             "bid_ask_limit": 150.0
         }
@@ -281,6 +281,7 @@ class TradingSystem:
         self.smart_connect = None
         self.mcx_tokens_cache = {}
         self.mcx_official_symbols = {}
+        self.mcx_lotsize_cache = {}
         
         # Volume & Depth attributes
         self.gold_petal_volume = 0
@@ -734,6 +735,11 @@ class TradingSystem:
 
     def get_mcx_lot_size(self, symbol: str) -> int:
         sym_u = (symbol or "").upper()
+        if hasattr(self, "mcx_lotsize_cache") and self.mcx_lotsize_cache:
+            if sym_u in self.mcx_lotsize_cache:
+                return self.mcx_lotsize_cache[sym_u]
+            if sym_u.removesuffix("FUT") in self.mcx_lotsize_cache:
+                return self.mcx_lotsize_cache[sym_u.removesuffix("FUT")]
         spec = get_gold_contract_specs(sym_u)
         return spec.get("api_lot_multiplier", 1)
 
@@ -3304,18 +3310,28 @@ async def search_active_mcx_tokens():
                 exch = item.get("exch_seg", "")
                 symbol = item.get("symbol", "")
                 token = item.get("token", "")
+                lotsize_raw = item.get("lotsize", "1")
+                try:
+                    lotsize_val = int(lotsize_raw)
+                except (ValueError, TypeError):
+                    lotsize_val = 1
                 if exch == "MCX" and symbol and token:
                     sym_u = symbol.upper()
                     system_state.mcx_tokens_cache[sym_u] = token
                     system_state.mcx_tokens_cache[sym_u.removesuffix("FUT")] = token
                     system_state.mcx_tokens_cache[f"{sym_u.removesuffix('FUT')}FUT"] = token
                     system_state.mcx_official_symbols[token] = sym_u
+                    system_state.mcx_lotsize_cache[sym_u] = lotsize_val
+                    system_state.mcx_lotsize_cache[sym_u.removesuffix("FUT")] = lotsize_val
+                    system_state.mcx_lotsize_cache[f"{sym_u.removesuffix('FUT')}FUT"] = lotsize_val
+                    system_state.mcx_lotsize_cache[token] = lotsize_val
                     if any(symbol.startswith(p) for p in ["GOLDPETAL", "GOLDM", "GOLDTEN", "GOLD10", "GOLDGUINEA"]):
                         results.append({
                             "symbol": symbol,
                             "token": token,
                             "expiry": item.get("expiry"),
-                            "name": item.get("name")
+                            "name": item.get("name"),
+                            "lotsize": lotsize_val
                         })
             return results
 
