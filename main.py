@@ -1110,9 +1110,11 @@ async def broadcast_system_state(force: bool = False):
 
 # ----------------- Order execution -----------------
 # ----------------- Order execution -----------------
-def is_liquidity_sufficient(petal_action: str, mini_action: str, qty: int) -> bool:
-    required_petal = qty * 100
-    required_mini = qty
+def is_liquidity_sufficient(petal_action: str, mini_action: str, qty: int, petal_symbol: str = None, mini_symbol: str = None) -> bool:
+    p_spec = get_gold_contract_specs(petal_symbol or system_state.petal_symbol)
+    m_spec = get_gold_contract_specs(mini_symbol or system_state.mini_symbol)
+    required_petal = qty * p_spec["lots_per_unit_mini"]
+    required_mini = qty * m_spec["lots_per_unit_mini"]
     
     if petal_action == "BUY":
         available_petal = system_state.gold_petal_sell_qty
@@ -1133,13 +1135,15 @@ def is_liquidity_sufficient(petal_action: str, mini_action: str, qty: int) -> bo
 
     # 2. Bid-Ask Spread Check (Slippage Prevention)
     try:
+        petal_limit = p_spec["bid_ask_limit"]
+        mini_limit = m_spec["bid_ask_limit"]
         if (isinstance(system_state.petal_depth, dict) and 
                 "buy" in system_state.petal_depth and len(system_state.petal_depth["buy"]) > 0 and
                 "sell" in system_state.petal_depth and len(system_state.petal_depth["sell"]) > 0):
             petal_bid = float(system_state.petal_depth["buy"][0]["price"])
             petal_ask = float(system_state.petal_depth["sell"][0]["price"])
-            if (petal_ask - petal_bid) > 15.0:
-                system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: GOLDPETAL Bid-Ask gap too wide ({petal_ask - petal_bid:.2f} > 15.0).")
+            if (petal_ask - petal_bid) > petal_limit:
+                system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: {p_spec['type']} Bid-Ask gap too wide ({petal_ask - petal_bid:.2f} > {petal_limit:.2f}).")
                 return False
 
         if (isinstance(system_state.mini_depth, dict) and 
@@ -1147,8 +1151,8 @@ def is_liquidity_sufficient(petal_action: str, mini_action: str, qty: int) -> bo
                 "sell" in system_state.mini_depth and len(system_state.mini_depth["sell"]) > 0):
             mini_bid = float(system_state.mini_depth["buy"][0]["price"])
             mini_ask = float(system_state.mini_depth["sell"][0]["price"])
-            if (mini_ask - mini_bid) > 150.0:
-                system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: GOLDMINI Bid-Ask gap too wide ({mini_ask - mini_bid:.2f} > 150.0).")
+            if (mini_ask - mini_bid) > mini_limit:
+                system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: {m_spec['type']} Bid-Ask gap too wide ({mini_ask - mini_bid:.2f} > {mini_limit:.2f}).")
                 return False
     except Exception as e:
         logger.warning(f"Error parsing depth for bid-ask gap check: {e}")
