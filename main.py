@@ -2111,14 +2111,14 @@ async def run_trade_automation_checks():
             continue
 
         # Fixed Anchor Grid (Slippage-Independent)
-        # Order 1 (num_open=0): Base +- (1 * Step) -> e.g. 1000 + 50 = 1050
-        # Order 2 (num_open=1): Base +- (2 * Step) -> e.g. 1000 + 100 = 1100
-        # Order 3 (num_open=2): Base +- (3 * Step) -> e.g. 1000 + 150 = 1150
+        # Order 1 (num_open=0): Base +- (0 * Step) -> e.g. entry_diff directly (1010)
+        # Order 2 (num_open=1): Base +- (1 * Step) -> e.g. 1010 +- 30 = 1040 (or 980)
+        # Order 3 (num_open=2): Base +- (2 * Step) -> e.g. 1010 +- 60 = 1070 (or 950)
         order_index = num_open + 1
         if direction == "Expansion":
-            target_spread = entry_diff - (order_index * averaging_step)
+            target_spread = entry_diff - (num_open * averaging_step)
         else:
-            target_spread = entry_diff + (order_index * averaging_step)
+            target_spread = entry_diff + (num_open * averaging_step)
 
         entry_triggered = False
         if direction == "Expansion":
