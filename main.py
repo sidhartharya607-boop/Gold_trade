@@ -116,6 +116,68 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def get_gold_contract_specs(symbol: str) -> dict:
+    sym_u = (symbol or "").upper()
+    if sym_u.startswith("GOLDPETAL"):
+        return {
+            "type": "GOLDPETAL",
+            "lot_size_grams": 1,
+            "lots_per_unit_mini": 100,      # 100 lots of Petal per 1 GOLDM (100g)
+            "price_scale_to_10g": 10.0,     # Quote is per 1g -> x10 for 10g scale
+            "api_lot_multiplier": 1,        # 1 lot per unit in API (passes 100)
+            "pnl_multiplier": 100.0,
+            "bid_ask_limit": 15.0
+        }
+    elif sym_u.startswith("GOLDTEN") or sym_u.startswith("GOLD10"):
+        return {
+            "type": "GOLDTEN",
+            "lot_size_grams": 10,
+            "lots_per_unit_mini": 10,       # 10 lots of Gold Ten per 1 GOLDM (100g)
+            "price_scale_to_10g": 1.0,      # Quote is per 10g -> x1.0
+            "api_lot_multiplier": 1,        # 1 lot per unit in API (passes 10)
+            "pnl_multiplier": 10.0,
+            "bid_ask_limit": 150.0
+        }
+    elif sym_u.startswith("GOLDGUINEA"):
+        return {
+            "type": "GOLDGUINEA",
+            "lot_size_grams": 8,
+            "lots_per_unit_mini": 12,       # 12 lots (96g) per 1 GOLDM (100g)
+            "price_scale_to_10g": 1.25,     # Quote is per 8g -> (P / 8) * 10 = P * 1.25
+            "api_lot_multiplier": 1,        # 1 lot per unit in API (passes 12)
+            "pnl_multiplier": 12.0,
+            "bid_ask_limit": 120.0
+        }
+    elif sym_u.startswith("GOLDM"):
+        return {
+            "type": "GOLDM",
+            "lot_size_grams": 100,
+            "lots_per_unit_mini": 1,        # 1 lot per unit (100g)
+            "price_scale_to_10g": 1.0,      # Quote is per 10g -> x1.0
+            "api_lot_multiplier": 1,        # 1 lot per unit in API (passes 1)
+            "pnl_multiplier": 10.0,
+            "bid_ask_limit": 150.0
+        }
+    elif sym_u.startswith("GOLD"):
+        return {
+            "type": "GOLD",
+            "lot_size_grams": 1000,
+            "lots_per_unit_mini": 1,
+            "price_scale_to_10g": 1.0,
+            "api_lot_multiplier": 1,
+            "pnl_multiplier": 100.0,
+            "bid_ask_limit": 150.0
+        }
+    return {
+        "type": "GOLDPETAL",
+        "lot_size_grams": 1,
+        "lots_per_unit_mini": 100,
+        "price_scale_to_10g": 10.0,
+        "api_lot_multiplier": 1,
+        "pnl_multiplier": 100.0,
+        "bid_ask_limit": 15.0
+    }
+
 # ----------------- Trading System State -----------------
 class TradingSystem:
     def __init__(self):
@@ -498,10 +560,11 @@ class TradingSystem:
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta configs: {e}")
 
-    def calculate_mcx_charges(self, direction: str, qty: int, petal_entry: float, mini_entry: float, petal_exit: float, mini_exit: float) -> float:
-        # GOLDPETAL: 1g size, we trade 100 * qty. GOLDMINI: 100g size (price per 10g), multiplier is 10.
-        petal_qty = 100 * qty
-        mini_mult = 10 * qty
+    def calculate_mcx_charges(self, direction: str, qty: int, petal_entry: float, mini_entry: float, petal_exit: float, mini_exit: float, petal_symbol: str = None, mini_symbol: str = None) -> float:
+        p_spec = get_gold_contract_specs(petal_symbol or self.petal_symbol)
+        m_spec = get_gold_contract_specs(mini_symbol or self.mini_symbol)
+        petal_qty = qty * p_spec.get("pnl_multiplier", 100.0)
+        mini_mult = qty * m_spec.get("pnl_multiplier", 10.0)
         
         if direction == "Expansion":
             petal_buy_val = petal_qty * petal_entry
@@ -670,14 +733,9 @@ class TradingSystem:
         return token or ""
 
     def get_mcx_lot_size(self, symbol: str) -> int:
-        sym_u = symbol.upper()
-        if sym_u.startswith("GOLDPETAL"):
-            return 1
-        elif sym_u.startswith("GOLDM"):
-            return 100
-        elif sym_u.startswith("GOLD"):
-            return 100
-        return 1
+        sym_u = (symbol or "").upper()
+        spec = get_gold_contract_specs(sym_u)
+        return spec.get("api_lot_multiplier", 1)
 
     def resolve_scrip_token_via_api(self, symbol: str) -> str:
         if not symbol:
@@ -1292,18 +1350,20 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                         alt_petal_symbol: str = None, alt_petal_token: str = None,
                         alt_mini_symbol: str = None, alt_mini_token: str = None,
                         paper_mode_override: bool = None) -> dict:
-    if qty is None:
-        qty = system_state.trade_quantity
-    required_petal = qty * 100
-    required_mini = qty
-    
-    direction = system_state.position_direction if not is_entry else ("Expansion" if petal_action == "BUY" else "Contraction")
-    
     # Resolve target symbols and tokens
     target_petal_symbol = alt_petal_symbol if alt_petal_symbol is not None else system_state.petal_symbol
     target_petal_token = alt_petal_token if alt_petal_token is not None else system_state.petal_token
     target_mini_symbol = alt_mini_symbol if alt_mini_symbol is not None else system_state.mini_symbol
     target_mini_token = alt_mini_token if alt_mini_token is not None else system_state.mini_token
+
+    if qty is None:
+        qty = system_state.trade_quantity
+    p_spec = get_gold_contract_specs(target_petal_symbol)
+    m_spec = get_gold_contract_specs(target_mini_symbol)
+    required_petal = qty * p_spec["lots_per_unit_mini"]
+    required_mini = qty * m_spec["lots_per_unit_mini"]
+    
+    direction = system_state.position_direction if not is_entry else ("Expansion" if petal_action == "BUY" else "Contraction")
     
     # Resolve depths and LTPs from caching dictionaries
     petal_depth = system_state.symbol_depths.get(target_petal_symbol) or system_state.symbol_depths.get(target_petal_token) or system_state.petal_depth
@@ -1338,13 +1398,15 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
     if check_liquidity:
         liquidity_ok = True
         try:
+            petal_limit = p_spec["bid_ask_limit"]
+            mini_limit = m_spec["bid_ask_limit"]
             if (isinstance(petal_depth, dict) and 
                     "buy" in petal_depth and len(petal_depth["buy"]) > 0 and
                     "sell" in petal_depth and len(petal_depth["sell"]) > 0):
                 petal_bid = float(petal_depth["buy"][0]["price"])
                 petal_ask = float(petal_depth["sell"][0]["price"])
-                if (petal_ask - petal_bid) > 15.0:
-                    system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: {target_petal_symbol} Bid-Ask gap too wide ({petal_ask - petal_bid:.2f} > 15.0).")
+                if (petal_ask - petal_bid) > petal_limit:
+                    system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: {target_petal_symbol} Bid-Ask gap too wide ({petal_ask - petal_bid:.2f} > {petal_limit:.2f}).")
                     liquidity_ok = False
     
             if (isinstance(mini_depth, dict) and 
@@ -1352,8 +1414,8 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                     "sell" in mini_depth and len(mini_depth["sell"]) > 0):
                 mini_bid = float(mini_depth["buy"][0]["price"])
                 mini_ask = float(mini_depth["sell"][0]["price"])
-                if (mini_ask - mini_bid) > 150.0:
-                    system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: {target_mini_symbol} Bid-Ask gap too wide ({mini_ask - mini_bid:.2f} > 150.0).")
+                if (mini_ask - mini_bid) > mini_limit:
+                    system_state.log(f"[LIQUIDITY SHIELD] Trade skipped: {target_mini_symbol} Bid-Ask gap too wide ({mini_ask - mini_bid:.2f} > {mini_limit:.2f}).")
                     liquidity_ok = False
         except Exception as e:
             logger.warning(f"Error parsing depth for bid-ask gap check: {e}")
@@ -1644,23 +1706,26 @@ async def execute_position_exit(exit_reason: str):
     petal_exit_type = result["petal_order_type"]
     mini_exit_type = result["mini_order_type"]
     
-    actual_exit_spread = (petal_exit * 10.0) - mini_exit
+    p_spec = get_gold_contract_specs(system_state.petal_symbol)
+    m_spec = get_gold_contract_specs(system_state.mini_symbol)
+    actual_exit_spread = (petal_exit * p_spec["price_scale_to_10g"]) - (mini_exit * m_spec["price_scale_to_10g"])
     expected_exit_spread = system_state.expected_exit_spread
     
-    # P&L Formulas based on physical multipliers (100x Petal, 10x Mini)
+    # P&L Formulas based on contract multipliers
     qty = system_state.trade_quantity
-    if direction == "Expansion":  # Buy Petal, Sell Mini
-        p_pnl = (petal_exit - system_state.petal_entry_price) * 100.0 * qty
-        m_pnl = (system_state.mini_entry_price - mini_exit) * 10.0 * qty
+    if direction == "Expansion":  # Buy Petal/Ten/Guinea, Sell Mini
+        p_pnl = (petal_exit - system_state.petal_entry_price) * p_spec["pnl_multiplier"] * qty
+        m_pnl = (system_state.mini_entry_price - mini_exit) * m_spec["pnl_multiplier"] * qty
         exit_slippage = expected_exit_spread - actual_exit_spread
-    else:  # Sell Petal, Buy Mini
-        p_pnl = (system_state.petal_entry_price - petal_exit) * 100.0 * qty
-        m_pnl = (mini_exit - system_state.mini_entry_price) * 10.0 * qty
+    else:  # Sell Petal/Ten/Guinea, Buy Mini
+        p_pnl = (system_state.petal_entry_price - petal_exit) * p_spec["pnl_multiplier"] * qty
+        m_pnl = (mini_exit - system_state.mini_entry_price) * m_spec["pnl_multiplier"] * qty
         exit_slippage = actual_exit_spread - expected_exit_spread
         
     trade_pnl = p_pnl + m_pnl
     charges = system_state.calculate_mcx_charges(
-        direction, qty, system_state.petal_entry_price, system_state.mini_entry_price, petal_exit, mini_exit
+        direction, qty, system_state.petal_entry_price, system_state.mini_entry_price, petal_exit, mini_exit,
+        petal_symbol=system_state.petal_symbol, mini_symbol=system_state.mini_symbol
     )
     net_pnl = trade_pnl - charges
     system_state.realized_pnl += net_pnl
@@ -1792,8 +1857,9 @@ async def run_auto_entry(direction: str, petal_action: str, mini_action: str, ex
             system_state.petal_entry_price = result["petal_fill_price"]
             system_state.mini_entry_price = result["mini_fill_price"]
             system_state.petal_entry_type = result["petal_order_type"]
-            system_state.mini_entry_type = result["mini_order_type"]
-            system_state.entry_spread = (system_state.petal_entry_price * 10.0) - system_state.mini_entry_price
+            p_spec = get_gold_contract_specs(system_state.petal_symbol)
+            m_spec = get_gold_contract_specs(system_state.mini_symbol)
+            system_state.entry_spread = (system_state.petal_entry_price * p_spec["price_scale_to_10g"]) - (system_state.mini_entry_price * m_spec["price_scale_to_10g"])
             
             system_state.expected_entry_spread = expected_entry_spread
             if direction == "Expansion":
@@ -1845,6 +1911,8 @@ async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread:
             paper_mode_override=paper_mode
         )
         if result["success"]:
+            p_spec = get_gold_contract_specs(mapping["petal_symbol"])
+            m_spec = get_gold_contract_specs(mapping["mini_symbol"])
             trade_id = len(system_state.ta_trades) + 1
             new_trade = {
                 "id": trade_id,
@@ -1857,7 +1925,7 @@ async def run_ta_entry(mapping: dict, direction: str, qty: int, expected_spread:
                 "mini_symbol": mapping["mini_symbol"],
                 "petal_entry_price": result["petal_fill_price"],
                 "mini_entry_price": result["mini_fill_price"],
-                "entry_spread": (result["petal_fill_price"] * 10.0) - result["mini_fill_price"],
+                "entry_spread": (result["petal_fill_price"] * p_spec["price_scale_to_10g"]) - (result["mini_fill_price"] * m_spec["price_scale_to_10g"]),
                 "expected_entry_spread": expected_spread,
                 "exit_gap": exit_gap,
                 "petal_entry_type": result["petal_order_type"],
@@ -1905,26 +1973,29 @@ async def run_ta_exit(trade: dict, mapping: dict, paper_mode: bool = True):
             paper_mode_override=paper_mode
         )
         if result["success"]:
+            p_spec = get_gold_contract_specs(mapping["petal_symbol"])
+            m_spec = get_gold_contract_specs(mapping["mini_symbol"])
             petal_exit = result["petal_fill_price"]
             mini_exit = result["mini_fill_price"]
             petal_exit_type = result["petal_order_type"]
             mini_exit_type = result["mini_order_type"]
             
-            actual_exit_spread = (petal_exit * 10.0) - mini_exit
+            actual_exit_spread = (petal_exit * p_spec["price_scale_to_10g"]) - (mini_exit * m_spec["price_scale_to_10g"])
             expected_exit_spread = system_state.depth_sell_spread if direction == "Expansion" else system_state.depth_buy_spread
             
             if direction == "Expansion":
-                p_pnl = (petal_exit - trade["petal_entry_price"]) * 100.0 * qty
-                m_pnl = (trade["mini_entry_price"] - mini_exit) * 10.0 * qty
+                p_pnl = (petal_exit - trade["petal_entry_price"]) * p_spec["pnl_multiplier"] * qty
+                m_pnl = (trade["mini_entry_price"] - mini_exit) * m_spec["pnl_multiplier"] * qty
                 exit_slippage = expected_exit_spread - actual_exit_spread
             else:
-                p_pnl = (trade["petal_entry_price"] - petal_exit) * 100.0 * qty
-                m_pnl = (mini_exit - trade["mini_entry_price"]) * 10.0 * qty
+                p_pnl = (trade["petal_entry_price"] - petal_exit) * p_spec["pnl_multiplier"] * qty
+                m_pnl = (mini_exit - trade["mini_entry_price"]) * m_spec["pnl_multiplier"] * qty
                 exit_slippage = actual_exit_spread - expected_exit_spread
                 
             trade_pnl = p_pnl + m_pnl
             charges = system_state.calculate_mcx_charges(
-                direction, qty, trade["petal_entry_price"], trade["mini_entry_price"], petal_exit, mini_exit
+                direction, qty, trade["petal_entry_price"], trade["mini_entry_price"], petal_exit, mini_exit,
+                petal_symbol=mapping["petal_symbol"], mini_symbol=mapping["mini_symbol"]
             )
             net_pnl = trade_pnl - charges
             
@@ -2177,11 +2248,13 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
             alt_mini_token=m_tok
         )
         if result["success"]:
+            p_spec = get_gold_contract_specs(p_sym)
+            m_spec = get_gold_contract_specs(m_sym)
             petal_exit = result["petal_fill_price"]
             mini_exit = result["mini_fill_price"]
             petal_exit_type = result["petal_order_type"]
             mini_exit_type = result["mini_order_type"]
-            actual_exit_spread = (petal_exit * 10.0) - mini_exit
+            actual_exit_spread = (petal_exit * p_spec["price_scale_to_10g"]) - (mini_exit * m_spec["price_scale_to_10g"])
             expected_exit_spread = expected_entry_spread
             
             remaining_net_qty = net_qty
@@ -2200,17 +2273,18 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                     t["actual_exit_spread"] = actual_exit_spread
                     
                     if t_dir == "Expansion":
-                        p_pnl = (petal_exit - t.get("petal_entry_price", 0.0)) * 100.0 * t_qty
-                        m_pnl = (t.get("mini_entry_price", 0.0) - mini_exit) * 10.0 * t_qty
+                        p_pnl = (petal_exit - t.get("petal_entry_price", 0.0)) * p_spec["pnl_multiplier"] * t_qty
+                        m_pnl = (t.get("mini_entry_price", 0.0) - mini_exit) * m_spec["pnl_multiplier"] * t_qty
                         exit_slippage = expected_exit_spread - actual_exit_spread
                     else:
-                        p_pnl = (t.get("petal_entry_price", 0.0) - petal_exit) * 100.0 * t_qty
-                        m_pnl = (mini_exit - t.get("mini_entry_price", 0.0)) * 10.0 * t_qty
+                        p_pnl = (t.get("petal_entry_price", 0.0) - petal_exit) * p_spec["pnl_multiplier"] * t_qty
+                        m_pnl = (mini_exit - t.get("mini_entry_price", 0.0)) * m_spec["pnl_multiplier"] * t_qty
                         exit_slippage = actual_exit_spread - expected_exit_spread
                         
                     trade_pnl = p_pnl + m_pnl
                     charges = system_state.calculate_mcx_charges(
-                        t_dir, t_qty, t.get("petal_entry_price", 0.0), t.get("mini_entry_price", 0.0), petal_exit, mini_exit
+                        t_dir, t_qty, t.get("petal_entry_price", 0.0), t.get("mini_entry_price", 0.0), petal_exit, mini_exit,
+                        petal_symbol=p_sym, mini_symbol=m_sym
                     )
                     net_pnl = trade_pnl - charges
                     
@@ -2267,17 +2341,18 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                     closed_qty = remaining_net_qty
                     
                     if t_dir == "Expansion":
-                        p_pnl = (petal_exit - t.get("petal_entry_price", 0.0)) * 100.0 * closed_qty
-                        m_pnl = (t.get("mini_entry_price", 0.0) - mini_exit) * 10.0 * closed_qty
+                        p_pnl = (petal_exit - t.get("petal_entry_price", 0.0)) * p_spec["pnl_multiplier"] * closed_qty
+                        m_pnl = (t.get("mini_entry_price", 0.0) - mini_exit) * m_spec["pnl_multiplier"] * closed_qty
                         exit_slippage = expected_exit_spread - actual_exit_spread
                     else:
-                        p_pnl = (t.get("petal_entry_price", 0.0) - petal_exit) * 100.0 * closed_qty
-                        m_pnl = (mini_exit - t.get("mini_entry_price", 0.0)) * 10.0 * closed_qty
+                        p_pnl = (t.get("petal_entry_price", 0.0) - petal_exit) * p_spec["pnl_multiplier"] * closed_qty
+                        m_pnl = (mini_exit - t.get("mini_entry_price", 0.0)) * m_spec["pnl_multiplier"] * closed_qty
                         exit_slippage = actual_exit_spread - expected_exit_spread
                         
                     trade_pnl = p_pnl + m_pnl
                     charges = system_state.calculate_mcx_charges(
-                        t_dir, closed_qty, t.get("petal_entry_price", 0.0), t.get("mini_entry_price", 0.0), petal_exit, mini_exit
+                        t_dir, closed_qty, t.get("petal_entry_price", 0.0), t.get("mini_entry_price", 0.0), petal_exit, mini_exit,
+                        petal_symbol=p_sym, mini_symbol=m_sym
                     )
                     net_pnl = trade_pnl - charges
                     
@@ -2364,9 +2439,11 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
             alt_mini_token=m_tok
         )
         if result_open["success"]:
+            p_spec_open = get_gold_contract_specs(p_sym)
+            m_spec_open = get_gold_contract_specs(m_sym)
             petal_price = result_open["petal_fill_price"]
             mini_price = result_open["mini_fill_price"]
-            entry_spread = (petal_price * 10.0) - mini_price
+            entry_spread = (petal_price * p_spec_open["price_scale_to_10g"]) - (mini_price * m_spec_open["price_scale_to_10g"])
             
             if new_direction == "Expansion":
                 entry_slippage = entry_spread - expected_entry_spread
@@ -2486,13 +2563,15 @@ def record_depth_spread(petal_symbol: str, mini_symbol: str,
     # Disabled logging to depth_spread_history.csv as requested
     pass
 
-# ----------------- Trading Engine and Live Tickers -----------------
 async def process_market_data(data: dict):
     global system_state
     
+    p_spec = get_gold_contract_specs(system_state.petal_symbol)
+    m_spec = get_gold_contract_specs(system_state.mini_symbol)
+    
     petal_ltp = data["petal_ltp"]
     mini_ltp = data["mini_ltp"]
-    spread = (petal_ltp * 10.0) - mini_ltp
+    spread = (petal_ltp * p_spec["price_scale_to_10g"]) - (mini_ltp * m_spec["price_scale_to_10g"])
     
     system_state.gold_petal_ltp = petal_ltp
     system_state.gold_mini_ltp = mini_ltp
@@ -2515,21 +2594,19 @@ async def process_market_data(data: dict):
     
 
     qty = system_state.trade_quantity
+    p_req_qty = qty * p_spec["lots_per_unit_mini"]
+    m_req_qty = qty * m_spec["lots_per_unit_mini"]
     
     # Calculate depth-based spreads
-    # depth_buy_spread (We Buy Petal, Sell Mini):
-    # - Petal buy: we buy from Ask (sell side) for 100 * qty units.
-    # - Mini sell: we sell to Bid (buy side) for qty units.
-    avg_petal_buy = get_depth_average_price(system_state.petal_depth, "sell", 100 * qty, petal_ltp)
-    avg_mini_sell = get_depth_average_price(system_state.mini_depth, "buy", qty, mini_ltp)
-    system_state.depth_buy_spread = (avg_petal_buy * 10.0) - avg_mini_sell
+    # depth_buy_spread (We Buy Leg 1, Sell Leg 2):
+    avg_petal_buy = get_depth_average_price(system_state.petal_depth, "sell", p_req_qty, petal_ltp)
+    avg_mini_sell = get_depth_average_price(system_state.mini_depth, "buy", m_req_qty, mini_ltp)
+    system_state.depth_buy_spread = (avg_petal_buy * p_spec["price_scale_to_10g"]) - (avg_mini_sell * m_spec["price_scale_to_10g"])
     
-    # depth_sell_spread (We Sell Petal, Buy Mini):
-    # - Petal sell: we sell to Bid (buy side) for 100 * qty units.
-    # - Mini buy: we buy from Ask (sell side) for qty units.
-    avg_petal_sell = get_depth_average_price(system_state.petal_depth, "buy", 100 * qty, petal_ltp)
-    avg_mini_buy = get_depth_average_price(system_state.mini_depth, "sell", qty, mini_ltp)
-    system_state.depth_sell_spread = (avg_petal_sell * 10.0) - avg_mini_buy
+    # depth_sell_spread (We Sell Leg 1, Buy Leg 2):
+    avg_petal_sell = get_depth_average_price(system_state.petal_depth, "buy", p_req_qty, petal_ltp)
+    avg_mini_buy = get_depth_average_price(system_state.mini_depth, "sell", m_req_qty, mini_ltp)
+    system_state.depth_sell_spread = (avg_petal_sell * p_spec["price_scale_to_10g"]) - (avg_mini_buy * m_spec["price_scale_to_10g"])
     
     # Record depth spreads if they change (de-duplicated)
     if (abs(system_state.depth_buy_spread - system_state.last_logged_buy_spread) > 0.01 or 
@@ -2549,15 +2626,15 @@ async def process_market_data(data: dict):
             system_state.depth_sell_spread
         )
             
-    # Live leg and portfolio P&L calculations (Corrected to physical multipliers: 100x for Petal, 10x for Mini)
+    # Live leg and portfolio P&L calculations (Corrected to dynamic contract multipliers)
     if system_state.is_in_position:
         direction = system_state.position_direction
-        if direction == "Expansion":  # Buy Petal, Sell Mini
-            system_state.petal_pnl = (petal_ltp - system_state.petal_entry_price) * 100.0 * qty
-            system_state.mini_pnl = (system_state.mini_entry_price - mini_ltp) * 10.0 * qty
-        else:  # Sell Petal, Buy Mini
-            system_state.petal_pnl = (system_state.petal_entry_price - petal_ltp) * 100.0 * qty
-            system_state.mini_pnl = (mini_ltp - system_state.mini_entry_price) * 10.0 * qty
+        if direction == "Expansion":  # Buy Leg 1, Sell Leg 2
+            system_state.petal_pnl = (petal_ltp - system_state.petal_entry_price) * p_spec["pnl_multiplier"] * qty
+            system_state.mini_pnl = (system_state.mini_entry_price - mini_ltp) * m_spec["pnl_multiplier"] * qty
+        else:  # Sell Leg 1, Buy Leg 2
+            system_state.petal_pnl = (system_state.petal_entry_price - petal_ltp) * p_spec["pnl_multiplier"] * qty
+            system_state.mini_pnl = (mini_ltp - system_state.mini_entry_price) * m_spec["pnl_multiplier"] * qty
             
         system_state.unrealized_pnl = system_state.petal_pnl + system_state.mini_pnl
         system_state.used_margin = 50000.0 * qty
@@ -2576,15 +2653,17 @@ async def process_market_data(data: dict):
             t_dir = trade.get("direction")
             t_petal_symbol = trade.get("petal_symbol") or system_state.petal_symbol
             t_mini_symbol = trade.get("mini_symbol") or system_state.mini_symbol
+            t_p_spec = get_gold_contract_specs(t_petal_symbol)
+            t_m_spec = get_gold_contract_specs(t_mini_symbol)
             t_petal_ltp = system_state.symbol_ltps.get(t_petal_symbol) or petal_ltp
             t_mini_ltp = system_state.symbol_ltps.get(t_mini_symbol) or mini_ltp
             
             if t_dir == "Expansion":
-                t_petal_pnl = (t_petal_ltp - trade.get("petal_entry_price", 0.0)) * 100.0 * t_qty
-                t_mini_pnl = (trade.get("mini_entry_price", 0.0) - t_mini_ltp) * 10.0 * t_qty
+                t_petal_pnl = (t_petal_ltp - trade.get("petal_entry_price", 0.0)) * t_p_spec["pnl_multiplier"] * t_qty
+                t_mini_pnl = (trade.get("mini_entry_price", 0.0) - t_mini_ltp) * t_m_spec["pnl_multiplier"] * t_qty
             else:
-                t_petal_pnl = (trade.get("petal_entry_price", 0.0) - t_petal_ltp) * 100.0 * t_qty
-                t_mini_pnl = (t_mini_ltp - trade.get("mini_entry_price", 0.0)) * 10.0 * t_qty
+                t_petal_pnl = (trade.get("petal_entry_price", 0.0) - t_petal_ltp) * t_p_spec["pnl_multiplier"] * t_qty
+                t_mini_pnl = (t_mini_ltp - trade.get("mini_entry_price", 0.0)) * t_m_spec["pnl_multiplier"] * t_qty
             trade["petal_pnl"] = t_petal_pnl
             trade["mini_pnl"] = t_mini_pnl
             trade["unrealized_pnl"] = t_petal_pnl + t_mini_pnl
@@ -2600,15 +2679,17 @@ async def process_market_data(data: dict):
             t_dir = trade.get("direction")
             t_petal_symbol = trade.get("petal_symbol")
             t_mini_symbol = trade.get("mini_symbol")
+            t_p_spec = get_gold_contract_specs(t_petal_symbol)
+            t_m_spec = get_gold_contract_specs(t_mini_symbol)
             t_petal_ltp = system_state.symbol_ltps.get(t_petal_symbol) or petal_ltp
             t_mini_ltp = system_state.symbol_ltps.get(t_mini_symbol) or mini_ltp
             
             if t_dir == "Expansion":
-                t_petal_pnl = (t_petal_ltp - trade.get("petal_entry_price", 0.0)) * 100.0 * t_qty
-                t_mini_pnl = (trade.get("mini_entry_price", 0.0) - t_mini_ltp) * 10.0 * t_qty
+                t_petal_pnl = (t_petal_ltp - trade.get("petal_entry_price", 0.0)) * t_p_spec["pnl_multiplier"] * t_qty
+                t_mini_pnl = (trade.get("mini_entry_price", 0.0) - t_mini_ltp) * t_m_spec["pnl_multiplier"] * t_qty
             else:
-                t_petal_pnl = (trade.get("petal_entry_price", 0.0) - t_petal_ltp) * 100.0 * t_qty
-                t_mini_pnl = (t_mini_ltp - trade.get("mini_entry_price", 0.0)) * 10.0 * t_qty
+                t_petal_pnl = (trade.get("petal_entry_price", 0.0) - t_petal_ltp) * t_p_spec["pnl_multiplier"] * t_qty
+                t_mini_pnl = (t_mini_ltp - trade.get("mini_entry_price", 0.0)) * t_m_spec["pnl_multiplier"] * t_qty
             trade["petal_pnl"] = t_petal_pnl
             trade["mini_pnl"] = t_mini_pnl
             trade["unrealized_pnl"] = t_petal_pnl + t_mini_pnl
@@ -2785,7 +2866,12 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
         m_ltp = float(m_q.get("ltp") or m_q.get("last_price") or 0.0)
         
         if p_ltp > 0 and m_ltp > 0:
-            mm_spread = (p_ltp * 10.0) - m_ltp
+            p_spec = get_gold_contract_specs(p_sym)
+            m_spec = get_gold_contract_specs(m_sym)
+            p_scale = p_spec["price_scale_to_10g"]
+            m_scale = m_spec["price_scale_to_10g"]
+            
+            mm_spread = (p_ltp * p_scale) - (m_ltp * m_scale)
             
             p_depth = p_q.get("depth")
             if not p_depth or not p_depth.get("buy") or not p_depth.get("sell"):
@@ -2796,13 +2882,16 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
                 m_depth = generate_simulated_depth(m_ltp)
                 
             mm_qty = system_state.trade_quantity
-            avg_p_buy = get_depth_average_price(p_depth, "sell", 100 * mm_qty, p_ltp)
-            avg_m_sell = get_depth_average_price(m_depth, "buy", mm_qty, m_ltp)
-            mm_buy_spread = (avg_p_buy * 10.0) - avg_m_sell
+            p_req_qty = mm_qty * p_spec["lots_per_unit_mini"]
+            m_req_qty = mm_qty * m_spec["lots_per_unit_mini"]
             
-            avg_p_sell = get_depth_average_price(p_depth, "buy", 100 * mm_qty, p_ltp)
-            avg_m_buy = get_depth_average_price(m_depth, "sell", mm_qty, m_ltp)
-            mm_sell_spread = (avg_p_sell * 10.0) - avg_m_buy
+            avg_p_buy = get_depth_average_price(p_depth, "sell", p_req_qty, p_ltp)
+            avg_m_sell = get_depth_average_price(m_depth, "buy", m_req_qty, m_ltp)
+            mm_buy_spread = (avg_p_buy * p_scale) - (avg_m_sell * m_scale)
+            
+            avg_p_sell = get_depth_average_price(p_depth, "buy", p_req_qty, p_ltp)
+            avg_m_buy = get_depth_average_price(m_depth, "sell", m_req_qty, m_ltp)
+            mm_sell_spread = (avg_p_sell * p_scale) - (avg_m_buy * m_scale)
             
             # Cache the values dynamically
             if p_sym:
@@ -3217,7 +3306,7 @@ async def search_active_mcx_tokens():
                     system_state.mcx_tokens_cache[sym_u.removesuffix("FUT")] = token
                     system_state.mcx_tokens_cache[f"{sym_u.removesuffix('FUT')}FUT"] = token
                     system_state.mcx_official_symbols[token] = sym_u
-                    if symbol.startswith("GOLDPETAL") or symbol.startswith("GOLDM"):
+                    if any(symbol.startswith(p) for p in ["GOLDPETAL", "GOLDM", "GOLDTEN", "GOLD10", "GOLDGUINEA"]):
                         results.append({
                             "symbol": symbol,
                             "token": token,
@@ -3258,7 +3347,7 @@ async def search_active_mcx_tokens():
                         system_state.dhan_tokens_cache[sym_u.removesuffix("FUT")] = token
                         system_state.dhan_tokens_cache[f"{sym_u.removesuffix('FUT')}FUT"] = token
                         system_state.dhan_official_symbols[token] = sym_u
-                        if sym_u.startswith("GOLDPETAL") or sym_u.startswith("GOLDM"):
+                        if any(sym_u.startswith(p) for p in ["GOLDPETAL", "GOLDM", "GOLDTEN", "GOLD10", "GOLDGUINEA"]):
                             results_dhan.append({
                                 "symbol": sym_u,
                                 "token": token
@@ -3625,22 +3714,25 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
     petal_exit_type = result["petal_order_type"]
     mini_exit_type = result["mini_order_type"]
     
-    actual_exit_spread = (petal_exit * 10.0) - mini_exit
+    p_spec = get_gold_contract_specs(p_sym)
+    m_spec = get_gold_contract_specs(m_sym)
+    actual_exit_spread = (petal_exit * p_spec["price_scale_to_10g"]) - (mini_exit * m_spec["price_scale_to_10g"])
     expected_exit_spread = system_state.depth_sell_spread if direction == "Expansion" else system_state.depth_buy_spread
     
     qty = trade["quantity"]
     if direction == "Expansion":
-        p_pnl = (petal_exit - trade["petal_entry_price"]) * 100.0 * qty
-        m_pnl = (trade["mini_entry_price"] - mini_exit) * 10.0 * qty
+        p_pnl = (petal_exit - trade["petal_entry_price"]) * p_spec["pnl_multiplier"] * qty
+        m_pnl = (trade["mini_entry_price"] - mini_exit) * m_spec["pnl_multiplier"] * qty
         exit_slippage = expected_exit_spread - actual_exit_spread
     else:
-        p_pnl = (trade["petal_entry_price"] - petal_exit) * 100.0 * qty
-        m_pnl = (mini_exit - trade["mini_entry_price"]) * 10.0 * qty
+        p_pnl = (trade["petal_entry_price"] - petal_exit) * p_spec["pnl_multiplier"] * qty
+        m_pnl = (mini_exit - trade["mini_entry_price"]) * m_spec["pnl_multiplier"] * qty
         exit_slippage = actual_exit_spread - expected_exit_spread
         
     trade_pnl = p_pnl + m_pnl
     charges = system_state.calculate_mcx_charges(
-        direction, qty, trade["petal_entry_price"], trade["mini_entry_price"], petal_exit, mini_exit
+        direction, qty, trade["petal_entry_price"], trade["mini_entry_price"], petal_exit, mini_exit,
+        petal_symbol=p_sym, mini_symbol=m_sym
     )
     net_pnl = trade_pnl - charges
     
@@ -3740,26 +3832,41 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
             petal_action = "SELL" if direction == "Expansion" else "BUY"
             mini_action = "BUY" if direction == "Expansion" else "SELL"
             qty = trade["quantity"]
+            p_sym = trade.get("petal_symbol") or system_state.petal_symbol
+            m_sym = trade.get("mini_symbol") or system_state.mini_symbol
+            p_tok, m_tok = system_state.get_tokens_for_pair(p_sym, m_sym)
+            p_spec = get_gold_contract_specs(p_sym)
+            m_spec = get_gold_contract_specs(m_sym)
             
-            result = await execute_trade(petal_action, mini_action, check_liquidity=False, is_entry=False, qty=qty)
+            result = await execute_trade(
+                petal_action, mini_action, 
+                check_liquidity=False, 
+                is_entry=False, 
+                qty=qty,
+                alt_petal_symbol=p_sym,
+                alt_petal_token=p_tok,
+                alt_mini_symbol=m_sym,
+                alt_mini_token=m_tok
+            )
             if result["success"]:
                 petal_exit = result["petal_fill_price"]
                 mini_exit = result["mini_fill_price"]
-                actual_exit_spread = (petal_exit * 10.0) - mini_exit
+                actual_exit_spread = (petal_exit * p_spec["price_scale_to_10g"]) - (mini_exit * m_spec["price_scale_to_10g"])
                 expected_exit_spread = system_state.depth_sell_spread if direction == "Expansion" else system_state.depth_buy_spread
                 
                 if direction == "Expansion":
-                    p_pnl = (petal_exit - trade["petal_entry_price"]) * 100.0 * qty
-                    m_pnl = (trade["mini_entry_price"] - mini_exit) * 10.0 * qty
+                    p_pnl = (petal_exit - trade["petal_entry_price"]) * p_spec["pnl_multiplier"] * qty
+                    m_pnl = (trade["mini_entry_price"] - mini_exit) * m_spec["pnl_multiplier"] * qty
                     exit_slippage = expected_exit_spread - actual_exit_spread
                 else:
-                    p_pnl = (trade["petal_entry_price"] - petal_exit) * 100.0 * qty
-                    m_pnl = (mini_exit - trade["mini_entry_price"]) * 10.0 * qty
+                    p_pnl = (trade["petal_entry_price"] - petal_exit) * p_spec["pnl_multiplier"] * qty
+                    m_pnl = (mini_exit - trade["mini_entry_price"]) * m_spec["pnl_multiplier"] * qty
                     exit_slippage = actual_exit_spread - expected_exit_spread
                     
                 trade_pnl = p_pnl + m_pnl
                 charges = system_state.calculate_mcx_charges(
-                    direction, qty, trade["petal_entry_price"], trade["mini_entry_price"], petal_exit, mini_exit
+                    direction, qty, trade["petal_entry_price"], trade["mini_entry_price"], petal_exit, mini_exit,
+                    petal_symbol=p_sym, mini_symbol=m_sym
                 )
                 net_pnl = trade_pnl - charges
                 
