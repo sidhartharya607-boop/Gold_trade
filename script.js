@@ -699,44 +699,53 @@ function updateDashboard(data) {
                 </div>
             `;
             
+            const mcardId = `m-card-${trade.id}`;
+            const isOpen = (status === 'Open' || status === 'Pending');
             const mobileCardHTML = `
                 <td class="mobile-only" colspan="10">
-                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: var(--bg-card); box-shadow: var(--shadow-sm);">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
-                            <strong style="color: var(--text-primary);">TRADE #${trade.id}</strong>
-                            ${statusBadge}
-                        </div>
-                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: var(--text-secondary);">
-                            <div>${petalSym}</div>
-                            <div>${miniSym}</div>
-                        </div>
-                        <div style="border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: var(--bg-tertiary);">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border-color);">
-                                <span style="color: var(--text-muted);">QTY</span>
-                                <strong style="color: var(--text-primary);">${trade.quantity}</strong>
+                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
+                        <!-- Accordion Header: always visible, tap to toggle -->
+                        <div onclick="(function(el){ var b=document.getElementById('${mcardId}'); var arr=el.querySelector('.macc-arr'); if(b.style.display==='none'||b.style.display===''){b.style.display='block';arr.style.transform='rotate(180deg)';}else{b.style.display='none';arr.style.transform='rotate(0deg)';} })(this)" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background: ${status==='Open' ? 'rgba(16,185,129,0.05)' : status==='Pending' ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom: 1px solid var(--border-color); user-select:none;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
+                                <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
+                                ${statusBadge}
+                                <span style="font-size:0.68rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px;" title="${petalSym}">${petalSym.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-color);">
-                                <span style="color: var(--text-muted);">TARGET DIFF</span>
-                                <strong style="text-align: right; color: var(--text-primary);">${triggerColContent}</strong>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-top: 0.25rem;">
-                                <span style="color: var(--text-muted);">LIVE P&L</span>
-                                ${pnlContent}
+                            <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+                                <span style="font-size:0.72rem;">${pnlContent}</span>
+                                <span class="macc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${isOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
                             </div>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: var(--text-secondary);">PETAL</span>
-                                <strong style="color: var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
+                        <!-- Accordion Body: details -->
+                        <div id="${mcardId}" style="display:${isOpen ? 'block' : 'none'}; padding:0.65rem 0.75rem;">
+                            <div style="margin-bottom:0.6rem; line-height:1.5; font-size:0.78rem; color:var(--text-secondary);">
+                                <div><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 1</strong></div>
+                                <div style="color:var(--text-primary);">${petalSym}</div>
+                                <div style="margin-top:0.2rem;"><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 2</strong></div>
+                                <div style="color:var(--text-primary);">${miniSym}</div>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: var(--text-secondary);">MINI</span>
-                                <strong style="color: var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
+                            <div style="border:1px solid var(--border-color); border-radius:6px; overflow:hidden; margin-bottom:0.6rem;">
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
+                                    <span style="color:var(--text-muted);">QTY</span>
+                                    <strong style="color:var(--text-primary);">${trade.quantity}</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color);">
+                                    <span style="color:var(--text-muted);">TARGET DIFF</span>
+                                    <span style="color:var(--text-primary); text-align:right;">${triggerColContent}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
+                                    <span style="color:var(--text-muted);">PETAL PRICE</span>
+                                    <strong style="color:var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem;">
+                                    <span style="color:var(--text-muted);">MINI PRICE</span>
+                                    <strong style="color:var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
+                                </div>
                             </div>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 0.5rem;">
-                            <div style="font-size: 0.75rem; color: var(--text-secondary);">Direction: <strong style="color: var(--text-primary); text-transform: uppercase;">${trade.direction}</strong></div>
-                            ${actionBtn}
+                            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.73rem;">
+                                <div style="color:var(--text-muted);">↕ <strong style="color:var(--text-primary); text-transform:uppercase;">${trade.direction}</strong> &nbsp;·&nbsp; ${tradeTime}</div>
+                                ${actionBtn}
+                            </div>
                         </div>
                     </div>
                 </td>
@@ -934,44 +943,51 @@ function updateDashboard(data) {
                 </div>
             `;
             
+            const tacardId = `ta-card-${trade.id}`;
+            const taIsOpen = (status === 'Open');
             const mobileCardHTML = `
                 <td class="mobile-only" colspan="10">
-                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: var(--bg-card); box-shadow: var(--shadow-sm);">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
-                            <strong style="color: var(--text-primary);">TRADE #${trade.id}</strong>
-                            ${statusBadge}
-                        </div>
-                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: var(--text-secondary);">
-                            <div>${trade.petal_symbol}</div>
-                            <div>${trade.mini_symbol}</div>
-                        </div>
-                        <div style="border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: var(--bg-tertiary);">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border-color);">
-                                <span style="color: var(--text-muted);">QTY</span>
-                                <strong style="color: var(--text-primary);">${trade.quantity}</strong>
+                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
+                        <!-- Accordion Header -->
+                        <div onclick="(function(el){ var b=document.getElementById('${tacardId}'); var arr=el.querySelector('.tacc-arr'); if(b.style.display==='none'||b.style.display===''){b.style.display='block';arr.style.transform='rotate(180deg)';}else{b.style.display='none';arr.style.transform='rotate(0deg)';} })(this)" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background:${status==='Open' ? 'rgba(16,185,129,0.05)' : 'var(--bg-tertiary)'}; border-bottom:1px solid var(--border-color); user-select:none;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
+                                <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
+                                ${statusBadge}
+                                <span style="font-size:0.68rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;" title="${trade.petal_symbol}">${trade.petal_symbol.replace('GOLDPETAL','PETAL')}</span>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-color);">
-                                <span style="color: var(--text-muted);">DIFFS (ENT/TGT)</span>
-                                <strong style="text-align: right; color: var(--text-primary);">${spreadDisplay}</strong>
-                            </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-top: 0.25rem;">
-                                <span style="color: var(--text-muted);">LIVE P&L</span>
-                                ${pnlContent}
+                            <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+                                <span style="font-size:0.72rem;">${pnlContent}</span>
+                                <span class="tacc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${taIsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
                             </div>
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: var(--text-secondary);">PETAL</span>
-                                <strong style="color: var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
+                        <!-- Accordion Body -->
+                        <div id="${tacardId}" style="display:${taIsOpen ? 'block' : 'none'}; padding:0.65rem 0.75rem;">
+                            <div style="margin-bottom:0.6rem; font-size:0.78rem; color:var(--text-secondary); line-height:1.6;">
+                                <div><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 1</strong> &nbsp;<span style="color:var(--text-primary);">${trade.petal_symbol}</span></div>
+                                <div><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 2</strong> &nbsp;<span style="color:var(--text-primary);">${trade.mini_symbol}</span></div>
                             </div>
-                            <div style="display: flex; justify-content: space-between;">
-                                <span style="color: var(--text-secondary);">MINI</span>
-                                <strong style="color: var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
+                            <div style="border:1px solid var(--border-color); border-radius:6px; overflow:hidden; margin-bottom:0.6rem;">
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
+                                    <span style="color:var(--text-muted);">QTY</span>
+                                    <strong style="color:var(--text-primary);">${trade.quantity}</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color);">
+                                    <span style="color:var(--text-muted);">ENT / TGT DIFF</span>
+                                    <span style="color:var(--text-primary); text-align:right;">${spreadDisplay}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
+                                    <span style="color:var(--text-muted);">PETAL PRICE</span>
+                                    <strong style="color:var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem;">
+                                    <span style="color:var(--text-muted);">MINI PRICE</span>
+                                    <strong style="color:var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
+                                </div>
                             </div>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 0.5rem;">
-                            <div style="font-size: 0.75rem; color: var(--text-secondary);">Direction: <strong style="color: var(--text-primary); text-transform: uppercase;">${trade.direction}</strong></div>
-                            ${actionBtn}
+                            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.73rem;">
+                                <div style="color:var(--text-muted);">↕ <strong style="color:var(--text-primary); text-transform:uppercase;">${trade.direction}</strong></div>
+                                ${actionBtn}
+                            </div>
                         </div>
                     </div>
                 </td>
