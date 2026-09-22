@@ -685,16 +685,16 @@ function updateDashboard(data) {
             `;
             
             tr.innerHTML = `
-                <td class="font-mono">${trade.id}</td>
-                <td>${tradeTime}</td>
-                <td>${symbolsContent}</td>
-                <td><strong>${trade.direction}</strong></td>
-                <td class="font-mono">${trade.quantity}</td>
-                <td>${triggerColContent}</td>
-                <td>${statusBadge}</td>
-                <td>${pricesContent}</td>
-                <td>${pnlContent}</td>
-                <td style="text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                <td data-label="ID" class="font-mono">${trade.id}</td>
+                <td data-label="Time">${tradeTime}</td>
+                <td data-label="Symbols">${symbolsContent}</td>
+                <td data-label="Direction"><strong>${trade.direction}</strong></td>
+                <td data-label="Qty" class="font-mono">${trade.quantity}</td>
+                <td data-label="Trigger Diff">${triggerColContent}</td>
+                <td data-label="Status">${statusBadge}</td>
+                <td data-label="Prices">${pricesContent}</td>
+                <td data-label="Live P&L">${pnlContent}</td>
+                <td data-label="Action" style="text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
             `;
             
             manualTradesBody.appendChild(tr);
@@ -861,16 +861,16 @@ function updateDashboard(data) {
             `;
             
             tr.innerHTML = `
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
-                <td style="padding: 0.5rem;">${symbolsContent}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.quantity}</td>
-                <td style="padding: 0.5rem;">${spreadDisplay}</td>
-                <td style="padding: 0.5rem;">${statusBadge}</td>
-                <td class="font-mono" style="padding: 0.5rem;">${pricesContent}</td>
-                <td style="padding: 0.5rem;">${pnlContent}</td>
-                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                <td data-label="Month Pair" class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
+                <td data-label="Time" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
+                <td data-label="Symbols" style="padding: 0.5rem;">${symbolsContent}</td>
+                <td data-label="Direction" style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
+                <td data-label="Qty" class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.quantity}</td>
+                <td data-label="Entry Diff" style="padding: 0.5rem;">${spreadDisplay}</td>
+                <td data-label="Status" style="padding: 0.5rem;">${statusBadge}</td>
+                <td data-label="Execution Prices" class="font-mono" style="padding: 0.5rem;">${pricesContent}</td>
+                <td data-label="P&L (Net)" style="padding: 0.5rem;">${pnlContent}</td>
+                <td data-label="Action" style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
             `;
             
             taTradesBody.appendChild(tr);
@@ -1004,41 +1004,8 @@ function updateDashboard(data) {
     
     // Render Month Master Live spreads
     const monthMasterLive = data.month_master_live || [];
-    if (monthMasterLiveSection && monthMasterLiveCards) {
-        if (monthMasterLive.length === 0) {
-            monthMasterLiveSection.style.display = "none";
-        } else {
-            monthMasterLiveSection.style.display = "block";
-            let cardsHtml = "";
-            monthMasterLive.forEach(item => {
-                const spreadChange = item.spread;
-                const spreadClass = spreadChange >= 0 ? "text-green" : "text-red";
-                cardsHtml += `
-                    <div class="metric-card month-master-live-card" style="padding: 0.75rem 1rem; border-radius: 8px; background: linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.35rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">
-                            <span>${item.petal_symbol} / ${item.mini_symbol}</span>
-                            <span style="font-size: 0.62rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60A5FA;">Live Feed</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.1rem 0;">
-                            <span style="font-size: 0.7rem; color: var(--text-muted);">LTP Spread:</span>
-                            <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${item.spread.toFixed(2)}</span>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.65rem; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.15rem;">
-                            <div style="display: flex; flex-direction: column; gap: 0.05rem;">
-                                <span style="color: var(--text-muted);">Depth Buy:</span>
-                                <strong class="font-mono text-green" style="font-size: 0.72rem;">${item.depth_buy_spread.toFixed(2)}</strong>
-                            </div>
-                            <div style="display: flex; flex-direction: column; gap: 0.05rem; align-items: flex-end;">
-                                <span style="color: var(--text-muted);">Depth Sell:</span>
-                                <strong class="font-mono text-red" style="font-size: 0.72rem;">${item.depth_sell_spread.toFixed(2)}</strong>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            });
-            monthMasterLiveCards.innerHTML = cardsHtml;
-        }
-    }
+    window.lastMonthMasterLive = monthMasterLive; // Store for category filtering
+    renderLiveSpreads();
 
     if (data.month_master !== undefined) {
         const mmStr = JSON.stringify(data.month_master);
@@ -1793,6 +1760,64 @@ window.toggleCard = function(cardId) {
     }
 };
 
+// Render Live Spreads Function with Category Filter
+window.renderLiveSpreads = function() {
+    const monthMasterLiveSection = document.getElementById("month-master-live-section");
+    const monthMasterLiveCards = document.getElementById("month-master-live-cards");
+    const categoryElement = document.getElementById("live-spread-category");
+    
+    if (monthMasterLiveSection && monthMasterLiveCards) {
+        const monthMasterLive = window.lastMonthMasterLive || [];
+        if (monthMasterLive.length === 0) {
+            monthMasterLiveSection.style.display = "none";
+        } else {
+            monthMasterLiveSection.style.display = "block";
+            let cardsHtml = "";
+            const cat = categoryElement ? categoryElement.value : "ALL";
+            
+            const filteredLive = monthMasterLive.filter(item => {
+                const sym = item.petal_symbol || "";
+                if (cat === "PETAL") return sym.includes("PETAL");
+                if (cat === "GUINEA") return sym.includes("GUINEA");
+                if (cat === "GOLD") return sym.includes("GOLDTEN") || (sym.includes("GOLD") && !sym.includes("PETAL") && !sym.includes("GUINEA"));
+                return true;
+            });
+            
+            if (filteredLive.length === 0 && cat !== "ALL") {
+                cardsHtml = `<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 0.75rem; padding: 1rem;">No live spreads match the selected category.</div>`;
+            }
+            
+            filteredLive.forEach(item => {
+                const spreadChange = item.spread;
+                const spreadClass = spreadChange >= 0 ? "text-green" : "text-red";
+                cardsHtml += `
+                    <div class="metric-card month-master-live-card" style="padding: 0.75rem 1rem; border-radius: 8px; background: linear-gradient(135deg, rgba(255,255,255,0.01) 0%, rgba(255,255,255,0.04) 100%); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 0.35rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); font-weight: 600; text-transform: uppercase;">
+                            <span>${item.petal_symbol} / ${item.mini_symbol}</span>
+                            <span style="font-size: 0.62rem; padding: 0.1rem 0.35rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60A5FA;">Live Feed</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin: 0.1rem 0;">
+                            <span style="font-size: 0.7rem; color: var(--text-muted);">LTP Spread:</span>
+                            <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${item.spread.toFixed(2)}</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.65rem; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.15rem;">
+                            <div style="display: flex; flex-direction: column; gap: 0.05rem;">
+                                <span style="color: var(--text-muted);">Depth Buy:</span>
+                                <strong class="font-mono text-green" style="font-size: 0.72rem;">${item.depth_buy_spread.toFixed(2)}</strong>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.05rem; align-items: flex-end;">
+                                <span style="color: var(--text-muted);">Depth Sell:</span>
+                                <strong class="font-mono text-red" style="font-size: 0.72rem;">${item.depth_sell_spread.toFixed(2)}</strong>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            monthMasterLiveCards.innerHTML = cardsHtml;
+        }
+    }
+};
+
 // Month Master management functions
 function updateMonthMasterUI(mappings) {
     if (monthMasterTableBody) {
@@ -1818,13 +1843,24 @@ function updateMonthMasterUI(mappings) {
     }
 
     if (quickSelectMonthPair) {
+        const categoryElement = document.getElementById("quick-select-category");
+        const filterCat = categoryElement ? categoryElement.value : "ALL";
         const currentValue = quickSelectMonthPair.value;
         let selectHtml = `<option value="">-- Select Mapped Pair --</option>`;
+        
         mappings.forEach((m, idx) => {
-            selectHtml += `<option value="${idx}">${m.petal_symbol} / ${m.mini_symbol}</option>`;
+            const sym = m.petal_symbol || "";
+            let match = true;
+            if (filterCat === "PETAL") match = sym.includes("PETAL");
+            else if (filterCat === "GUINEA") match = sym.includes("GUINEA");
+            else if (filterCat === "GOLD") match = sym.includes("GOLDTEN") || (sym.includes("GOLD") && !sym.includes("PETAL") && !sym.includes("GUINEA"));
+            
+            if (match) {
+                selectHtml += `<option value="${idx}">${m.petal_symbol} / ${m.mini_symbol}</option>`;
+            }
         });
         quickSelectMonthPair.innerHTML = selectHtml;
-        if (currentValue && parseInt(currentValue) < mappings.length) {
+        if (currentValue && parseInt(currentValue) < mappings.length && selectHtml.includes(`value="${currentValue}"`)) {
             quickSelectMonthPair.value = currentValue;
         } else {
             quickSelectMonthPair.value = "";
@@ -1903,6 +1939,24 @@ if (addMmMappingBtn) {
         mmPetalToken.value = "";
         mmMiniSymbol.value = "";
         mmMiniToken.value = "";
+    });
+}
+
+const quickSelectCategory = document.getElementById("quick-select-category");
+if (quickSelectCategory) {
+    quickSelectCategory.addEventListener("change", () => {
+        let mappings = [];
+        try { mappings = JSON.parse(lastMonthMasterStr || "[]"); } catch(e) {}
+        updateMonthMasterUI(mappings);
+    });
+}
+
+const liveSpreadCategory = document.getElementById("live-spread-category");
+if (liveSpreadCategory) {
+    liveSpreadCategory.addEventListener("change", () => {
+        if (typeof renderLiveSpreads === "function") {
+            renderLiveSpreads();
+        }
     });
 }
 

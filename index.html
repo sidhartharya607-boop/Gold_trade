@@ -122,9 +122,17 @@
 
         <!-- Month Master Live Spread Section -->
         <section id="month-master-live-section" data-tab="spreads" style="display: none; margin-bottom: 1.25rem;">
-            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.5rem 0; display: flex; align-items: center; gap: 0.4rem;">
-                📊 Month Master Live Spreads
-            </h3>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 0.4rem;">
+                    📊 Month Master Live Spreads
+                </h3>
+                <select id="live-spread-category" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; background: white; font-weight: 600;">
+                    <option value="ALL">All Spreads</option>
+                    <option value="PETAL">Petal with Mini</option>
+                    <option value="GUINEA">Guinea with Mini</option>
+                    <option value="GOLD">GoldTen with Mini</option>
+                </select>
+            </div>
             <div id="month-master-live-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
                 <!-- Dynamic cards will be generated here -->
             </div>
@@ -388,11 +396,19 @@
                                     <option value="Simulation">Simulation Mode</option>
                                 </select>
                             </div>
-                            <div style="display: flex; gap: 0.5rem; align-items: center; flex: 1; min-width: 200px;">
-                                <span class="rule-label" style="font-weight: 700; color: #1e293b;">Quick Select Pair:</span>
-                                <select id="quick-select-month-pair" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; flex: 1; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
-                                    <option value="">-- Select Mapped Pair --</option>
-                                </select>
+                            <div style="display: flex; gap: 0.5rem; align-items: flex-start; flex: 1; min-width: 200px;">
+                                <span class="rule-label" style="font-weight: 700; color: #1e293b; margin-top: 0.3rem;">Quick Select Pair:</span>
+                                <div style="display: flex; flex-direction: column; flex: 1; gap: 0.4rem;">
+                                    <select id="quick-select-category" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
+                                        <option value="ALL">All Types</option>
+                                        <option value="PETAL">Petal with Mini</option>
+                                        <option value="GUINEA">Guinea with Mini</option>
+                                        <option value="GOLD">GoldTen with Mini</option>
+                                    </select>
+                                    <select id="quick-select-month-pair" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
+                                        <option value="">-- Select Mapped Pair --</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
                         
