@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.2">
+    <link rel="stylesheet" href="style.css?v=2.3">
 </head>
 <body>
     <div class="dashboard-container">
@@ -638,29 +638,41 @@
 
                     <!-- Active Bot Instances -->
                     <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
-                        <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0 0 0.5rem 0;">🤖 Active Bot Instances (Multi-Month Grid)</h3>
-                        <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                            <table class="history-table" style="width: 100%; border-collapse: collapse;">
-                                <thead>
-                                    <tr style="background-color: rgba(255,255,255,0.03);">
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Month Pair</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 100px;">Direction</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Entry Diff</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Step</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Gap</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Max Orders</th>
-                                        <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Mode</th>
-                                        <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
-                                        <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 75px; padding-right: 1.5rem;">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="ta-configs-body">
-                                    <tr>
-                                        <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div onclick="(function(){
+                                var body = document.getElementById('bot-instances-body');
+                                var arrow = document.getElementById('bot-instances-arrow');
+                                var open = body.style.display !== 'none';
+                                body.style.display = open ? 'none' : 'block';
+                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                            })()"
+                            style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 0.5rem;">
+                            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🤖 Active Bot Instances (Multi-Month Grid)</h3>
+                            <span id="bot-instances-arrow" class="mobile-only" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                        </div>
+                        <div id="bot-instances-body">
+                            <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead>
+                                        <tr style="background-color: rgba(255,255,255,0.03);">
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Month Pair</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 100px;">Direction</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Entry Diff</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Step</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Gap</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Max Orders</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Mode</th>
+                                            <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
+                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 75px; padding-right: 1.5rem;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ta-configs-body">
+                                        <tr>
+                                            <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
