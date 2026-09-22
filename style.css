@@ -1888,4 +1888,45 @@ body {
     }
 }
 
+/* Mobile Responsive Cards for Tables */
+@media (max-width: 768px) {
+    .history-table thead {
+        display: none;
+    }
+    .history-table, .history-table tbody, .history-table tr, .history-table td {
+        display: block;
+        width: 100%;
+    }
+    .history-table tr {
+        margin-bottom: 1rem;
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 0.5rem;
+        box-sizing: border-box;
+    }
+    .history-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        text-align: right;
+        padding: 0.5rem 0.2rem !important;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+        box-sizing: border-box;
+        width: 100% !important;
+    }
+    .history-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        text-align: left;
+        margin-right: 1rem;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+        flex-shrink: 0;
+    }
+    .history-table td:last-child {
+        border-bottom: none;
+    }
+}
+
 
