@@ -1899,33 +1899,40 @@ body {
     }
     .history-table tr {
         margin-bottom: 1rem;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        padding: 0.5rem;
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.05) 100%);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 0.75rem;
         box-sizing: border-box;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
     }
     .history-table td {
         display: flex;
         justify-content: space-between;
-        align-items: center;
+        align-items: flex-start;
         text-align: right;
-        padding: 0.5rem 0.2rem !important;
-        border-bottom: 1px solid rgba(255,255,255,0.05);
+        padding: 0.4rem 0 !important;
+        border-bottom: 1px dashed rgba(255,255,255,0.06);
         box-sizing: border-box;
         width: 100% !important;
+        white-space: normal !important;
     }
     .history-table td::before {
         content: attr(data-label);
         font-weight: 600;
         text-align: left;
         margin-right: 1rem;
-        color: var(--text-secondary);
+        color: var(--text-muted);
         font-size: 0.75rem;
         flex-shrink: 0;
+        padding-top: 2px;
     }
     .history-table td:last-child {
         border-bottom: none;
+        padding-bottom: 0 !important;
     }
 }
 

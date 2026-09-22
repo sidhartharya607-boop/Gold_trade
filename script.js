@@ -1828,11 +1828,11 @@ function updateMonthMasterUI(mappings) {
             mappings.forEach((m, idx) => {
                 tableHtml += `
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.02);">
-                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_symbol}</td>
-                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_token}</td>
-                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_symbol}</td>
-                        <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_token}</td>
-                        <td style="padding: 0.5rem; text-align: right;">
+                        <td data-label="Leg 1 Symbol" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_symbol}</td>
+                        <td data-label="Leg 1 Token" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_token}</td>
+                        <td data-label="Leg 2 Symbol" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_symbol}</td>
+                        <td data-label="Leg 2 Token" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_token}</td>
+                        <td data-label="Action" style="padding: 0.5rem; text-align: right;">
                             <button onclick="deleteMonthMasterMapping(${idx})" class="metallic-button" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; background-color: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 4px; cursor: pointer; transition: all 0.2s;">Delete</button>
                         </td>
                     </tr>
