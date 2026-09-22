@@ -684,17 +684,61 @@ function updateDashboard(data) {
                 </div>
             `;
             
+            const mobileCardHTML = `
+                <td class="mobile-only" colspan="10">
+                    <div style="font-family: var(--font-mono); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0.75rem; background: rgba(0,0,0,0.2);">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: var(--text-primary);">TRADE #${trade.id}</strong>
+                            ${statusBadge}
+                        </div>
+                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: #cbd5e1;">
+                            <div>${petalSym}</div>
+                            <div>${miniSym}</div>
+                        </div>
+                        <div style="border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: rgba(255,255,255,0.02);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <span style="color: var(--text-muted);">QTY</span>
+                                <strong>${trade.quantity}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <span style="color: var(--text-muted);">TARGET DIFF</span>
+                                <strong style="text-align: right;">${triggerColContent}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-top: 0.25rem;">
+                                <span style="color: var(--text-muted);">LIVE P&L</span>
+                                ${pnlContent}
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #94a3b8;">PETAL</span>
+                                <strong>₹${trade.petal_entry_price || '0.00'}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #94a3b8;">MINI</span>
+                                <strong>₹${trade.mini_entry_price || '0.00'}</strong>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: #94a3b8;">Direction: <strong style="color: #f8fafc; text-transform: uppercase;">${trade.direction}</strong></div>
+                            ${actionBtn}
+                        </div>
+                    </div>
+                </td>
+            `;
+
             tr.innerHTML = `
-                <td data-label="ID" class="font-mono">${trade.id}</td>
-                <td data-label="Time">${tradeTime}</td>
-                <td data-label="Symbols">${symbolsContent}</td>
-                <td data-label="Direction"><strong>${trade.direction}</strong></td>
-                <td data-label="Qty" class="font-mono">${trade.quantity}</td>
-                <td data-label="Trigger Diff">${triggerColContent}</td>
-                <td data-label="Status">${statusBadge}</td>
-                <td data-label="Prices">${pricesContent}</td>
-                <td data-label="Live P&L">${pnlContent}</td>
-                <td data-label="Action" style="text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                <td data-label="ID" class="font-mono desktop-only">${trade.id}</td>
+                <td data-label="Time" class="desktop-only">${tradeTime}</td>
+                <td data-label="Symbols" class="desktop-only">${symbolsContent}</td>
+                <td data-label="Direction" class="desktop-only"><strong>${trade.direction}</strong></td>
+                <td data-label="Qty" class="font-mono desktop-only">${trade.quantity}</td>
+                <td data-label="Trigger Diff" class="desktop-only">${triggerColContent}</td>
+                <td data-label="Status" class="desktop-only">${statusBadge}</td>
+                <td data-label="Prices" class="desktop-only">${pricesContent}</td>
+                <td data-label="Live P&L" class="desktop-only">${pnlContent}</td>
+                <td data-label="Action" class="desktop-only" style="text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                ${mobileCardHTML}
             `;
             
             manualTradesBody.appendChild(tr);
@@ -860,17 +904,61 @@ function updateDashboard(data) {
                 </div>
             `;
             
+            const mobileCardHTML = `
+                <td class="mobile-only" colspan="10">
+                    <div style="font-family: var(--font-mono); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0.75rem; background: rgba(0,0,0,0.2);">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+                            <strong style="color: var(--text-primary);">TRADE #${trade.id}</strong>
+                            ${statusBadge}
+                        </div>
+                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: #cbd5e1;">
+                            <div>${trade.petal_symbol}</div>
+                            <div>${trade.mini_symbol}</div>
+                        </div>
+                        <div style="border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: rgba(255,255,255,0.02);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <span style="color: var(--text-muted);">QTY</span>
+                                <strong>${trade.quantity}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                                <span style="color: var(--text-muted);">DIFFS (ENT/TGT)</span>
+                                <strong style="text-align: right;">${spreadDisplay}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-top: 0.25rem;">
+                                <span style="color: var(--text-muted);">LIVE P&L</span>
+                                ${pnlContent}
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #94a3b8;">PETAL</span>
+                                <strong>₹${trade.petal_entry_price || '0.00'}</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between;">
+                                <span style="color: #94a3b8;">MINI</span>
+                                <strong>₹${trade.mini_entry_price || '0.00'}</strong>
+                            </div>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: #94a3b8;">Direction: <strong style="color: #f8fafc; text-transform: uppercase;">${trade.direction}</strong></div>
+                            ${actionBtn}
+                        </div>
+                    </div>
+                </td>
+            `;
+
             tr.innerHTML = `
-                <td data-label="Month Pair" class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
-                <td data-label="Time" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
-                <td data-label="Symbols" style="padding: 0.5rem;">${symbolsContent}</td>
-                <td data-label="Direction" style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
-                <td data-label="Qty" class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.quantity}</td>
-                <td data-label="Entry Diff" style="padding: 0.5rem;">${spreadDisplay}</td>
-                <td data-label="Status" style="padding: 0.5rem;">${statusBadge}</td>
-                <td data-label="Execution Prices" class="font-mono" style="padding: 0.5rem;">${pricesContent}</td>
-                <td data-label="P&L (Net)" style="padding: 0.5rem;">${pnlContent}</td>
-                <td data-label="Action" style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                <td data-label="Month Pair" class="font-mono desktop-only" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
+                <td data-label="Time" class="desktop-only" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
+                <td data-label="Symbols" class="desktop-only" style="padding: 0.5rem;">${symbolsContent}</td>
+                <td data-label="Direction" class="desktop-only" style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
+                <td data-label="Qty" class="font-mono desktop-only" style="padding: 0.5rem; font-size: 0.75rem;">${trade.quantity}</td>
+                <td data-label="Entry Diff" class="desktop-only" style="padding: 0.5rem;">${spreadDisplay}</td>
+                <td data-label="Status" class="desktop-only" style="padding: 0.5rem;">${statusBadge}</td>
+                <td data-label="Execution Prices" class="font-mono desktop-only" style="padding: 0.5rem;">${pricesContent}</td>
+                <td data-label="P&L (Net)" class="desktop-only" style="padding: 0.5rem;">${pnlContent}</td>
+                <td data-label="Action" class="desktop-only" style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                ${mobileCardHTML}
             `;
             
             taTradesBody.appendChild(tr);

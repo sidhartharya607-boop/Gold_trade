@@ -1888,6 +1888,20 @@ body {
     }
 }
 
+/* Visibility Utilities */
+.mobile-only {
+    display: none !important;
+}
+
+@media (max-width: 768px) {
+    .desktop-only {
+        display: none !important;
+    }
+    .mobile-only {
+        display: block !important;
+    }
+}
+
 /* Mobile Responsive Cards for Tables */
 @media (max-width: 768px) {
     .history-table thead {
@@ -1929,6 +1943,14 @@ body {
         font-size: 0.75rem;
         flex-shrink: 0;
         padding-top: 2px;
+    }
+    .history-table td.mobile-only {
+        display: block !important;
+        padding: 0 !important;
+        border: none !important;
+    }
+    .history-table td.mobile-only::before {
+        display: none !important;
     }
     .history-table td:last-child {
         border-bottom: none;
