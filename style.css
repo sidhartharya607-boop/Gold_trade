@@ -1854,9 +1854,6 @@ body {
     .table-container {
         -webkit-overflow-scrolling: touch;
         border-radius: 8px;
-        height: auto !important;
-        max-height: none !important;
-        overflow-y: visible !important;
     }
 
     .history-table th, .history-table td {
@@ -1935,59 +1932,54 @@ body {
     }
 }
 
-/* Mobile Responsive Cards for Tables */
+/* Mobile Card Layout — replaces table rows with cards */
 @media (max-width: 768px) {
-    .history-table thead {
-        display: none;
+
+    /* DESKTOP: hide table-container scroll limit, let cards flow naturally */
+    .table-container {
+        height: auto !important;
+        max-height: none !important;
+        overflow-y: visible !important;
+        border: none !important;
     }
-    .history-table, .history-table tbody, .history-table tr, .history-table td {
+
+    /* Hide table header row */
+    .history-table thead {
+        display: none !important;
+    }
+
+    /* Make table elements block so each tr becomes a card */
+    .history-table,
+    .history-table tbody {
         display: block;
         width: 100%;
     }
+
+    /* Each row = one card */
     .history-table tr {
-        margin-bottom: 1rem;
-        background: linear-gradient(135deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.05) 100%);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 0.75rem;
-        box-sizing: border-box;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
+        display: block;
+        width: 100%;
+        margin-bottom: 0.75rem;
+        background: transparent;
+        border: none;
+        padding: 0;
     }
-    .history-table td {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        text-align: right;
-        padding: 0.4rem 0 !important;
-        border-bottom: 1px dashed rgba(255,255,255,0.06);
-        box-sizing: border-box;
-        width: 100% !important;
-        white-space: normal !important;
+
+    /* Hide all desktop columns */
+    .history-table td.desktop-only {
+        display: none !important;
     }
-    .history-table td::before {
-        content: attr(data-label);
-        font-weight: 600;
-        text-align: left;
-        margin-right: 1rem;
-        color: var(--text-muted);
-        font-size: 0.75rem;
-        flex-shrink: 0;
-        padding-top: 2px;
-    }
+
+    /* Show mobile card td cleanly — no flex row tricks, no ::before label */
     .history-table td.mobile-only {
         display: block !important;
+        width: 100% !important;
         padding: 0 !important;
         border: none !important;
     }
+
     .history-table td.mobile-only::before {
         display: none !important;
-    }
-    .history-table td:last-child {
-        border-bottom: none;
-        padding-bottom: 0 !important;
     }
 }
 
