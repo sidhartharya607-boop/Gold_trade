@@ -1854,7 +1854,9 @@ body {
     .table-container {
         -webkit-overflow-scrolling: touch;
         border-radius: 8px;
-        max-height: 320px;
+        height: auto !important;
+        max-height: none !important;
+        overflow-y: visible !important;
     }
 
     .history-table th, .history-table td {
@@ -1899,6 +1901,37 @@ body {
     }
     .mobile-only {
         display: block !important;
+    }
+
+    .trades-summary-banner {
+        display: flex;
+        justify-content: space-between;
+        background: var(--bg-card);
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        margin-bottom: 0.75rem;
+        overflow: hidden;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        width: 100%;
+        margin-top: 0.5rem;
+    }
+
+    .trades-summary-banner .summary-item {
+        flex: 1;
+        text-align: center;
+        padding: 0.5rem 0.25rem;
+        border-right: 1px solid var(--border-color);
+        color: var(--text-secondary);
+    }
+
+    .trades-summary-banner .summary-item:last-child {
+        border-right: none;
+    }
+
+    .trades-summary-banner .summary-item strong {
+        color: var(--text-primary);
+        margin-left: 0.25rem;
     }
 }
 

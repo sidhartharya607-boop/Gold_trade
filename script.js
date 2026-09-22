@@ -590,6 +590,21 @@ function updateDashboard(data) {
 
     // 8. Manual Trades Table
     const manualTrades = data.manual_trades || [];
+    const manualSummaryEl = document.getElementById('manual-trades-summary');
+    if (manualSummaryEl) {
+        let mActive = 0, mPending = 0, mClosed = 0;
+        manualTrades.forEach(t => {
+            if (t.status === 'Open' || !t.status) mActive++;
+            else if (t.status === 'Pending') mPending++;
+            else mClosed++;
+        });
+        manualSummaryEl.innerHTML = `
+            <div class="summary-item">Active <strong>${mActive}</strong></div>
+            <div class="summary-item">Pending <strong>${mPending}</strong></div>
+            <div class="summary-item">Closed <strong>${mClosed}</strong></div>
+        `;
+    }
+
     if (!manualTradesBody) {
         // Guard if element is missing
     } else if (manualTrades.length === 0) {
@@ -686,23 +701,23 @@ function updateDashboard(data) {
             
             const mobileCardHTML = `
                 <td class="mobile-only" colspan="10">
-                    <div style="font-family: var(--font-mono); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0.75rem; background: rgba(0,0,0,0.2);">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: var(--bg-card); box-shadow: var(--shadow-sm);">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
                             <strong style="color: var(--text-primary);">TRADE #${trade.id}</strong>
                             ${statusBadge}
                         </div>
-                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: #cbd5e1;">
+                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: var(--text-secondary);">
                             <div>${petalSym}</div>
                             <div>${miniSym}</div>
                         </div>
-                        <div style="border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: rgba(255,255,255,0.02);">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <div style="border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: var(--bg-tertiary);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border-color);">
                                 <span style="color: var(--text-muted);">QTY</span>
-                                <strong>${trade.quantity}</strong>
+                                <strong style="color: var(--text-primary);">${trade.quantity}</strong>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-color);">
                                 <span style="color: var(--text-muted);">TARGET DIFF</span>
-                                <strong style="text-align: right;">${triggerColContent}</strong>
+                                <strong style="text-align: right; color: var(--text-primary);">${triggerColContent}</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-top: 0.25rem;">
                                 <span style="color: var(--text-muted);">LIVE P&L</span>
@@ -711,16 +726,16 @@ function updateDashboard(data) {
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #94a3b8;">PETAL</span>
-                                <strong>₹${trade.petal_entry_price || '0.00'}</strong>
+                                <span style="color: var(--text-secondary);">PETAL</span>
+                                <strong style="color: var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #94a3b8;">MINI</span>
-                                <strong>₹${trade.mini_entry_price || '0.00'}</strong>
+                                <span style="color: var(--text-secondary);">MINI</span>
+                                <strong style="color: var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
                             </div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 0.5rem;">
-                            <div style="font-size: 0.75rem; color: #94a3b8;">Direction: <strong style="color: #f8fafc; text-transform: uppercase;">${trade.direction}</strong></div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">Direction: <strong style="color: var(--text-primary); text-transform: uppercase;">${trade.direction}</strong></div>
                             ${actionBtn}
                         </div>
                     </div>
@@ -793,6 +808,21 @@ function updateDashboard(data) {
 
     // Render Trade Automation Trades Table
     const taTrades = data.ta_trades || [];
+    const taSummaryEl = document.getElementById('ta-trades-summary');
+    if (taSummaryEl) {
+        let taActive = 0, taPending = 0, taClosed = 0;
+        taTrades.forEach(t => {
+            if (t.status === 'Open' || !t.status) taActive++;
+            else if (t.status === 'Pending') taPending++;
+            else taClosed++;
+        });
+        taSummaryEl.innerHTML = `
+            <div class="summary-item">Active <strong>${taActive}</strong></div>
+            <div class="summary-item">Pending <strong>${taPending}</strong></div>
+            <div class="summary-item">Closed <strong>${taClosed}</strong></div>
+        `;
+    }
+
     if (!taTradesBody) {
         // Guard
     } else if (taTrades.length === 0) {
@@ -906,23 +936,23 @@ function updateDashboard(data) {
             
             const mobileCardHTML = `
                 <td class="mobile-only" colspan="10">
-                    <div style="font-family: var(--font-mono); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 0.75rem; background: rgba(0,0,0,0.2);">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
+                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.75rem; background: var(--bg-card); box-shadow: var(--shadow-sm);">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem; margin-bottom: 0.5rem;">
                             <strong style="color: var(--text-primary);">TRADE #${trade.id}</strong>
                             ${statusBadge}
                         </div>
-                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: #cbd5e1;">
+                        <div style="margin-bottom: 0.75rem; line-height: 1.5; font-size: 0.8rem; color: var(--text-secondary);">
                             <div>${trade.petal_symbol}</div>
                             <div>${trade.mini_symbol}</div>
                         </div>
-                        <div style="border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: rgba(255,255,255,0.02);">
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <div style="border: 1px solid var(--border-color); border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; background: var(--bg-tertiary);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-bottom: 0.25rem; border-bottom: 1px solid var(--border-color);">
                                 <span style="color: var(--text-muted);">QTY</span>
-                                <strong>${trade.quantity}</strong>
+                                <strong style="color: var(--text-primary);">${trade.quantity}</strong>
                             </div>
-                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border-color);">
                                 <span style="color: var(--text-muted);">DIFFS (ENT/TGT)</span>
-                                <strong style="text-align: right;">${spreadDisplay}</strong>
+                                <strong style="text-align: right; color: var(--text-primary);">${spreadDisplay}</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; padding-top: 0.25rem;">
                                 <span style="color: var(--text-muted);">LIVE P&L</span>
@@ -931,16 +961,16 @@ function updateDashboard(data) {
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; margin-bottom: 0.75rem;">
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #94a3b8;">PETAL</span>
-                                <strong>₹${trade.petal_entry_price || '0.00'}</strong>
+                                <span style="color: var(--text-secondary);">PETAL</span>
+                                <strong style="color: var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between;">
-                                <span style="color: #94a3b8;">MINI</span>
-                                <strong>₹${trade.mini_entry_price || '0.00'}</strong>
+                                <span style="color: var(--text-secondary);">MINI</span>
+                                <strong style="color: var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
                             </div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 0.5rem;">
-                            <div style="font-size: 0.75rem; color: #94a3b8;">Direction: <strong style="color: #f8fafc; text-transform: uppercase;">${trade.direction}</strong></div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 0.5rem;">
+                            <div style="font-size: 0.75rem; color: var(--text-secondary);">Direction: <strong style="color: var(--text-primary); text-transform: uppercase;">${trade.direction}</strong></div>
                             ${actionBtn}
                         </div>
                     </div>
