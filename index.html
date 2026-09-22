@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.1">
+    <link rel="stylesheet" href="style.css?v=2.2">
 </head>
 <body>
     <div class="dashboard-container">
@@ -279,39 +279,54 @@
             </div>
         </main>
 
-        <!-- Section 1: Active & Pending Manual Trades (Now at the top) -->
+        <!-- Section 1: Active & Pending Manual Trades -->
         <section class="manual-trades-section" data-tab="trades" style="margin-bottom: 1.25rem; width: 100%;">
             <div class="data-card manual-trades-panel" style="width: 100%;">
-                <div class="panel-header">
-                    <h2>Active &amp; Pending Manual Trades</h2>
-                    <button id="export-manual-csv-btn" class="csv-export-button desktop-only">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                        Export CSV
-                    </button>
+                <!-- Panel Header — tappable on mobile to collapse/expand -->
+                <div class="panel-header" id="manual-panel-hdr"
+                    onclick="(function(){
+                        var body = document.getElementById('manual-panel-body');
+                        var arrow = document.getElementById('manual-panel-arrow');
+                        var open = body.style.display !== 'none';
+                        body.style.display = open ? 'none' : 'block';
+                        arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                    })()"
+                    style="cursor: pointer; user-select: none;">
+                    <h2>📋 Active &amp; Pending Manual Trades</h2>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <button id="export-manual-csv-btn" class="csv-export-button desktop-only" onclick="event.stopPropagation()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Export CSV
+                        </button>
+                        <span id="manual-panel-arrow" class="mobile-only" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                    </div>
                 </div>
-                <div id="manual-trades-summary" class="mobile-only trades-summary-banner"></div>
-                <div class="table-container">
-                    <table class="history-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 45px;">ID</th>
-                                <th style="width: 90px;">Time</th>
-                                <th style="width: 170px;">Symbols (Leg 1 / Leg 2)</th>
-                                <th style="width: 90px;">Direction</th>
-                                <th style="width: 50px;">Qty</th>
-                                <th style="width: 110px;">Trigger Diff</th>
-                                <th style="width: 80px;">Status</th>
-                                <th>Entry Prices (Petal / Mini)</th>
-                                <th style="width: 130px;">Live P&amp;L</th>
-                                <th style="text-align: right; padding-right: 1.5rem; width: 100px;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="manual-trades-body">
-                            <tr>
-                                <td colspan="10" class="empty-table">No active or pending manual trades.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- Collapsible body -->
+                <div id="manual-panel-body">
+                    <div id="manual-trades-summary" class="mobile-only trades-summary-banner"></div>
+                    <div class="table-container">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 45px;">ID</th>
+                                    <th style="width: 90px;">Time</th>
+                                    <th style="width: 170px;">Symbols (Leg 1 / Leg 2)</th>
+                                    <th style="width: 90px;">Direction</th>
+                                    <th style="width: 50px;">Qty</th>
+                                    <th style="width: 110px;">Trigger Diff</th>
+                                    <th style="width: 80px;">Status</th>
+                                    <th>Entry Prices (Petal / Mini)</th>
+                                    <th style="width: 130px;">Live P&amp;L</th>
+                                    <th style="text-align: right; padding-right: 1.5rem; width: 100px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="manual-trades-body">
+                                <tr>
+                                    <td colspan="10" class="empty-table">No active or pending manual trades.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
@@ -655,41 +670,56 @@
         <!-- Trade Automation Trades Table Section -->
         <section class="automation-trades-section" data-tab="trades" style="margin-bottom: 1.25rem; width: 100%;">
             <div class="data-card automation-trades-panel" id="card-automation-trades" style="width: 100%;">
-                <div class="panel-header" style="padding-bottom: 0.65rem;">
-                    <h2>📋 Active &amp; Closed Automation Trades</h2>
-                    <div class="desktop-only" style="display: flex; gap: 0.5rem; align-items: center;">
-                        <button id="ta-clear-all-trades-btn" class="metallic-button" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Orders</button>
-                        <button id="ta-export-btn" class="metallic-button" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Export Trade Log (CSV)</button>
-                    </div>
-                    <!-- Mobile: compact buttons row -->
-                    <div class="mobile-only" style="display: flex; gap: 0.4rem;">
-                        <button id="ta-clear-all-trades-btn-m" class="metallic-button" onclick="document.getElementById('ta-clear-all-trades-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear</button>
-                        <button id="ta-export-btn-m" class="metallic-button" onclick="document.getElementById('ta-export-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">📥 CSV</button>
+                <!-- Panel Header — tappable on mobile to collapse/expand -->
+                <div class="panel-header" id="ta-panel-hdr"
+                    onclick="(function(){
+                        var body = document.getElementById('ta-panel-body');
+                        var arrow = document.getElementById('ta-panel-arrow');
+                        var open = body.style.display !== 'none';
+                        body.style.display = open ? 'none' : 'block';
+                        arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                    })()"
+                    style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
+                    <h2>⚡ Active &amp; Closed Automation Trades</h2>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div class="desktop-only" style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button id="ta-clear-all-trades-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Orders</button>
+                            <button id="ta-export-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Export Trade Log (CSV)</button>
+                        </div>
+                        <!-- Mobile: compact buttons + arrow -->
+                        <div class="mobile-only" style="display: flex; gap: 0.4rem; align-items: center;">
+                            <button id="ta-clear-all-trades-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-clear-all-trades-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️</button>
+                            <button id="ta-export-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-export-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">📥</button>
+                            <span id="ta-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                        </div>
                     </div>
                 </div>
-                <div id="ta-trades-summary" class="mobile-only trades-summary-banner"></div>
-                <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                    <table class="history-table" style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background-color: rgba(255,255,255,0.03);">
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
-                                <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
-                                <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody id="ta-trades-body">
-                            <tr>
-                                <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- Collapsible body -->
+                <div id="ta-panel-body">
+                    <div id="ta-trades-summary" class="mobile-only trades-summary-banner"></div>
+                    <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                        <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background-color: rgba(255,255,255,0.03);">
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
+                                    <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ta-trades-body">
+                                <tr>
+                                    <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </section>
