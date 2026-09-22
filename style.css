@@ -1900,6 +1900,56 @@ body {
         display: block !important;
     }
 
+    /* Panel heading row compact on mobile */
+    .panel-header {
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        padding: 0.65rem 0.75rem !important;
+        align-items: center;
+    }
+
+    .panel-header h2 {
+        font-size: 0.82rem !important;
+        flex: 1 1 auto;
+    }
+
+    /* Remove outer card padding on phone so cards fill edge-to-edge */
+    .data-card.manual-trades-panel,
+    .data-card.automation-trades-panel {
+        padding: 0 !important;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    /* Panel header gets its own inner padding */
+    .data-card.manual-trades-panel .panel-header,
+    .data-card.automation-trades-panel .panel-header {
+        padding: 0.65rem 0.75rem !important;
+        background: var(--bg-card);
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    /* Summary banner inside the card */
+    .trades-summary-banner {
+        border-radius: 0 !important;
+        margin: 0 !important;
+        border-left: none !important;
+        border-right: none !important;
+        border-top: none !important;
+    }
+
+    /* Cards padding inside table-container */
+    .manual-trades-panel .table-container,
+    .automation-trades-panel .table-container {
+        padding: 0.5rem 0.75rem !important;
+    }
+
+    /* Section margin tighter on phone */
+    .manual-trades-section,
+    .automation-trades-section {
+        margin-bottom: 0.75rem !important;
+    }
+
     .trades-summary-banner {
         display: flex;
         justify-content: space-between;
