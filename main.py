@@ -333,6 +333,28 @@ class TradingSystem:
         
         self.load_ta_trades()
         self.load_ta_configs()
+
+        # Daily Spread Tracking State (for Month Master Export)
+        self.daily_spread_stats = {}
+        self.load_daily_spread_stats()
+
+        # Manual BOT State (Semi-Automated Multi-Order Slicer)
+        self.manual_bot = {
+            "active": False,
+            "direction": "Expansion",
+            "petal_symbol": "",
+            "mini_symbol": "",
+            "trigger_diff": 1400.0,
+            "diff_gap": 20.0,
+            "total_orders": 5,
+            "filled_orders": 0,
+            "quantity": 1,
+            "order_delay": 30.0,
+            "last_order_time": 0.0,
+            "status_message": "Idle"
+        }
+        self.load_manual_bot()
+
         self.load_angel_master()
         self.load_rules()
         
@@ -507,6 +529,9 @@ class TradingSystem:
             if os.path.exists("month_master.json"):
                 with open("month_master.json", "r", encoding="utf-8") as f:
                     self.month_master = json.load(f)
+                for m in self.month_master:
+                    if "capture_data" not in m:
+                        m["capture_data"] = True
                 self.log(f"[PERSISTENCE] Loaded {len(self.month_master)} month master mappings from month_master.json.")
             else:
                 self.month_master = []
@@ -560,6 +585,44 @@ class TradingSystem:
                 json.dump(self.ta_configs, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta configs: {e}")
+
+    def load_daily_spread_stats(self):
+        try:
+            if os.path.exists("daily_spread_stats.json"):
+                with open("daily_spread_stats.json", "r", encoding="utf-8") as f:
+                    self.daily_spread_stats = json.load(f)
+                self.log(f"[PERSISTENCE] Loaded daily spread stats for {len(self.daily_spread_stats)} date(s).")
+            else:
+                self.daily_spread_stats = {}
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to load daily spread stats: {e}")
+            self.daily_spread_stats = {}
+
+    def save_daily_spread_stats(self):
+        try:
+            with open("daily_spread_stats.json", "w", encoding="utf-8") as f:
+                json.dump(self.daily_spread_stats, f, indent=4)
+        except Exception as e:
+            pass
+
+    def load_manual_bot(self):
+        try:
+            if os.path.exists("manual_bot_config.json"):
+                with open("manual_bot_config.json", "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.manual_bot.update(data)
+                    # For safety on startup, set active to False
+                    self.manual_bot["active"] = False
+                    self.manual_bot["status_message"] = "Idle"
+        except Exception as e:
+            pass
+
+    def save_manual_bot(self):
+        try:
+            with open("manual_bot_config.json", "w", encoding="utf-8") as f:
+                json.dump(self.manual_bot, f, indent=4)
+        except Exception as e:
+            pass
 
     def calculate_mcx_charges(self, direction: str, qty: int, petal_entry: float, mini_entry: float, petal_exit: float, mini_exit: float, petal_symbol: str = None, mini_symbol: str = None) -> float:
         p_spec = get_gold_contract_specs(petal_symbol or self.petal_symbol)
@@ -1110,6 +1173,7 @@ async def broadcast_system_state(force: bool = False):
         # Trade Automation Broadcast fields
         "ta_configs": system_state.ta_configs,
         "ta_trades": system_state.ta_trades,
+        "manual_bot": system_state.manual_bot,
         
         "logs": system_state.logs
     })
@@ -2302,8 +2366,8 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                     t["mini_pnl"] = m_pnl
                     t["pnl"] = net_pnl
                     t["charges"] = charges
-                    t["exit_time"] = time.strftime("%H:%M:%S")
-                    t["exit_date"] = time.strftime("%Y-%m-%d")
+                    t["exit_time"] = get_ist_time_str("%H:%M:%S")
+                    t["exit_date"] = get_ist_time_str("%Y-%m-%d")
                     t["exit_slippage"] = exit_slippage
                     
                     system_state.realized_pnl += net_pnl
@@ -2313,7 +2377,7 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                         
                     history_record = {
                         "id": len(system_state.trade_history) + 1,
-                        "date": t.get("entry_date", time.strftime("%Y-%m-%d")),
+                        "date": t.get("entry_date", get_ist_time_str("%Y-%m-%d")),
                         "direction": t_dir,
                         "status": "COMPLETED",
                         "entry_time": t.get("entry_time"),
@@ -2373,11 +2437,11 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                         
                     history_record = {
                         "id": len(system_state.trade_history) + 1,
-                        "date": t.get("entry_date", time.strftime("%Y-%m-%d")),
+                        "date": t.get("entry_date", get_ist_time_str("%Y-%m-%d")),
                         "direction": t_dir,
                         "status": "COMPLETED",
                         "entry_time": t.get("entry_time"),
-                        "exit_time": time.strftime("%H:%M:%S"),
+                        "exit_time": get_ist_time_str("%H:%M:%S"),
                         "petal_action": "BUY" if t_dir == "Expansion" else "SELL",
                         "mini_action": "SELL" if t_dir == "Expansion" else "BUY",
                         "petal_entry": round(t.get("petal_entry_price", 0.0), 2),
@@ -2481,8 +2545,8 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                     "quantity": open_qty,
                     "trigger_diff": None,
                     "status": "Open",
-                    "entry_time": time.strftime("%H:%M:%S"),
-                    "entry_date": time.strftime("%Y-%m-%d"),
+                    "entry_time": get_ist_time_str("%H:%M:%S"),
+                    "entry_date": get_ist_time_str("%Y-%m-%d"),
                     "petal_symbol": p_sym,
                     "mini_symbol": m_sym,
                     "petal_entry_price": petal_price,
@@ -2556,6 +2620,96 @@ async def trigger_manual_trade_execution(trade: dict, expected_entry_spread: flo
         system_state.save_manual_trades()
         
     await broadcast_system_state()
+
+async def run_manual_bot_check():
+    global system_state
+    bot = system_state.manual_bot
+    if not bot.get("active", False):
+        return
+        
+    total_orders = int(bot.get("total_orders", 5))
+    filled_orders = int(bot.get("filled_orders", 0))
+    if filled_orders >= total_orders:
+        bot["active"] = False
+        bot["status_message"] = f"Completed: All {total_orders} orders successfully filled."
+        system_state.save_manual_bot()
+        await broadcast_system_state()
+        return
+
+    # Check 30-second cooldown
+    now_ts = time.time()
+    last_time = float(bot.get("last_order_time", 0.0))
+    cooldown = float(bot.get("order_delay", 30.0))
+    time_diff = now_ts - last_time
+    if last_time > 0 and time_diff < cooldown:
+        rem = int(cooldown - time_diff)
+        bot["status_message"] = f"Cooldown: waiting {rem}s ({filled_orders}/{total_orders} filled)"
+        return
+
+    p_sym = bot.get("petal_symbol") or system_state.petal_symbol
+    m_sym = bot.get("mini_symbol") or system_state.mini_symbol
+    direction = bot.get("direction", "Expansion")
+    trigger_diff = float(bot.get("trigger_diff", 1400.0))
+    diff_gap = float(bot.get("diff_gap", 20.0))
+    qty = int(bot.get("quantity", 1))
+
+    # Resolve live spread
+    live_spread = None
+    if p_sym == system_state.petal_symbol and m_sym == system_state.mini_symbol:
+        live_spread = system_state.depth_buy_spread if direction == "Expansion" else system_state.depth_sell_spread
+    else:
+        for stat in getattr(system_state, "month_master_live", []):
+            if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
+                live_spread = stat.get("depth_buy_spread") if direction == "Expansion" else stat.get("depth_sell_spread")
+                break
+
+    if live_spread is None or live_spread <= 0:
+        return
+
+    # Tolerance range check:
+    # Expansion: (trigger_diff - diff_gap) <= spread <= trigger_diff
+    # Contraction: trigger_diff <= spread <= (trigger_diff + diff_gap)
+    is_in_range = False
+    if direction == "Expansion":
+        min_p = trigger_diff - diff_gap
+        max_p = trigger_diff
+        if min_p <= live_spread <= max_p:
+            is_in_range = True
+    elif direction == "Contraction":
+        min_p = trigger_diff
+        max_p = trigger_diff + diff_gap
+        if min_p <= live_spread <= max_p:
+            is_in_range = True
+
+    if not is_in_range:
+        bot["status_message"] = f"Scanning: spread {live_spread:.2f} outside target [{min_p:.1f} - {max_p:.1f}] ({filled_orders}/{total_orders} filled)"
+        return
+
+    # Check execution lock or halted state
+    if system_state.execution_in_progress or system_state.system_status == "Halted":
+        return
+
+    order_idx = filled_orders + 1
+    system_state.log(f"[MANUAL BOT] Triggered Order #{order_idx}/{total_orders} for {p_sym}/{m_sym} at spread {live_spread:.2f} (Target Window: {min_p:.1f} - {max_p:.1f})...")
+    bot["last_order_time"] = time.time()
+    
+    result = await execute_netting_manual_trades(
+        direction, qty, live_spread,
+        petal_symbol=p_sym, mini_symbol=m_sym
+    )
+    if result.get("success", False):
+        bot["filled_orders"] = order_idx
+        if bot["filled_orders"] >= total_orders:
+            bot["active"] = False
+            bot["status_message"] = f"Completed: All {total_orders} orders filled successfully."
+        else:
+            bot["status_message"] = f"Order #{order_idx} filled. 30s cooldown started ({bot['filled_orders']}/{total_orders})."
+        system_state.save_manual_bot()
+        await broadcast_system_state()
+    else:
+        bot["status_message"] = f"Order #{order_idx} failed: {result.get('reason', 'Execution error')}"
+        system_state.log(f"[MANUAL BOT ERROR] Order #{order_idx} execution failed: {result.get('reason')}")
+        await broadcast_system_state()
 
 def extract_month_from_symbol(symbol: str) -> str:
     if not symbol:
@@ -2830,6 +2984,10 @@ async def process_market_data(data: dict):
     if system_state.ta_configs or any(t.get("status") == "Open" for t in system_state.ta_trades):
         asyncio.create_task(run_trade_automation_checks())
 
+    # Process Manual BOT Strategy Checks (Tolerance Range & 30s Cooldown)
+    if system_state.manual_bot.get("active", False):
+        asyncio.create_task(run_manual_bot_check())
+
     await broadcast_system_state()
 
 def generate_simulated_depth(ltp: float) -> dict:
@@ -2928,6 +3086,56 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
                 avg_m_buy,
                 mm_sell_spread
             )
+
+            # Record Daily Spread Stats for Month Master Export (Point 1 & 2)
+            if mapping.get("capture_data", True):
+                try:
+                    now_ist = get_ist_time()
+                    today_str = now_ist.strftime("%Y-%m-%d")
+                    sess_stat = get_market_session_status()
+                    
+                    if today_str not in system_state.daily_spread_stats:
+                        system_state.daily_spread_stats[today_str] = {}
+                    pair_key = f"{p_sym}_{m_sym}"
+                    if pair_key not in system_state.daily_spread_stats[today_str]:
+                        system_state.daily_spread_stats[today_str][pair_key] = {
+                            "date": today_str,
+                            "petal_symbol": p_sym,
+                            "mini_symbol": m_sym,
+                            "month_group": f"{p_sym} / {m_sym}",
+                            "open_spread_905": None,
+                            "close_spread_2327": None,
+                            "high_spread": None,
+                            "low_spread": None,
+                            "last_spread": None
+                        }
+                    pair_rec = system_state.daily_spread_stats[today_str][pair_key]
+                    cur_spread = round(mm_spread, 2)
+                    
+                    # Capture 09:05 Open Spread
+                    if now_ist.hour == 9 and 5 <= now_ist.minute <= 6 and pair_rec["open_spread_905"] is None:
+                        pair_rec["open_spread_905"] = cur_spread
+                        system_state.save_daily_spread_stats()
+                    
+                    # Capture 23:27 Close Spread
+                    if now_ist.hour == 23 and now_ist.minute >= 26:
+                        pair_rec["close_spread_2327"] = cur_spread
+                        system_state.save_daily_spread_stats()
+                        
+                    # High and Low Spread (Strictly excluding HOLD and SUSPENDED periods)
+                    if sess_stat not in ["HOLD", "SUSPENDED"]:
+                        h_changed = False
+                        if pair_rec["high_spread"] is None or cur_spread > pair_rec["high_spread"]:
+                            pair_rec["high_spread"] = cur_spread
+                            h_changed = True
+                        if pair_rec["low_spread"] is None or cur_spread < pair_rec["low_spread"]:
+                            pair_rec["low_spread"] = cur_spread
+                            h_changed = True
+                        pair_rec["last_spread"] = cur_spread
+                        if h_changed:
+                            system_state.save_daily_spread_stats()
+                except Exception as e:
+                    pass
             
             res.append({
                 "petal_symbol": p_sym,
@@ -3607,8 +3815,8 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
             "quantity": qty,
             "trigger_diff": payload.trigger_diff,
             "status": "Pending",
-            "entry_time": time.strftime("%H:%M:%S"),
-            "entry_date": time.strftime("%Y-%m-%d"),
+            "entry_time": get_ist_time_str("%H:%M:%S"),
+            "entry_date": get_ist_time_str("%Y-%m-%d"),
             "petal_symbol": target_petal,
             "mini_symbol": target_mini,
             "petal_entry_price": 0.0,
@@ -3768,8 +3976,8 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
     trade["mini_pnl"] = m_pnl
     trade["pnl"] = net_pnl
     trade["charges"] = charges
-    trade["exit_time"] = time.strftime("%H:%M:%S")
-    trade["exit_date"] = time.strftime("%Y-%m-%d")
+    trade["exit_time"] = get_ist_time_str("%H:%M:%S")
+    trade["exit_date"] = get_ist_time_str("%Y-%m-%d")
     
     system_state.realized_pnl += net_pnl
     system_state.total_trades += 1
@@ -3895,8 +4103,8 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
                 trade["mini_exit_price"] = mini_exit
                 trade["pnl"] = net_pnl
                 trade["charges"] = charges
-                trade["exit_time"] = time.strftime("%H:%M:%S")
-                trade["exit_date"] = time.strftime("%Y-%m-%d")
+                trade["exit_time"] = get_ist_time_str("%H:%M:%S")
+                trade["exit_date"] = get_ist_time_str("%Y-%m-%d")
                 
                 system_state.realized_pnl += net_pnl
                 system_state.total_trades += 1
@@ -4024,6 +4232,7 @@ class MonthMasterMapping(BaseModel):
     petal_token: str
     mini_symbol: str
     mini_token: str
+    capture_data: Optional[bool] = True
 
 class MonthMasterPayload(BaseModel):
     mappings: List[MonthMasterMapping]
@@ -4040,6 +4249,75 @@ async def api_post_month_master(payload: MonthMasterPayload, token: str = None, 
     system_state.save_month_master()
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Month Master mappings updated successfully."}
+
+class MonthMasterToggleCapturePayload(BaseModel):
+    index: int
+    capture_data: bool
+
+@app.post("/api/month-master-toggle-capture")
+async def api_month_master_toggle_capture(payload: MonthMasterToggleCapturePayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    if 0 <= payload.index < len(system_state.month_master):
+        system_state.month_master[payload.index]["capture_data"] = payload.capture_data
+        system_state.save_month_master()
+        await broadcast_system_state()
+        return {"status": "SUCCESS", "message": "Capture setting updated"}
+    raise HTTPException(status_code=400, detail="Invalid month master index")
+
+class ManualBotStartPayload(BaseModel):
+    direction: str = "Expansion"
+    petal_symbol: str = ""
+    mini_symbol: str = ""
+    trigger_diff: float = 1400.0
+    diff_gap: float = 20.0
+    total_orders: int = 5
+    quantity: int = 1
+
+@app.post("/api/manual-bot/start")
+async def api_manual_bot_start(payload: ManualBotStartPayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    if payload.direction not in ["Expansion", "Contraction"]:
+        raise HTTPException(status_code=400, detail="Invalid trade direction.")
+    if payload.total_orders < 1 or payload.total_orders > 50:
+        raise HTTPException(status_code=400, detail="Total orders must be between 1 and 50.")
+    if payload.quantity < 1:
+        raise HTTPException(status_code=400, detail="Quantity must be at least 1.")
+
+    p_sym = payload.petal_symbol or system_state.petal_symbol
+    m_sym = payload.mini_symbol or system_state.mini_symbol
+
+    min_p = payload.trigger_diff - payload.diff_gap if payload.direction == "Expansion" else payload.trigger_diff
+    max_p = payload.trigger_diff if payload.direction == "Expansion" else payload.trigger_diff + payload.diff_gap
+
+    system_state.manual_bot = {
+        "active": True,
+        "direction": payload.direction,
+        "petal_symbol": p_sym,
+        "mini_symbol": m_sym,
+        "trigger_diff": float(payload.trigger_diff),
+        "diff_gap": float(payload.diff_gap),
+        "total_orders": int(payload.total_orders),
+        "filled_orders": 0,
+        "quantity": int(payload.quantity),
+        "order_delay": 30.0,
+        "last_order_time": 0.0,
+        "status_message": f"Active: Scanning {payload.direction} spread in range [{min_p:.1f} - {max_p:.1f}]"
+    }
+    system_state.save_manual_bot()
+    system_state.log(f"[MANUAL BOT] Started for {p_sym}/{m_sym}: Target {payload.trigger_diff}, Gap {payload.diff_gap} [{min_p:.1f} - {max_p:.1f}], Orders {payload.total_orders}, Qty {payload.quantity}, 30s Cooldown")
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": "Manual BOT started successfully.", "manual_bot": system_state.manual_bot}
+
+@app.post("/api/manual-bot/stop")
+async def api_manual_bot_stop(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    system_state.manual_bot["active"] = False
+    system_state.manual_bot["status_message"] = "Stopped by user."
+    system_state.save_manual_bot()
+    system_state.log("[MANUAL BOT] Stopped by user.")
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": "Manual BOT stopped."}
 
 class TAConfigItem(BaseModel):
     month_idx: int
@@ -4437,7 +4715,7 @@ async def api_export_depth_spread(token: str = None, authorization: str = Header
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# REST CSV Active & Pending Manual Trades exporter endpoint
+# REST CSV Active & Pending Manual Trades exporter endpoint (Cleaned with IST Timestamps)
 @app.get("/api/export-manual-csv")
 async def api_export_manual_csv(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
@@ -4445,14 +4723,14 @@ async def api_export_manual_csv(token: str = None, authorization: str = Header(N
     csv_buffer = StringIO()
     writer = csv.writer(csv_buffer)
     
-    # Headers
+    # Cleaned Headers (10 unwanted columns removed, explicit IST time)
     writer.writerow([
-        "Manual Trade ID", "Entry Date", "Leg 1 Symbol", "Leg 2 Symbol", "Direction", "Status", "Quantity", "Trigger Diff Target", 
-        "Entry Time", "Actual Entry Spread", "Expected Entry Spread", "Entry Slippage", 
-        "Petal Entry Price", "Mini Entry Price", "Petal Entry Type", "Mini Entry Type", 
-        "Exit Time", "Exit Date", "Actual Exit Spread", "Expected Exit Spread", "Exit Slippage",
-        "Petal Exit Price", "Mini Exit Price", "Petal Exit Type", "Mini Exit Type", 
-        "Petal PnL", "Mini PnL", "Unrealized PnL", "Realized PnL (Closed)", "Brokerage & Charges", "Trigger Reason"
+        "Manual Trade ID", "Entry Date", "Entry Time (IST)", "Leg 1 Symbol", "Leg 2 Symbol", 
+        "Direction", "Status", "Quantity", "Trigger Diff Target", 
+        "Actual Entry Spread", "Expected Entry Spread", "Entry Slippage", 
+        "Petal Entry Price", "Mini Entry Price", 
+        "Exit Date", "Exit Time (IST)", "Actual Exit Spread", "Expected Exit Spread", "Exit Slippage",
+        "Petal Exit Price", "Mini Exit Price"
     ])
     
     # Records
@@ -4460,39 +4738,65 @@ async def api_export_manual_csv(token: str = None, authorization: str = Header(N
         writer.writerow([
             trade.get("id"),
             trade.get("entry_date"),
+            trade.get("entry_time"),
             trade.get("petal_symbol", system_state.petal_symbol),
             trade.get("mini_symbol", system_state.mini_symbol),
             trade.get("direction"),
             trade.get("status"),
             trade.get("quantity"),
             trade.get("trigger_diff") if trade.get("trigger_diff") is not None else "Immediate",
-            trade.get("entry_time"),
             trade.get("entry_spread"),
             trade.get("expected_entry_spread"),
             trade.get("entry_slippage"),
             trade.get("petal_entry_price"),
             trade.get("mini_entry_price"),
-            trade.get("petal_entry_type"),
-            trade.get("mini_entry_type"),
-            trade.get("exit_time"),
             trade.get("exit_date"),
+            trade.get("exit_time"),
             trade.get("actual_exit_spread"),
             trade.get("exit_spread"),
             trade.get("exit_slippage"),
             trade.get("petal_exit_price"),
-            trade.get("mini_exit_price"),
-            trade.get("petal_exit_type"),
-            trade.get("mini_exit_type"),
-            trade.get("petal_pnl"),
-            trade.get("mini_pnl"),
-            trade.get("unrealized_pnl"),
-            trade.get("pnl"),
-            trade.get("charges"),
-            trade.get("reason")
+            trade.get("mini_exit_price")
         ])
         
     csv_buffer.seek(0)
     headers = {"Content-Disposition": "attachment; filename=manual_trades.csv"}
+    return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
+
+# REST CSV Month Master Daily Spreads exporter endpoint (Point 1 & 2)
+@app.get("/api/export-month-master-spreads-csv")
+async def api_export_month_master_spreads_csv(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    csv_buffer = StringIO()
+    writer = csv.writer(csv_buffer)
+    
+    # Headers
+    writer.writerow([
+        "Date", "Month Group", "Open Spread (09:05)", "Close Spread (23:27)", "Day High Spread", "Day Low Spread"
+    ])
+    
+    # Sort dates descending (newest date first)
+    all_dates = sorted(system_state.daily_spread_stats.keys(), reverse=True)
+    for d in all_dates:
+        day_dict = system_state.daily_spread_stats[d]
+        for pair_key, record in day_dict.items():
+            open_val = record.get("open_spread_905")
+            close_val = record.get("close_spread_2327")
+            high_val = record.get("high_spread")
+            low_val = record.get("low_spread")
+            
+            writer.writerow([
+                record.get("date", d),
+                record.get("month_group", pair_key),
+                f"{open_val:.2f}" if open_val is not None else "--",
+                f"{close_val:.2f}" if close_val is not None else "--",
+                f"{high_val:.2f}" if high_val is not None else "--",
+                f"{low_val:.2f}" if low_val is not None else "--"
+            ])
+            
+    csv_buffer.seek(0)
+    headers = {"Content-Disposition": "attachment; filename=month_master_daily_spreads.csv"}
     return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
 
 # Serving static dashboard files

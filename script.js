@@ -65,6 +65,7 @@ const killSwitchBtn = document.getElementById("kill-switch-btn");
 const exportCsvBtn = document.getElementById("export-csv-btn");
 const exportManualCsvBtn = document.getElementById("export-manual-csv-btn");
 const exportDepthSpreadBtn = document.getElementById("export-depth-spread-btn");
+const exportMonthMasterCsvBtn = document.getElementById("export-month-master-csv-btn");
 const downloadBtn = document.getElementById("download-btn");
 const updateParamsBtn = document.getElementById("update-params-btn");
 
@@ -147,6 +148,19 @@ const taAddConfigBtn = document.getElementById("ta-add-config-btn");
 const taClearAllTradesBtn = document.getElementById("ta-clear-all-trades-btn");
 const taConfigsBody = document.getElementById("ta-configs-body");
 const taTradesBody = document.getElementById("ta-trades-body");
+
+// Manual BOT DOM References
+const mbotSelectPair = document.getElementById("mbot-select-pair");
+const mbotSelectDirection = document.getElementById("mbot-select-direction");
+const mbotTriggerDiff = document.getElementById("mbot-trigger-diff");
+const mbotDiffGap = document.getElementById("mbot-diff-gap");
+const mbotTotalOrders = document.getElementById("mbot-total-orders");
+const mbotLotsPerOrder = document.getElementById("mbot-lots-per-order");
+const mbotStartBtn = document.getElementById("mbot-start-btn");
+const mbotStopBtn = document.getElementById("mbot-stop-btn");
+const mbotActiveBadge = document.getElementById("manual-bot-active-badge");
+const mbotStatusText = document.getElementById("manual-bot-status-text");
+const mbotProgressText = document.getElementById("manual-bot-progress-text");
 
 let lastMonthMasterStr = "";
 
@@ -592,14 +606,12 @@ function updateDashboard(data) {
     const manualTrades = data.manual_trades || [];
     const manualSummaryEl = document.getElementById('manual-trades-summary');
     if (manualSummaryEl) {
-        let mActive = 0, mPending = 0, mClosed = 0;
+        let mPending = 0, mClosed = 0;
         manualTrades.forEach(t => {
-            if (t.status === 'Open' || !t.status) mActive++;
-            else if (t.status === 'Pending') mPending++;
+            if (t.status === 'Pending' || t.status === 'Open' || !t.status) mPending++;
             else mClosed++;
         });
         manualSummaryEl.innerHTML = `
-            <div class="summary-item">Active <strong>${mActive}</strong></div>
             <div class="summary-item">Pending <strong>${mPending}</strong></div>
             <div class="summary-item">Closed <strong>${mClosed}</strong></div>
         `;
@@ -608,29 +620,36 @@ function updateDashboard(data) {
     if (!manualTradesBody) {
         // Guard if element is missing
     } else if (manualTrades.length === 0) {
-        manualTradesBody.innerHTML = `<tr><td colspan="9" class="empty-table">No active or pending manual trades.</td></tr>`;
+        manualTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table">No active or pending manual trades.</td></tr>`;
     } else {
         manualTradesBody.innerHTML = "";
-        // Optimize: Show all active/pending manual trades, and only last 10 closed ones to prevent DOM rendering lag
-        const activeManual = manualTrades.filter(t => t.status === "Open" || t.status === "Pending" || !t.status);
+        // Separate Pending (which includes Open trades) and Closed trades
+        // Group Open trades under Pending view as requested
+        const pendingManual = manualTrades.filter(t => t.status === "Open" || t.status === "Pending" || !t.status);
         const closedManual = manualTrades.filter(t => t.status !== "Open" && t.status !== "Pending" && t.status);
-        const limitedClosedManual = closedManual.slice(-10);
-        const manualTradesToRender = [...activeManual, ...limitedClosedManual];
+
+        // Sort pending trades descending by ID so latest pending order is at the very top
+        pendingManual.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+        // Sort closed trades descending by ID and place all closed trades at the bottom
+        closedManual.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+        const manualTradesToRender = [...pendingManual, ...closedManual];
 
         manualTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
             
-            // Format status badge
+            // Format status badge: Only show Pending and Closed statuses (Open trades grouped under Pending view)
             let statusBadge = "";
             const status = trade.status || "Pending";
-            if (status === "Pending") {
+            const isPendingGroup = (status === "Pending" || status === "Open" || !status);
+
+            if (isPendingGroup) {
                 statusBadge = `<span class="badge-pending" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.25);">PENDING</span>`;
-            } else if (status === "Open") {
-                statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
             } else if (status === "Failed") {
                 statusBadge = `<span class="badge-failed" style="background-color: rgba(239,68,68,0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.25);">FAILED</span>`;
             } else {
-                statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">${status.toUpperCase()}</span>`;
+                statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
             }
             
             const triggerDiffDisplay = (trade.trigger_diff !== null && trade.trigger_diff !== undefined) ? parseFloat(trade.trigger_diff).toFixed(2) : "Immediate";
@@ -679,12 +698,12 @@ function updateDashboard(data) {
                 pnlContent = `<span style="color: var(--text-muted); font-size: 0.65rem; max-width: 150px; display: inline-block; word-break: break-word;">${trade.reason || "Trigger failed"}</span>`;
             }
             
-            // Action button
+            // Action button: Cancel for pending trigger, Exit for open position, Dismiss for closed
             let actionBtn = "";
             if (status === "Pending") {
                 actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c;">Cancel</button>`;
             } else if (status === "Open") {
-                actionBtn = `<span style="color: var(--text-muted); font-size: 0.75rem;">--</span>`;
+                actionBtn = `<button class="action-btn exit-button" onclick="exitManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444;">Exit</button>`;
             } else {
                 actionBtn = `<button class="metallic-button" onclick="dismissManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
             }
@@ -700,7 +719,7 @@ function updateDashboard(data) {
             `;
             
             const mcardId = `m-card-${trade.id}`;
-            const isOpen = (status === 'Open' || status === 'Pending');
+            const isOpen = isPendingGroup;
             const mobileCardHTML = `
                 <td class="mobile-only" colspan="10">
                     <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
@@ -1165,6 +1184,11 @@ function updateDashboard(data) {
 
     // Update Bot Execution Timeline Pipeline
     updatePipelineTimeline(data);
+
+    // Update Manual BOT UI
+    if (data.manual_bot !== undefined) {
+        updateManualBotUI(data.manual_bot);
+    }
 }
 
 // Element class flasher utility helper
@@ -1570,6 +1594,23 @@ if (exportManualCsvBtn) {
     });
 }
 
+// Handle Month Master Daily Spreads CSV Export
+if (exportMonthMasterCsvBtn) {
+    exportMonthMasterCsvBtn.addEventListener("click", () => {
+        logLocalMessage("[SYSTEM] Exporting Month Master daily spreads to CSV...");
+        const httpProtocol = window.location.protocol;
+        const url = `${httpProtocol}//${host}/api/export-month-master-spreads-csv${getAuthTokenParam()}`;
+        
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "month_master_daily_spreads.csv";
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        logLocalMessage("[SYSTEM] Month Master daily spreads CSV downloaded.");
+    });
+}
+
 // Run Initial WebSocket Connection
 connect();
 
@@ -1956,16 +1997,20 @@ window.renderLiveSpreads = function() {
 function updateMonthMasterUI(mappings) {
     if (monthMasterTableBody) {
         if (mappings.length === 0) {
-            monthMasterTableBody.innerHTML = `<tr><td colspan="5" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td></tr>`;
+            monthMasterTableBody.innerHTML = `<tr><td colspan="6" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td></tr>`;
         } else {
             let tableHtml = "";
             mappings.forEach((m, idx) => {
+                const isCapture = m.capture_data !== false;
                 tableHtml += `
                     <tr style="border-bottom: 1px solid rgba(255,255,255,0.02);">
                         <td data-label="Leg 1 Symbol" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_symbol}</td>
                         <td data-label="Leg 1 Token" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_token}</td>
                         <td data-label="Leg 2 Symbol" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_symbol}</td>
                         <td data-label="Leg 2 Token" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_token}</td>
+                        <td data-label="Daily Capture" style="padding: 0.5rem; text-align: center;">
+                            <input type="checkbox" ${isCapture ? "checked" : ""} onchange="toggleMonthMasterCapture(${idx}, this.checked)" style="cursor: pointer;">
+                        </td>
                         <td data-label="Action" style="padding: 0.5rem; text-align: right;">
                             <button onclick="deleteMonthMasterMapping(${idx})" class="metallic-button" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; background-color: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.25); border-radius: 4px; cursor: pointer; transition: all 0.2s;">Delete</button>
                         </td>
@@ -2014,7 +2059,32 @@ function updateMonthMasterUI(mappings) {
             taSelectMonth.value = "-1";
         }
     }
+
+    // Populate Manual BOT Month Pair Dropdown
+    if (mbotSelectPair) {
+        const currentMbotVal = mbotSelectPair.value;
+        let mbotOptHtml = `<option value="">-- Active Primary Pair --</option>`;
+        mappings.forEach((m, idx) => {
+            mbotOptHtml += `<option value="${idx}">${m.petal_symbol} / ${m.mini_symbol}</option>`;
+        });
+        mbotSelectPair.innerHTML = mbotOptHtml;
+        if (currentMbotVal && parseInt(currentMbotVal) < mappings.length && mbotOptHtml.includes(`value="${currentMbotVal}"`)) {
+            mbotSelectPair.value = currentMbotVal;
+        } else {
+            mbotSelectPair.value = "";
+        }
+    }
 }
+
+window.toggleMonthMasterCapture = function(index, capture) {
+    logLocalMessage(`[SYSTEM] Setting Month Master index ${index} daily capture to ${capture}...`);
+    postAction("month-master-toggle-capture", { index: index, capture_data: capture })
+    .then(data => {
+        if (data && data.status === "SUCCESS") {
+            logLocalMessage(`[SYSTEM] Month Master index ${index} daily capture setting saved.`);
+        }
+    });
+};
 
 window.deleteMonthMasterMapping = function(index) {
     if (!confirm("Are you sure you want to delete this month mapping?")) return;
@@ -2047,6 +2117,8 @@ if (addMmMappingBtn) {
         const pTok = mmPetalToken.value.trim();
         const mSym = mmMiniSymbol.value.trim();
         const mTok = mmMiniToken.value.trim();
+        const captureCheckbox = document.getElementById("mm-capture-data");
+        const captureData = captureCheckbox ? captureCheckbox.checked : true;
         
         if (!pSym || !mSym) {
             alert("Leg 1 and Leg 2 symbols are required!");
@@ -2064,7 +2136,8 @@ if (addMmMappingBtn) {
             petal_symbol: pSym,
             petal_token: pTok,
             mini_symbol: mSym,
-            mini_token: mTok
+            mini_token: mTok,
+            capture_data: captureData
         });
         
         saveMonthMasterMappings(currentMappings);
@@ -2474,5 +2547,131 @@ document.addEventListener("DOMContentLoaded", () => {
         document.body.dataset.mobileTab = "spreads";
     }
 })();
+
+// ==========================================
+// Manual BOT (Staggered Slicer with 30s Cooldown)
+// ==========================================
+function updateManualBotUI(mb) {
+    if (!mb) return;
+
+    if (mbotActiveBadge) {
+        if (mb.active) {
+            mbotActiveBadge.innerText = "RUNNING";
+            mbotActiveBadge.style.background = "#10b981";
+            mbotActiveBadge.style.color = "#ffffff";
+        } else {
+            mbotActiveBadge.innerText = "IDLE";
+            mbotActiveBadge.style.background = "rgba(148,163,184,0.15)";
+            mbotActiveBadge.style.color = "#94a3b8";
+        }
+    }
+
+    if (mbotStatusText) {
+        mbotStatusText.innerText = mb.status_message || (mb.active ? "Monitoring spread..." : "Idle - Bot not running.");
+    }
+
+    if (mbotProgressText) {
+        const filled = mb.filled_orders || 0;
+        const total = mb.total_orders || 5;
+        mbotProgressText.innerText = `${filled} / ${total} Orders`;
+    }
+
+    if (mbotStartBtn && mbotStopBtn) {
+        if (mb.active) {
+            mbotStartBtn.style.display = "none";
+            mbotStopBtn.style.display = "inline-block";
+        } else {
+            mbotStartBtn.style.display = "inline-block";
+            mbotStopBtn.style.display = "none";
+        }
+    }
+
+    const isRunning = !!mb.active;
+    if (mbotSelectPair) mbotSelectPair.disabled = isRunning;
+    if (mbotSelectDirection) mbotSelectDirection.disabled = isRunning;
+    if (mbotTriggerDiff) mbotTriggerDiff.disabled = isRunning;
+    if (mbotDiffGap) mbotDiffGap.disabled = isRunning;
+    if (mbotTotalOrders) mbotTotalOrders.disabled = isRunning;
+    if (mbotLotsPerOrder) mbotLotsPerOrder.disabled = isRunning;
+}
+
+if (mbotStartBtn) {
+    mbotStartBtn.addEventListener("click", () => {
+        const triggerDiffVal = parseFloat(mbotTriggerDiff ? mbotTriggerDiff.value : 0);
+        const diffGapVal = parseFloat(mbotDiffGap ? mbotDiffGap.value : 0);
+        const totalOrdersVal = parseInt(mbotTotalOrders ? mbotTotalOrders.value : 1);
+        const lotsPerOrderVal = parseInt(mbotLotsPerOrder ? mbotLotsPerOrder.value : 1);
+        const directionVal = mbotSelectDirection ? mbotSelectDirection.value : "Expansion";
+        const pairVal = mbotSelectPair ? mbotSelectPair.value : "";
+        
+        let pSym = "";
+        let mSym = "";
+        if (pairVal !== "") {
+            try {
+                const mappings = JSON.parse(lastMonthMasterStr || "[]");
+                const idx = parseInt(pairVal);
+                if (mappings[idx]) {
+                    pSym = mappings[idx].petal_symbol || "";
+                    mSym = mappings[idx].mini_symbol || "";
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        if (isNaN(triggerDiffVal)) {
+            alert("Please enter a valid Trigger Diff Target.");
+            return;
+        }
+        if (isNaN(diffGapVal) || diffGapVal < 0) {
+            alert("Please enter a valid Diff Gap Window (>= 0).");
+            return;
+        }
+        if (isNaN(totalOrdersVal) || totalOrdersVal < 1) {
+            alert("Total Orders Count must be at least 1.");
+            return;
+        }
+        if (isNaN(lotsPerOrderVal) || lotsPerOrderVal < 1) {
+            alert("Lots Per Order must be at least 1.");
+            return;
+        }
+
+        const symText = pSym ? `${pSym} / ${mSym}` : "Active Primary Pair";
+        const minP = directionVal === "Expansion" ? (triggerDiffVal - diffGapVal).toFixed(1) : triggerDiffVal.toFixed(1);
+        const maxP = directionVal === "Expansion" ? triggerDiffVal.toFixed(1) : (triggerDiffVal + diffGapVal).toFixed(1);
+
+        const confirmMsg = `Start Manual BOT?\nPair: ${symText}\nDirection: ${directionVal}\nTrigger Window: [${minP} to ${maxP}] (Target: ${triggerDiffVal}, Gap: ${diffGapVal})\nTotal Orders: ${totalOrdersVal} (Strict 30s cooldown between orders)\nLots Per Order: ${lotsPerOrderVal}`;
+        if (!confirm(confirmMsg)) return;
+
+        logLocalMessage(`[MANUAL BOT] Starting bot for ${symText}: Target ${triggerDiffVal}, Gap ${diffGapVal}, Orders: ${totalOrdersVal}...`);
+        postAction("manual-bot/start", {
+            direction: directionVal,
+            petal_symbol: pSym,
+            mini_symbol: mSym,
+            trigger_diff: triggerDiffVal,
+            diff_gap: diffGapVal,
+            total_orders: totalOrdersVal,
+            quantity: lotsPerOrderVal
+        }).then(res => {
+            if (res && res.status === "SUCCESS") {
+                logLocalMessage(`[MANUAL BOT] Started successfully. Monitoring spread in window [${minP} - ${maxP}]...`);
+            } else if (res && res.message) {
+                alert(res.message);
+            }
+        });
+    });
+}
+
+if (mbotStopBtn) {
+    mbotStopBtn.addEventListener("click", () => {
+        if (!confirm("Are you sure you want to stop the Manual BOT?")) return;
+        logLocalMessage("[MANUAL BOT] Stopping Manual BOT...");
+        postAction("manual-bot/stop").then(res => {
+            if (res && res.status === "SUCCESS") {
+                logLocalMessage("[MANUAL BOT] Manual BOT stopped.");
+            }
+        });
+    });
+}
 
 

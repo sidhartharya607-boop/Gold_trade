@@ -126,12 +126,18 @@
                 <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 0.4rem;">
                     📊 Month Master Live Spreads
                 </h3>
-                <select id="live-spread-category" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; background: white; font-weight: 600;">
-                    <option value="ALL">All Spreads</option>
-                    <option value="PETAL">Petal with Mini</option>
-                    <option value="GUINEA">Guinea with Mini</option>
-                    <option value="GOLD">GoldTen with Mini</option>
-                </select>
+                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                    <select id="live-spread-category" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; background: white; font-weight: 600;">
+                        <option value="ALL">All Spreads</option>
+                        <option value="PETAL">Petal with Mini</option>
+                        <option value="GUINEA">Guinea with Mini</option>
+                        <option value="GOLD">GoldTen with Mini</option>
+                    </select>
+                    <button id="export-month-master-csv-btn" class="csv-export-button" style="padding: 0.25rem 0.65rem; font-size: 0.72rem; min-height: unset; margin: 0; background: var(--accent-light, #3b82f6); color: white; display: flex; align-items: center; gap: 0.35rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                        Export Daily Spreads (CSV)
+                    </button>
+                </div>
             </div>
             <div id="month-master-live-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
                 <!-- Dynamic cards will be generated here -->
@@ -574,6 +580,85 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Manual BOT Panel (Semi-Automated Slicer with 30s Cooldown) -->
+            <div class="control-card collapsible-card" id="card-manual-bot" style="margin-top: 1rem; width: 100%; grid-column: 1 / -1;">
+                <div class="card-header-toggle" onclick="toggleCard('card-manual-bot')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">🤖 Manual BOT (Auto-Slicer with 30s Cooldown)</h2>
+                        <span id="manual-bot-active-badge" style="font-size: 0.65rem; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(148,163,184,0.15); color: #94a3b8; font-weight: 700;">IDLE</span>
+                    </div>
+                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                </div>
+                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1rem;">
+                    
+                    <!-- Live Status Banner -->
+                    <div id="manual-bot-status-banner" style="padding: 0.6rem 0.85rem; border-radius: 6px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); font-size: 0.76rem; color: var(--text-primary); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <div><strong>Status:</strong> <span id="manual-bot-status-text" class="font-mono">Idle - Bot not running.</span></div>
+                        <div><strong>Progress:</strong> <span id="manual-bot-progress-text" class="font-mono" style="color: #60a5fa; font-weight: 700;">0 / 5 Orders</span></div>
+                    </div>
+
+                    <!-- Config Grid -->
+                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem;">
+                        <div class="config-item">
+                            <label class="rule-label">Select Month Pair</label>
+                            <select id="mbot-select-pair" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                <option value="">-- Active Primary Pair --</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Strategy Direction</label>
+                            <select id="mbot-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                <option value="Expansion">Spread Expansion (Buy P / Sell M)</option>
+                                <option value="Contraction">Spread Contraction (Sell P / Buy M)</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label for="mbot-trigger-diff" class="rule-label">Trigger Diff Target
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Base target spread (e.g. 1400).</span>
+                                </div>
+                            </label>
+                            <input type="number" id="mbot-trigger-diff" class="rule-input font-mono" value="1400" step="any" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                        </div>
+                        <div class="config-item">
+                            <label for="mbot-diff-gap" class="rule-label">Diff Gap Window
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Difference window (e.g. 20). If target is 1400 and gap is 20, orders trigger at 1400, 1390, 1385, 1380.</span>
+                                </div>
+                            </label>
+                            <input type="number" id="mbot-diff-gap" class="rule-input font-mono" value="20" step="any" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                        </div>
+                        <div class="config-item">
+                            <label for="mbot-total-orders" class="rule-label">Total Orders Count (Qty)
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Number of staggered orders to execute (e.g. 5 orders).</span>
+                                </div>
+                            </label>
+                            <input type="number" id="mbot-total-orders" class="rule-input font-mono" value="5" min="1" max="50" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                        </div>
+                        <div class="config-item">
+                            <label for="mbot-lots-per-order" class="rule-label">Lots Per Order</label>
+                            <input type="number" id="mbot-lots-per-order" class="rule-input font-mono" value="1" min="1" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                        </div>
+                    </div>
+
+                    <!-- Cooldown Note -->
+                    <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
+                        <span>⏱️</span>
+                        <span><strong>Anti-Slippage Cooldown:</strong> 30 seconds delay is strictly enforced between every order execution to avoid book impact.</span>
+                    </div>
+
+                    <!-- Actions -->
+                    <div style="display: flex; gap: 0.75rem; justify-content: flex-end; align-items: center; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem;">
+                        <button id="mbot-stop-btn" class="metallic-button" style="padding: 0.4rem 1.25rem; font-size: 0.78rem; font-weight: 700; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; cursor: pointer; display: none;">🛑 Stop Manual BOT</button>
+                        <button id="mbot-start-btn" class="update-button" style="width: auto; padding: 0.4rem 1.5rem; font-size: 0.78rem; font-weight: 700; background: #10b981;">🚀 Start Manual BOT</button>
+                    </div>
+                </div>
+            </div>
         </section>
 
         <!-- Trade Automation (Grid Arbitrage) Section -->
@@ -763,7 +848,10 @@
                             <input type="text" id="mm-mini-token" class="rule-input font-mono" placeholder="e.g. 571445">
                         </div>
                     </div>
-                    <div style="display: flex; justify-content: flex-end;">
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 1rem;">
+                        <label style="font-size: 0.75rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+                            <input type="checkbox" id="mm-capture-data" checked style="cursor: pointer;"> Capture Daily Stats
+                        </label>
                         <button id="add-mm-mapping-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem;">Add Mapping</button>
                     </div>
                     <!-- Table of current mappings -->
@@ -775,12 +863,13 @@
                                     <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 1 Token</th>
                                     <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 2 Symbol</th>
                                     <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 2 Token</th>
+                                    <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 90px;">Daily Capture</th>
                                     <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Action</th>
                                 </tr>
                             </thead>
                             <tbody id="month-master-table-body">
                                 <tr>
-                                    <td colspan="5" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td>
+                                    <td colspan="6" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td>
                                 </tr>
                             </tbody>
                         </table>
