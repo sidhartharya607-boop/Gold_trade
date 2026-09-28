@@ -2281,7 +2281,7 @@ async def run_trade_automation_checks():
             return
 
 async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None,
-                                       petal_symbol: str = None, mini_symbol: str = None) -> dict:
+                                       petal_symbol: str = None, mini_symbol: str = None, trade_source: str = "MANUAL") -> dict:
     global system_state
     
     # Target symbols & tokens
@@ -2526,6 +2526,7 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                 
             if pending_trade:
                 pending_trade["status"] = "Open"
+                pending_trade["trade_source"] = pending_trade.get("trade_source", trade_source)
                 pending_trade["quantity"] = open_qty
                 pending_trade["petal_symbol"] = p_sym
                 pending_trade["mini_symbol"] = m_sym
@@ -2542,6 +2543,7 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                 new_trade = {
                     "id": trade_id,
                     "direction": new_direction,
+                    "trade_source": trade_source,
                     "quantity": open_qty,
                     "trigger_diff": None,
                     "status": "Open",
@@ -2695,10 +2697,32 @@ async def run_manual_bot_check():
     
     result = await execute_netting_manual_trades(
         direction, qty, live_spread,
-        petal_symbol=p_sym, mini_symbol=m_sym
+        petal_symbol=p_sym, mini_symbol=m_sym,
+        trade_source="MANUAL_BOT"
     )
     if result.get("success", False):
         bot["filled_orders"] = order_idx
+        if "trades" not in bot or not isinstance(bot["trades"], list):
+            bot["trades"] = []
+        bot_trade_record = {
+            "order_num": order_idx,
+            "total_orders": total_orders,
+            "time": get_ist_time_str("%H:%M:%S"),
+            "date": get_ist_time_str("%Y-%m-%d"),
+            "petal_symbol": p_sym,
+            "mini_symbol": m_sym,
+            "direction": direction,
+            "target_diff": trigger_diff,
+            "filled_spread": live_spread,
+            "petal_fill_price": result.get("petal_fill_price", 0.0),
+            "mini_fill_price": result.get("mini_fill_price", 0.0),
+            "quantity": qty,
+            "status": "Filled"
+        }
+        bot["trades"].insert(0, bot_trade_record)
+        if len(bot["trades"]) > 50:
+            bot["trades"] = bot["trades"][:50]
+
         if bot["filled_orders"] >= total_orders:
             bot["active"] = False
             bot["status_message"] = f"Completed: All {total_orders} orders filled successfully."
@@ -4797,6 +4821,103 @@ async def api_export_month_master_spreads_csv(token: str = None, authorization: 
             
     csv_buffer.seek(0)
     headers = {"Content-Disposition": "attachment; filename=month_master_daily_spreads.csv"}
+    return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
+
+# REST CSV All Trades Master exporter endpoint (Point 3)
+@app.get("/api/export-all-trades-csv")
+async def api_export_all_trades_csv(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    csv_buffer = StringIO()
+    writer = csv.writer(csv_buffer)
+    
+    # Headers with Order Type first
+    writer.writerow([
+        "Order Type", "Trade ID", "Status", "Date", "Entry Time (IST)", "Exit Time (IST)",
+        "Leg 1 Symbol", "Leg 2 Symbol", "Direction", "Quantity",
+        "Target Diff", "Filled Entry Spread", "Actual Exit Spread",
+        "Petal Entry Price", "Mini Entry Price", "Petal Exit Price", "Mini Exit Price",
+        "Net PnL", "Charges", "Details"
+    ])
+    
+    # 1. Manual & Manual BOT Trades
+    for trade in system_state.manual_trades:
+        source = trade.get("trade_source", "MANUAL")
+        writer.writerow([
+            source,
+            trade.get("id"),
+            trade.get("status"),
+            trade.get("entry_date", "--"),
+            trade.get("entry_time", "--"),
+            trade.get("exit_time", "--"),
+            trade.get("petal_symbol", system_state.petal_symbol),
+            trade.get("mini_symbol", system_state.mini_symbol),
+            trade.get("direction"),
+            trade.get("quantity"),
+            trade.get("trigger_diff") if trade.get("trigger_diff") is not None else "--",
+            trade.get("entry_spread", "--"),
+            trade.get("actual_exit_spread", "--"),
+            trade.get("petal_entry_price", "--"),
+            trade.get("mini_entry_price", "--"),
+            trade.get("petal_exit_price", "--"),
+            trade.get("mini_exit_price", "--"),
+            trade.get("pnl", "--"),
+            trade.get("charges", "--"),
+            trade.get("reason", "Manual Trade")
+        ])
+        
+    # 2. Trade Automation Trades
+    for trade in getattr(system_state, "ta_trades", []):
+        writer.writerow([
+            "TRADE_AUTOMATION",
+            trade.get("id"),
+            trade.get("status"),
+            trade.get("entry_date", "--"),
+            trade.get("entry_time", "--"),
+            trade.get("exit_time", "--"),
+            trade.get("petal_symbol", "--"),
+            trade.get("mini_symbol", "--"),
+            trade.get("direction"),
+            trade.get("quantity"),
+            trade.get("entry_diff", "--"),
+            trade.get("entry_spread", "--"),
+            trade.get("exit_spread", "--"),
+            trade.get("petal_entry_price", "--"),
+            trade.get("mini_entry_price", "--"),
+            trade.get("petal_exit_price", "--"),
+            trade.get("mini_exit_price", "--"),
+            trade.get("pnl", "--"),
+            trade.get("charges", "--"),
+            f"Exit Gap: {trade.get('exit_gap', '--')}"
+        ])
+        
+    # 3. Automated Strategy Completed History
+    for trade in system_state.trade_history:
+        writer.writerow([
+            trade.get("reason", "AUTO_ROBOT"),
+            trade.get("id"),
+            trade.get("status", "COMPLETED"),
+            trade.get("date", "--"),
+            trade.get("entry_time", "--"),
+            trade.get("exit_time", "--"),
+            system_state.petal_symbol,
+            system_state.mini_symbol,
+            trade.get("direction"),
+            trade.get("quantity", system_state.trade_quantity),
+            trade.get("entry_spread", "--"),
+            trade.get("actual_entry_spread", "--"),
+            trade.get("actual_exit_spread", "--"),
+            trade.get("petal_entry", "--"),
+            trade.get("mini_entry", "--"),
+            trade.get("petal_exit", "--"),
+            trade.get("mini_exit", "--"),
+            trade.get("pnl", "--"),
+            trade.get("charges", "--"),
+            trade.get("details", "--")
+        ])
+        
+    csv_buffer.seek(0)
+    headers = {"Content-Disposition": "attachment; filename=all_trades_history.csv"}
     return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
 
 # Serving static dashboard files

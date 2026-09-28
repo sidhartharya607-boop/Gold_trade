@@ -66,6 +66,7 @@ const exportCsvBtn = document.getElementById("export-csv-btn");
 const exportManualCsvBtn = document.getElementById("export-manual-csv-btn");
 const exportDepthSpreadBtn = document.getElementById("export-depth-spread-btn");
 const exportMonthMasterCsvBtn = document.getElementById("export-month-master-csv-btn");
+const exportAllTradesBtn = document.getElementById("export-all-trades-btn");
 const downloadBtn = document.getElementById("download-btn");
 const updateParamsBtn = document.getElementById("update-params-btn");
 
@@ -616,6 +617,34 @@ function updateDashboard(data) {
             <div class="summary-item">Closed <strong>${mClosed}</strong></div>
         `;
     }
+   // Accordion expansion state persistence across WebSocket ticks
+window.manualAccordionState = window.manualAccordionState || {};
+window.toggleManualAccordion = function(mcardId) {
+    const el = document.getElementById(mcardId);
+    const arr = document.getElementById('arr-' + mcardId);
+    if (!el) return;
+    const isCurrentlyOpen = el.style.display === 'block';
+    const newState = !isCurrentlyOpen;
+    window.manualAccordionState[mcardId] = newState;
+    el.style.display = newState ? 'block' : 'none';
+    if (arr) {
+        arr.style.transform = newState ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+};
+
+window.taAccordionState = window.taAccordionState || {};
+window.toggleTaAccordion = function(tacardId) {
+    const el = document.getElementById(tacardId);
+    const arr = document.getElementById('arr-' + tacardId);
+    if (!el) return;
+    const isCurrentlyOpen = el.style.display === 'block';
+    const newState = !isCurrentlyOpen;
+    window.taAccordionState[tacardId] = newState;
+    el.style.display = newState ? 'block' : 'none';
+    if (arr) {
+        arr.style.transform = newState ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+};
 
     if (!manualTradesBody) {
         // Guard if element is missing
@@ -634,7 +663,9 @@ function updateDashboard(data) {
         // Sort closed trades descending by ID and place all closed trades at the bottom
         closedManual.sort((a, b) => (b.id || 0) - (a.id || 0));
 
-        const manualTradesToRender = [...pendingManual, ...closedManual];
+        // Point 5: Show all active/pending trades + strictly latest 5 closed trades in UI
+        const limitedClosedManual = closedManual.slice(0, 5);
+        const manualTradesToRender = [...pendingManual, ...limitedClosedManual];
 
         manualTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
@@ -698,12 +729,12 @@ function updateDashboard(data) {
                 pnlContent = `<span style="color: var(--text-muted); font-size: 0.65rem; max-width: 150px; display: inline-block; word-break: break-word;">${trade.reason || "Trigger failed"}</span>`;
             }
             
-            // Action button: Cancel for pending trigger, Exit for open position, Dismiss for closed
+            // Point 1: Action button: Cancel for pending trigger, -- for open position (prevent accidental exit), Dismiss for closed
             let actionBtn = "";
             if (status === "Pending") {
                 actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c;">Cancel</button>`;
             } else if (status === "Open") {
-                actionBtn = `<button class="action-btn exit-button" onclick="exitManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444;">Exit</button>`;
+                actionBtn = `<span style="color: var(--text-muted); font-size: 0.72rem; font-weight: 500;">--</span>`;
             } else {
                 actionBtn = `<button class="metallic-button" onclick="dismissManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
             }
@@ -718,13 +749,17 @@ function updateDashboard(data) {
                 </div>
             `;
             
+            // Point 4: Persist accordion state across WebSocket ticks
             const mcardId = `m-card-${trade.id}`;
-            const isOpen = isPendingGroup;
+            const userState = (window.manualAccordionState && window.manualAccordionState[mcardId] !== undefined)
+                ? window.manualAccordionState[mcardId]
+                : undefined;
+            const isOpen = (userState !== undefined) ? userState : isPendingGroup;
             const mobileCardHTML = `
                 <td class="mobile-only" colspan="10">
                     <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
-                        <!-- Accordion Header: always visible, tap to toggle -->
-                        <div onclick="(function(el){ var b=document.getElementById('${mcardId}'); var arr=el.querySelector('.macc-arr'); if(b.style.display==='none'||b.style.display===''){b.style.display='block';arr.style.transform='rotate(180deg)';}else{b.style.display='none';arr.style.transform='rotate(0deg)';} })(this)" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background: ${status==='Open' ? 'rgba(16,185,129,0.05)' : status==='Pending' ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom: 1px solid var(--border-color); user-select:none;">
+                        <!-- Accordion Header: always visible, tap to toggle without resetting on ticks -->
+                        <div onclick="window.toggleManualAccordion('${mcardId}')" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background: ${status==='Open' ? 'rgba(16,185,129,0.05)' : status==='Pending' ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom: 1px solid var(--border-color); user-select:none;">
                             <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
                                 <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
                                 ${statusBadge}
@@ -732,7 +767,7 @@ function updateDashboard(data) {
                             </div>
                             <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
                                 <span style="font-size:0.72rem;">${pnlContent}</span>
-                                <span class="macc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${isOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
+                                <span id="arr-${mcardId}" class="macc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${isOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
                             </div>
                         </div>
                         <!-- Accordion Body: details -->
@@ -786,6 +821,17 @@ function updateDashboard(data) {
             
             manualTradesBody.appendChild(tr);
         });
+
+        // Point 5: Notice for UI closed trades limit
+        if (closedManual.length > 5) {
+            const noticeTr = document.createElement("tr");
+            noticeTr.innerHTML = `
+                <td colspan="10" style="text-align: center; color: var(--text-muted); font-size: 0.72rem; padding: 0.6rem; background: rgba(255,255,255,0.01); border-top: 1px dashed var(--border-color);">
+                    ℹ️ Showing latest 5 of ${closedManual.length} closed trades. Full trade history is available via <strong>Export All Trades (CSV)</strong>.
+                </td>
+            `;
+            manualTradesBody.appendChild(noticeTr);
+        }
     }
 
     // Render Active Bot Instances table
@@ -857,10 +903,10 @@ function updateDashboard(data) {
         taTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td></tr>`;
     } else {
         taTradesBody.innerHTML = "";
-        // Optimize: Show all Open trades, and only last 15 closed/completed trades to prevent DOM rendering lag
+        // Point 5: Show all Open trades, and strictly latest 5 closed/completed trades in UI
         const openTa = taTrades.filter(t => t.status === "Open" || !t.status);
         const closedTa = taTrades.filter(t => t.status !== "Open" && t.status);
-        const limitedClosedTa = closedTa.slice(-15);
+        const limitedClosedTa = closedTa.slice(-5);
         const taTradesToRender = [...openTa, ...limitedClosedTa];
 
         taTradesToRender.forEach(trade => {
@@ -943,12 +989,12 @@ function updateDashboard(data) {
                 pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
             }
             
+            // Point 1: Remove accidental exit button on Open trades; preserve Target Editing
             let actionBtn = "";
             if (status === "Open") {
                 actionBtn = `
                     <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
                         <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${currentExitGap}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap / Target Spread for this trade">✏️ Edit Tgt</button>
-                        <button class="metallic-button" onclick="exitTaTrade(${trade.id})" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Square off this trade immediately">Exit</button>
                     </div>
                 `;
             } else {
@@ -962,13 +1008,17 @@ function updateDashboard(data) {
                 </div>
             `;
             
+            // Point 4: Persist accordion state across WebSocket ticks
             const tacardId = `ta-card-${trade.id}`;
-            const taIsOpen = (status === 'Open');
+            const userTaState = (window.taAccordionState && window.taAccordionState[tacardId] !== undefined)
+                ? window.taAccordionState[tacardId]
+                : undefined;
+            const taIsOpen = (userTaState !== undefined) ? userTaState : (status === 'Open');
             const mobileCardHTML = `
                 <td class="mobile-only" colspan="10">
                     <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
                         <!-- Accordion Header -->
-                        <div onclick="(function(el){ var b=document.getElementById('${tacardId}'); var arr=el.querySelector('.tacc-arr'); if(b.style.display==='none'||b.style.display===''){b.style.display='block';arr.style.transform='rotate(180deg)';}else{b.style.display='none';arr.style.transform='rotate(0deg)';} })(this)" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background:${status==='Open' ? 'rgba(16,185,129,0.05)' : 'var(--bg-tertiary)'}; border-bottom:1px solid var(--border-color); user-select:none;">
+                        <div onclick="window.toggleTaAccordion('${tacardId}')" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background:${status==='Open' ? 'rgba(16,185,129,0.05)' : 'var(--bg-tertiary)'}; border-bottom:1px solid var(--border-color); user-select:none;">
                             <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
                                 <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
                                 ${statusBadge}
@@ -976,7 +1026,7 @@ function updateDashboard(data) {
                             </div>
                             <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
                                 <span style="font-size:0.72rem;">${pnlContent}</span>
-                                <span class="tacc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${taIsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
+                                <span id="arr-${tacardId}" class="tacc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${taIsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
                             </div>
                         </div>
                         <!-- Accordion Body -->
@@ -1028,6 +1078,17 @@ function updateDashboard(data) {
             
             taTradesBody.appendChild(tr);
         });
+
+        // Point 5: Notice for UI closed TA trades limit
+        if (closedTa.length > 5) {
+            const noticeTr = document.createElement("tr");
+            noticeTr.innerHTML = `
+                <td colspan="10" style="text-align: center; color: var(--text-muted); font-size: 0.72rem; padding: 0.6rem; background: rgba(255,255,255,0.01); border-top: 1px dashed var(--border-color);">
+                    ℹ️ Showing latest 5 of ${closedTa.length} closed automated trades. Full trade history is available via <strong>Export All Trades (CSV)</strong>.
+                </td>
+            `;
+            taTradesBody.appendChild(noticeTr);
+        }
     }
 
     // 7. Trade History Table
@@ -1036,8 +1097,8 @@ function updateDashboard(data) {
         historyBody.innerHTML = `<tr><td colspan="7" class="empty-table">No completed or cancelled trades yet.</td></tr>`;
     } else {
         historyBody.innerHTML = "";
-        // Optimize: Limit historical completed trades table to the last 20 to prevent DOM rendering lag
-        const limitedHistory = historyTrades.slice(-20);
+        // Point 5: Show strictly latest 5 completed trades in UI
+        const limitedHistory = historyTrades.slice(-5);
         limitedHistory.forEach(trade => {
             const tr = document.createElement("tr");
             const status = trade.status || "COMPLETED";
@@ -1132,6 +1193,17 @@ function updateDashboard(data) {
             `;
             historyBody.appendChild(tr);
         });
+
+        // Point 5: Notice for UI completed trades limit
+        if (historyTrades.length > 5) {
+            const noticeTr = document.createElement("tr");
+            noticeTr.innerHTML = `
+                <td colspan="7" style="text-align: center; color: var(--text-muted); font-size: 0.72rem; padding: 0.6rem; background: rgba(255,255,255,0.01); border-top: 1px dashed var(--border-color);">
+                    ℹ️ Showing latest 5 of ${historyTrades.length} trades. Full trade history is available via <strong>Export All Trades (CSV)</strong>.
+                </td>
+            `;
+            historyBody.appendChild(noticeTr);
+        }
     }
 
     // 8. Console logs terminal update
@@ -1608,6 +1680,23 @@ if (exportMonthMasterCsvBtn) {
         anchor.click();
         document.body.removeChild(anchor);
         logLocalMessage("[SYSTEM] Month Master daily spreads CSV downloaded.");
+    });
+}
+
+// Point 3: Handle All Trades History CSV Export (Consolidated with Order Type)
+if (exportAllTradesBtn) {
+    exportAllTradesBtn.addEventListener("click", () => {
+        logLocalMessage("[SYSTEM] Exporting all trades history (Manual, Bot, TA) to CSV...");
+        const httpProtocol = window.location.protocol;
+        const url = `${httpProtocol}//${host}/api/export-all-trades-csv${getAuthTokenParam()}`;
+        
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = "all_trades_history.csv";
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        logLocalMessage("[SYSTEM] All trades CSV downloaded successfully.");
     });
 }
 
@@ -2593,6 +2682,53 @@ function updateManualBotUI(mb) {
     if (mbotDiffGap) mbotDiffGap.disabled = isRunning;
     if (mbotTotalOrders) mbotTotalOrders.disabled = isRunning;
     if (mbotLotsPerOrder) mbotLotsPerOrder.disabled = isRunning;
+
+    // Point 2: Render Manual BOT Executed Trades Window
+    const mbotTradesBody = document.getElementById("mbot-trades-body");
+    const mbotOrdersBadge = document.getElementById("mbot-orders-badge");
+    const botTrades = (mb && Array.isArray(mb.trades)) ? mb.trades : [];
+    
+    if (mbotOrdersBadge) {
+        mbotOrdersBadge.innerText = `${botTrades.length} Orders`;
+    }
+    
+    if (mbotTradesBody) {
+        if (botTrades.length === 0) {
+            mbotTradesBody.innerHTML = `<tr><td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot orders executed yet.</td></tr>`;
+        } else {
+            mbotTradesBody.innerHTML = "";
+            // Render latest bot orders first
+            const sortedBotTrades = [...botTrades].reverse();
+            sortedBotTrades.forEach(bt => {
+                const tr = document.createElement("tr");
+                tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
+                
+                const timeStr = bt.time || "--";
+                const pSym = bt.petal_symbol || "--";
+                const mSym = bt.mini_symbol || "--";
+                const pairStr = `${pSym} / ${mSym}`;
+                const dirStr = bt.direction || "--";
+                const dirColor = dirStr === "Expansion" ? "#34d399" : "#60a5fa";
+                const targetDiff = (bt.target_diff !== undefined && bt.target_diff !== null) ? parseFloat(bt.target_diff).toFixed(1) : "--";
+                const filledSpread = (bt.filled_spread !== undefined && bt.filled_spread !== null) ? parseFloat(bt.filled_spread).toFixed(2) : "--";
+                const pPrice = bt.petal_fill_price ? parseFloat(bt.petal_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
+                const mPrice = bt.mini_fill_price ? parseFloat(bt.mini_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
+                const statusBadge = `<span style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">FILLED</span>`;
+                
+                tr.innerHTML = `
+                    <td class="font-mono" style="padding: 0.35rem 0.5rem; font-weight: 700; color: var(--text-primary);">#${bt.order_num || 1}</td>
+                    <td style="padding: 0.35rem 0.5rem; color: var(--text-secondary); font-size: 0.7rem;">${timeStr}</td>
+                    <td style="padding: 0.35rem 0.5rem; font-size: 0.7rem; font-weight: 600;" title="${pairStr}">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</td>
+                    <td style="padding: 0.35rem 0.5rem; font-weight: 700; color: ${dirColor};">${dirStr}</td>
+                    <td class="font-mono" style="padding: 0.35rem 0.5rem;">${targetDiff}</td>
+                    <td class="font-mono" style="padding: 0.35rem 0.5rem; font-weight: 700; color: #10b981;">${filledSpread}</td>
+                    <td class="font-mono" style="padding: 0.35rem 0.5rem; font-size: 0.68rem; color: var(--text-secondary);">P: ${pPrice} / M: ${mPrice}</td>
+                    <td style="padding: 0.35rem 0.5rem; text-align: center;">${statusBadge}</td>
+                `;
+                mbotTradesBody.appendChild(tr);
+            });
+        }
+    }
 }
 
 if (mbotStartBtn) {

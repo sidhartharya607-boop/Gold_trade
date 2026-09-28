@@ -657,6 +657,37 @@
                         <button id="mbot-stop-btn" class="metallic-button" style="padding: 0.4rem 1.25rem; font-size: 0.78rem; font-weight: 700; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; cursor: pointer; display: none;">🛑 Stop Manual BOT</button>
                         <button id="mbot-start-btn" class="update-button" style="width: auto; padding: 0.4rem 1.5rem; font-size: 0.78rem; font-weight: 700; background: #10b981;">🚀 Start Manual BOT</button>
                     </div>
+
+                    <!-- Manual BOT Executed Trades Window (Point 2) -->
+                    <div style="margin-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
+                                <span>📋</span> Bot Executed Orders
+                            </span>
+                            <span id="mbot-orders-badge" style="font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60a5fa; font-weight: 600;">0 Orders</span>
+                        </div>
+                        <div class="table-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                            <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
+                                <thead>
+                                    <tr style="background: rgba(255,255,255,0.03);">
+                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 45px;">#</th>
+                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 80px;">Time (IST)</th>
+                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Pair</th>
+                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 80px;">Direction</th>
+                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Target Diff</th>
+                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Filled Spread</th>
+                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Prices (P / M)</th>
+                                        <th style="padding: 0.4rem 0.5rem; text-align: center; width: 70px;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="mbot-trades-body">
+                                    <tr>
+                                        <td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot orders executed yet.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
@@ -884,14 +915,18 @@
             <div class="data-card trade-history-panel" style="height: fit-content; padding-bottom: 0.25rem;">
                 <div class="panel-header" style="border-bottom: none;">
                     <h2>Trade History</h2>
-                    <div style="display: flex; gap: 0.5rem;">
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <button id="export-all-trades-btn" class="csv-export-button" style="background-color: #10b981; color: white;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Export All Trades (CSV)
+                        </button>
                         <button id="export-depth-spread-btn" class="csv-export-button" style="background-color: var(--accent-light, #3b82f6); color: white;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                             Depth Spread History
                         </button>
                         <button id="export-csv-btn" class="csv-export-button">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                            Export CSV
+                            Export Auto CSV
                         </button>
                     </div>
                 </div>
