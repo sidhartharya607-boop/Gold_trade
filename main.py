@@ -761,6 +761,20 @@ class TradingSystem:
                     self.smart_connect._timeout = 15
                 if hasattr(self.smart_connect, "request_timeout"):
                     self.smart_connect.request_timeout = 15
+                
+                # Mount resilient HTTPAdapter to auto-recover from server TCP socket resets
+                from requests.adapters import HTTPAdapter
+                from urllib3.util import Retry
+                retries = Retry(
+                    total=3,
+                    backoff_factor=0.2,
+                    status_forcelist=[500, 502, 503, 504],
+                    raise_on_status=False
+                )
+                adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
+                if hasattr(self.smart_connect, "reqsession") and self.smart_connect.reqsession:
+                    self.smart_connect.reqsession.mount("https://", adapter)
+                    self.smart_connect.reqsession.mount("http://", adapter)
             except Exception:
                 pass
             
@@ -3264,6 +3278,35 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
             })
     return res
 
+# ----------------- Safe Angel One Market Quotes Fetcher -----------------
+def safe_fetch_angelone_market_quotes(smart_client, tokens: list) -> dict:
+    if not smart_client or not tokens:
+        return {}
+    for attempt in range(2):
+        try:
+            res = smart_client.getMarketData(
+                mode="FULL",
+                exchangeTokens={"MCX": tokens}
+            )
+            if isinstance(res, dict):
+                return res
+            if attempt == 0:
+                time.sleep(0.15)
+                continue
+            return {}
+        except Exception as e:
+            err_str = str(e).lower()
+            if attempt == 0 and any(k in err_str for k in ["connection", "reset", "abort", "peer", "timeout", "broken pipe"]):
+                try:
+                    if hasattr(smart_client, "reqsession") and smart_client.reqsession:
+                        smart_client.reqsession.close()
+                except Exception:
+                    pass
+                time.sleep(0.15)
+                continue
+            raise e
+    return {}
+
 # ----------------- Dynamic Random Walk Ticker (Live Ticks) -----------------
 async def live_mcx_ticker_task():
     # Fluctuate realistic prices resembling MCX commodity values
@@ -3271,6 +3314,7 @@ async def live_mcx_ticker_task():
     mini_base = 71150.0
     tick_count = 0
     cached_quotes_map = {}
+    consecutive_feed_errors = 0
     
     while True:
         try:
@@ -3295,10 +3339,7 @@ async def live_mcx_ticker_task():
                         loop = asyncio.get_running_loop()
                         market_quotes = await loop.run_in_executor(
                             None,
-                            lambda: system_state.smart_connect.getMarketData(
-                                mode="FULL",
-                                exchangeTokens={"MCX": tokens_to_query}
-                            )
+                            lambda: safe_fetch_angelone_market_quotes(system_state.smart_connect, tokens_to_query)
                         )
                         
                         if market_quotes:
@@ -3339,6 +3380,7 @@ async def live_mcx_ticker_task():
                         mini_ltp = float(mini_quote.get("ltp", 0.0))
                         
                         if petal_ltp > 0 and mini_ltp > 0:
+                            consecutive_feed_errors = 0
                             system_state.api_connected = True
                             system_state.gold_petal_volume = int(petal_quote.get("volume", 0))
                             system_state.gold_petal_buy_qty = int(petal_quote.get("totalBuyQty", 0))
@@ -3347,7 +3389,7 @@ async def live_mcx_ticker_task():
                             system_state.gold_mini_volume = int(mini_quote.get("volume", 0))
                             system_state.gold_mini_buy_qty = int(mini_quote.get("totalBuyQty", 0))
                             system_state.gold_mini_sell_qty = int(mini_quote.get("totalSellQty", 0))
- 
+
                             # Extract or simulate depth
                             petal_depth_raw = petal_quote.get("depth", {})
                             if petal_depth_raw and petal_depth_raw.get("buy") and petal_depth_raw.get("sell"):
@@ -3360,7 +3402,7 @@ async def live_mcx_ticker_task():
                                 system_state.mini_depth = mini_depth_raw
                             else:
                                 system_state.mini_depth = generate_simulated_depth(mini_ltp)
- 
+
                             await process_market_data({
                                 "petal_ltp": petal_ltp,
                                 "mini_ltp": mini_ltp
@@ -3368,11 +3410,15 @@ async def live_mcx_ticker_task():
                             await asyncio.sleep(1.0)
                             continue
                         else:
-                            system_state.api_connected = False
+                            consecutive_feed_errors += 1
+                            if consecutive_feed_errors >= 3:
+                                system_state.api_connected = False
                     except Exception as e:
-                        system_state.api_connected = False
-                        system_state.log(f"[ANGELONE API] Live ticker query failed: {e}. API server not connected.")
- 
+                        consecutive_feed_errors += 1
+                        if consecutive_feed_errors >= 3:
+                            system_state.api_connected = False
+                            system_state.log(f"[ANGELONE API] Live ticker query failed: {e}. API server not connected.")
+
                 if not system_state.api_connected:
                     # Halt simulation and wait for AngelOne connection
                     await broadcast_system_state()
@@ -3416,10 +3462,7 @@ async def live_mcx_ticker_task():
                         loop = asyncio.get_running_loop()
                         market_quotes = await loop.run_in_executor(
                             None,
-                            lambda: system_state.smart_connect.getMarketData(
-                                mode="FULL",
-                                exchangeTokens={"MCX": tokens_to_query}
-                            )
+                            lambda: safe_fetch_angelone_market_quotes(system_state.smart_connect, tokens_to_query)
                         )
                         
                         petal_quote = {}
@@ -3450,6 +3493,7 @@ async def live_mcx_ticker_task():
                         mini_ltp = float(mini_quote.get("ltp", 0.0))
                         
                         if petal_ltp > 0 and mini_ltp > 0:
+                            consecutive_feed_errors = 0
                             system_state.api_connected = True
                             system_state.gold_petal_volume = int(petal_quote.get("volume", 0))
                             system_state.gold_petal_buy_qty = int(petal_quote.get("totalBuyQty", 0))
@@ -3478,10 +3522,14 @@ async def live_mcx_ticker_task():
                             await asyncio.sleep(1.0)
                             continue
                         else:
-                            system_state.api_connected = False
+                            consecutive_feed_errors += 1
+                            if consecutive_feed_errors >= 3:
+                                system_state.api_connected = False
                     except Exception as e:
-                        system_state.api_connected = False
-                        system_state.log(f"[DHAN FEED ERROR] Failed to fetch quotes via Angel One: {e}")
+                        consecutive_feed_errors += 1
+                        if consecutive_feed_errors >= 3:
+                            system_state.api_connected = False
+                            system_state.log(f"[DHAN FEED ERROR] Failed to fetch quotes via Angel One: {e}")
                         
                 if not system_state.api_connected:
                     await broadcast_system_state()
