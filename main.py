@@ -338,7 +338,7 @@ class TradingSystem:
         self.daily_spread_stats = {}
         self.load_daily_spread_stats()
 
-        # Manual BOT State (Semi-Automated Multi-Order Slicer)
+        # Manual BOT State (Semi-Automated Multi-Order Slicer & Multi-Pair Tasks)
         self.manual_bot = {
             "active": False,
             "direction": "Expansion",
@@ -351,8 +351,11 @@ class TradingSystem:
             "quantity": 1,
             "order_delay": 30.0,
             "last_order_time": 0.0,
-            "status_message": "Idle"
+            "status_message": "Idle",
+            "why_waiting": "Bot not started",
+            "trades": []
         }
+        self.manual_bots = []
         self.load_manual_bot()
 
         self.load_angel_master()
@@ -610,17 +613,59 @@ class TradingSystem:
             if os.path.exists("manual_bot_config.json"):
                 with open("manual_bot_config.json", "r", encoding="utf-8") as f:
                     data = json.load(f)
-                    self.manual_bot.update(data)
-                    # For safety on startup, set active to False
-                    self.manual_bot["active"] = False
-                    self.manual_bot["status_message"] = "Idle"
+                    if isinstance(data, dict):
+                        # Multi-bot tasks list
+                        if "bots" in data and isinstance(data["bots"], list):
+                            self.manual_bots = data["bots"]
+                            for b in self.manual_bots:
+                                b_filled = int(b.get("filled_orders", 0))
+                                b_total = int(b.get("total_orders", 1))
+                                if b.get("active", False):
+                                    if b_filled >= b_total:
+                                        b["active"] = False
+                                        b["status_message"] = f"Completed: All {b_total} orders filled."
+                                        b["why_waiting"] = "All orders completed"
+                                    else:
+                                        # PERSIST ACTIVE STATE ON RESTART: Do not stop unless user stops it!
+                                        b["active"] = True
+                                        b["status_message"] = f"Active: Resumed after restart ({b_filled}/{b_total} filled)"
+                                        b["why_waiting"] = f"Monitoring spread for next order ({b_filled}/{b_total} filled)"
+                        
+                        # Primary/legacy single bot state
+                        if "manual_bot" in data and isinstance(data["manual_bot"], dict):
+                            self.manual_bot.update(data["manual_bot"])
+                        else:
+                            self.manual_bot.update(data)
+                            
+                        mb_filled = int(self.manual_bot.get("filled_orders", 0))
+                        mb_total = int(self.manual_bot.get("total_orders", 1))
+                        if self.manual_bot.get("active", False):
+                            if mb_filled >= mb_total:
+                                self.manual_bot["active"] = False
+                                self.manual_bot["status_message"] = f"Completed: All {mb_total} orders filled."
+                                self.manual_bot["why_waiting"] = "All orders completed"
+                            else:
+                                # PERSIST ACTIVE STATE ON RESTART: Do not stop unless user stops it!
+                                self.manual_bot["active"] = True
+                                self.manual_bot["status_message"] = f"Active: Resumed after restart ({mb_filled}/{mb_total} filled)"
+                                self.manual_bot["why_waiting"] = f"Monitoring spread for next order ({mb_filled}/{mb_total} filled)"
+                        else:
+                            if not self.manual_bot.get("status_message"):
+                                self.manual_bot["status_message"] = "Idle - Bot not running."
+                                self.manual_bot["why_waiting"] = "Bot stopped by user or not started"
         except Exception as e:
             pass
 
     def save_manual_bot(self):
         try:
             with open("manual_bot_config.json", "w", encoding="utf-8") as f:
-                json.dump(self.manual_bot, f, indent=4)
+                payload = {
+                    "manual_bot": self.manual_bot,
+                    "bots": self.manual_bots
+                }
+                # Also copy top-level keys for 100% backward compatibility
+                payload.update(self.manual_bot)
+                json.dump(payload, f, indent=4)
         except Exception as e:
             pass
 
@@ -709,6 +754,15 @@ class TradingSystem:
         try:
             self.log("[ANGELONE API] Initializing SmartConnect client...")
             self.smart_connect = SmartConnect(api_key=self.api_key)
+            try:
+                if hasattr(self.smart_connect, "timeout"):
+                    self.smart_connect.timeout = 15
+                if hasattr(self.smart_connect, "_timeout"):
+                    self.smart_connect._timeout = 15
+                if hasattr(self.smart_connect, "request_timeout"):
+                    self.smart_connect.request_timeout = 15
+            except Exception:
+                pass
             
             if self.client_id and self.password and self.totp_secret:
                 totp_strip = self.totp_secret.strip()
@@ -1174,6 +1228,7 @@ async def broadcast_system_state(force: bool = False):
         "ta_configs": system_state.ta_configs,
         "ta_trades": system_state.ta_trades,
         "manual_bot": system_state.manual_bot,
+        "manual_bots": getattr(system_state, "manual_bots", []),
         
         "logs": system_state.logs
     })
@@ -2625,114 +2680,151 @@ async def trigger_manual_trade_execution(trade: dict, expected_entry_spread: flo
 
 async def run_manual_bot_check():
     global system_state
-    bot = system_state.manual_bot
-    if not bot.get("active", False):
-        return
-        
-    total_orders = int(bot.get("total_orders", 5))
-    filled_orders = int(bot.get("filled_orders", 0))
-    if filled_orders >= total_orders:
-        bot["active"] = False
-        bot["status_message"] = f"Completed: All {total_orders} orders successfully filled."
-        system_state.save_manual_bot()
-        await broadcast_system_state()
-        return
-
-    # Check 30-second cooldown
-    now_ts = time.time()
-    last_time = float(bot.get("last_order_time", 0.0))
-    cooldown = float(bot.get("order_delay", 30.0))
-    time_diff = now_ts - last_time
-    if last_time > 0 and time_diff < cooldown:
-        rem = int(cooldown - time_diff)
-        bot["status_message"] = f"Cooldown: waiting {rem}s ({filled_orders}/{total_orders} filled)"
-        return
-
-    p_sym = bot.get("petal_symbol") or system_state.petal_symbol
-    m_sym = bot.get("mini_symbol") or system_state.mini_symbol
-    direction = bot.get("direction", "Expansion")
-    trigger_diff = float(bot.get("trigger_diff", 1400.0))
-    diff_gap = float(bot.get("diff_gap", 20.0))
-    qty = int(bot.get("quantity", 1))
-
-    # Resolve live spread
-    live_spread = None
-    if p_sym == system_state.petal_symbol and m_sym == system_state.mini_symbol:
-        live_spread = system_state.depth_buy_spread if direction == "Expansion" else system_state.depth_sell_spread
-    else:
-        for stat in getattr(system_state, "month_master_live", []):
-            if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
-                live_spread = stat.get("depth_buy_spread") if direction == "Expansion" else stat.get("depth_sell_spread")
-                break
-
-    if live_spread is None or live_spread <= 0:
-        return
-
-    # Tolerance range check:
-    # Expansion: (trigger_diff - diff_gap) <= spread <= trigger_diff
-    # Contraction: trigger_diff <= spread <= (trigger_diff + diff_gap)
-    is_in_range = False
-    if direction == "Expansion":
-        min_p = trigger_diff - diff_gap
-        max_p = trigger_diff
-        if min_p <= live_spread <= max_p:
-            is_in_range = True
-    elif direction == "Contraction":
-        min_p = trigger_diff
-        max_p = trigger_diff + diff_gap
-        if min_p <= live_spread <= max_p:
-            is_in_range = True
-
-    if not is_in_range:
-        bot["status_message"] = f"Scanning: spread {live_spread:.2f} outside target [{min_p:.1f} - {max_p:.1f}] ({filled_orders}/{total_orders} filled)"
-        return
-
-    # Check execution lock or halted state
-    if system_state.execution_in_progress or system_state.system_status == "Halted":
-        return
-
-    order_idx = filled_orders + 1
-    system_state.log(f"[MANUAL BOT] Triggered Order #{order_idx}/{total_orders} for {p_sym}/{m_sym} at spread {live_spread:.2f} (Target Window: {min_p:.1f} - {max_p:.1f})...")
-    bot["last_order_time"] = time.time()
     
-    result = await execute_netting_manual_trades(
-        direction, qty, live_spread,
-        petal_symbol=p_sym, mini_symbol=m_sym,
-        trade_source="MANUAL_BOT"
-    )
-    if result.get("success", False):
-        bot["filled_orders"] = order_idx
-        if "trades" not in bot or not isinstance(bot["trades"], list):
-            bot["trades"] = []
-        bot_trade_record = {
-            "order_num": order_idx,
-            "total_orders": total_orders,
-            "time": get_ist_time_str("%H:%M:%S"),
-            "date": get_ist_time_str("%Y-%m-%d"),
-            "petal_symbol": p_sym,
-            "mini_symbol": m_sym,
-            "direction": direction,
-            "target_diff": trigger_diff,
-            "filled_spread": live_spread,
-            "petal_fill_price": result.get("petal_fill_price", 0.0),
-            "mini_fill_price": result.get("mini_fill_price", 0.0),
-            "quantity": qty,
-            "status": "Filled"
-        }
-        bot["trades"].insert(0, bot_trade_record)
-        if len(bot["trades"]) > 50:
-            bot["trades"] = bot["trades"][:50]
+    # Collect all active bot tasks
+    active_bots = []
+    if hasattr(system_state, "manual_bots") and isinstance(system_state.manual_bots, list):
+        for b in system_state.manual_bots:
+            if b.get("active", False):
+                active_bots.append(b)
+                
+    if not active_bots and system_state.manual_bot.get("active", False):
+        active_bots.append(system_state.manual_bot)
+        
+    if not active_bots:
+        return
 
-        if bot["filled_orders"] >= total_orders:
+    now_ts = time.time()
+    state_changed = False
+
+    for bot in active_bots:
+        total_orders = int(bot.get("total_orders", 5))
+        filled_orders = int(bot.get("filled_orders", 0))
+        if filled_orders >= total_orders:
             bot["active"] = False
-            bot["status_message"] = f"Completed: All {total_orders} orders filled successfully."
+            bot["status_message"] = f"Completed: All {total_orders} orders successfully filled."
+            bot["why_waiting"] = f"Completed: All {total_orders} orders filled."
+            state_changed = True
+            continue
+
+        # Check 30-second cooldown
+        last_time = float(bot.get("last_order_time", 0.0))
+        cooldown = float(bot.get("order_delay", 30.0))
+        time_diff = now_ts - last_time
+        if last_time > 0 and time_diff < cooldown:
+            rem = int(cooldown - time_diff)
+            bot["status_message"] = f"Cooldown: waiting {rem}s ({filled_orders}/{total_orders} filled)"
+            bot["why_waiting"] = f"Cooldown: waiting {rem}s before next order"
+            continue
+
+        p_sym = bot.get("petal_symbol") or system_state.petal_symbol
+        m_sym = bot.get("mini_symbol") or system_state.mini_symbol
+        direction = bot.get("direction", "Expansion")
+        trigger_diff = float(bot.get("trigger_diff", 1400.0))
+        diff_gap = float(bot.get("diff_gap", 20.0))
+        qty = int(bot.get("quantity", 1))
+
+        # Resolve live spread
+        live_spread = None
+        if p_sym == system_state.petal_symbol and m_sym == system_state.mini_symbol:
+            live_spread = system_state.depth_buy_spread if direction == "Expansion" else system_state.depth_sell_spread
         else:
-            bot["status_message"] = f"Order #{order_idx} filled. 30s cooldown started ({bot['filled_orders']}/{total_orders})."
+            for stat in getattr(system_state, "month_master_live", []):
+                if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
+                    live_spread = stat.get("depth_buy_spread") if direction == "Expansion" else stat.get("depth_sell_spread")
+                    break
+
+        if live_spread is None or live_spread <= 0:
+            bot["why_waiting"] = "Waiting for live market feed & quote data"
+            continue
+
+        bot["live_spread"] = round(live_spread, 2)
+
+        # Tolerance range check:
+        # Expansion: (trigger_diff - diff_gap) <= spread <= trigger_diff
+        # Contraction: trigger_diff <= spread <= (trigger_diff + diff_gap)
+        is_in_range = False
+        if direction == "Expansion":
+            min_p = trigger_diff - diff_gap
+            max_p = trigger_diff
+            if min_p <= live_spread <= max_p:
+                is_in_range = True
+        elif direction == "Contraction":
+            min_p = trigger_diff
+            max_p = trigger_diff + diff_gap
+            if min_p <= live_spread <= max_p:
+                is_in_range = True
+
+        if not is_in_range:
+            bot["status_message"] = f"Scanning: spread {live_spread:.2f} outside target [{min_p:.1f} - {max_p:.1f}] ({filled_orders}/{total_orders} filled)"
+            if live_spread < min_p:
+                bot["why_waiting"] = f"Spread {live_spread:.2f} is below target range [{min_p:.1f} - {max_p:.1f}]"
+            else:
+                bot["why_waiting"] = f"Spread {live_spread:.2f} is above target range [{min_p:.1f} - {max_p:.1f}]"
+            continue
+
+        # Check execution lock or halted state
+        if system_state.execution_in_progress or system_state.system_status == "Halted":
+            bot["why_waiting"] = "Execution lock in progress or system Halted"
+            continue
+
+        order_idx = filled_orders + 1
+        bot_label = bot.get("id", "MAIN")
+        system_state.log(f"[MANUAL BOT {bot_label}] Triggered Order #{order_idx}/{total_orders} for {p_sym}/{m_sym} at spread {live_spread:.2f} (Target Window: {min_p:.1f} - {max_p:.1f})...")
+        bot["last_order_time"] = time.time()
+        
+        result = await execute_netting_manual_trades(
+            direction, qty, live_spread,
+            petal_symbol=p_sym, mini_symbol=m_sym,
+            trade_source="MANUAL_BOT"
+        )
+        if result.get("success", False):
+            bot["filled_orders"] = order_idx
+            if "trades" not in bot or not isinstance(bot["trades"], list):
+                bot["trades"] = []
+            bot_trade_record = {
+                "bot_id": bot.get("id", "MAIN"),
+                "order_num": order_idx,
+                "total_orders": total_orders,
+                "time": get_ist_time_str("%H:%M:%S"),
+                "date": get_ist_time_str("%Y-%m-%d"),
+                "petal_symbol": p_sym,
+                "mini_symbol": m_sym,
+                "direction": direction,
+                "target_diff": trigger_diff,
+                "filled_spread": live_spread,
+                "petal_fill_price": result.get("petal_fill_price", 0.0),
+                "mini_fill_price": result.get("mini_fill_price", 0.0),
+                "quantity": qty,
+                "status": "Filled"
+            }
+            bot["trades"].insert(0, bot_trade_record)
+            if len(bot["trades"]) > 50:
+                bot["trades"] = bot["trades"][:50]
+
+            # Also mirror to main system_state.manual_bot["trades"]
+            if "trades" not in system_state.manual_bot or not isinstance(system_state.manual_bot["trades"], list):
+                system_state.manual_bot["trades"] = []
+            system_state.manual_bot["trades"].insert(0, bot_trade_record)
+            if len(system_state.manual_bot["trades"]) > 100:
+                system_state.manual_bot["trades"] = system_state.manual_bot["trades"][:100]
+
+            if bot["filled_orders"] >= total_orders:
+                bot["active"] = False
+                bot["status_message"] = f"Completed: All {total_orders} orders filled successfully."
+                bot["why_waiting"] = f"Completed: All {total_orders} orders filled."
+            else:
+                bot["status_message"] = f"Order #{order_idx} filled. 30s cooldown started ({bot['filled_orders']}/{total_orders})."
+                bot["why_waiting"] = f"Order #{order_idx} filled. 30s cooldown before Order #{order_idx + 1}"
+            state_changed = True
+        else:
+            bot["status_message"] = f"Order #{order_idx} failed: {result.get('reason', 'Execution error')}"
+            bot["why_waiting"] = f"Order #{order_idx} execution error: {result.get('reason', 'Execution error')}"
+            system_state.log(f"[MANUAL BOT ERROR] Order #{order_idx} execution failed: {result.get('reason')}")
+            state_changed = True
+
+    if state_changed:
         system_state.save_manual_bot()
-        await broadcast_system_state()
-    else:
-        bot["status_message"] = f"Order #{order_idx} failed: {result.get('reason', 'Execution error')}"
-        system_state.log(f"[MANUAL BOT ERROR] Order #{order_idx} execution failed: {result.get('reason')}")
         await broadcast_system_state()
 
 def extract_month_from_symbol(symbol: str) -> str:
@@ -3009,7 +3101,7 @@ async def process_market_data(data: dict):
         asyncio.create_task(run_trade_automation_checks())
 
     # Process Manual BOT Strategy Checks (Tolerance Range & 30s Cooldown)
-    if system_state.manual_bot.get("active", False):
+    if system_state.manual_bot.get("active", False) or any(b.get("active", False) for b in getattr(system_state, "manual_bots", [])):
         asyncio.create_task(run_manual_bot_check())
 
     await broadcast_system_state()
@@ -3177,22 +3269,27 @@ async def live_mcx_ticker_task():
     # Fluctuate realistic prices resembling MCX commodity values
     petal_base = 7200.0
     mini_base = 71150.0
+    tick_count = 0
+    cached_quotes_map = {}
     
     while True:
         try:
+            tick_count += 1
             # 1. Try to fetch from Active Broker API
             if system_state.broker == "AngelOne":
                 if not system_state.smart_connect:
                     system_state.api_connected = False
                 else:
                     try:
-                        # Build token list for active & month master
-                        tokens_to_query = {system_state.petal_token, system_state.mini_token}
-                        for m in system_state.month_master:
-                            if m.get("petal_token"):
-                                tokens_to_query.add(m["petal_token"])
-                            if m.get("mini_token"):
-                                tokens_to_query.add(m["mini_token"])
+                        # Priority: Query active contracts on every tick; rotate full month master every 3rd tick (~3-4s)
+                        primary_tokens = [t for t in [system_state.petal_token, system_state.mini_token] if t]
+                        tokens_to_query = set(primary_tokens)
+                        if tick_count % 3 == 0:
+                            for m in system_state.month_master:
+                                if m.get("petal_token"):
+                                    tokens_to_query.add(m["petal_token"])
+                                if m.get("mini_token"):
+                                    tokens_to_query.add(m["mini_token"])
                         tokens_to_query = [t for t in tokens_to_query if t]
 
                         loop = asyncio.get_running_loop()
@@ -3213,7 +3310,7 @@ async def live_mcx_ticker_task():
                                 system_state.api_connected = False
                                 await asyncio.sleep(2.0)
                                 continue
- 
+
                         petal_quote = {}
                         mini_quote = {}
                         quotes_map = {}
@@ -3224,12 +3321,19 @@ async def live_mcx_ticker_task():
                                     if isinstance(item, dict) and "symbolToken" in item:
                                         tok = item["symbolToken"]
                                         quotes_map[tok] = item
+                                        cached_quotes_map[tok] = item
                                         if tok == system_state.petal_token:
                                             petal_quote = item
                                         elif tok == system_state.mini_token:
                                             mini_quote = item
                         
-                        system_state.month_master_live = calculate_month_master_live_stats(quotes_map)
+                        # Smooth fallback for active contracts if single tick had glitch
+                        if not petal_quote and system_state.petal_token in cached_quotes_map:
+                            petal_quote = cached_quotes_map[system_state.petal_token]
+                        if not mini_quote and system_state.mini_token in cached_quotes_map:
+                            mini_quote = cached_quotes_map[system_state.mini_token]
+
+                        system_state.month_master_live = calculate_month_master_live_stats(cached_quotes_map)
  
                         petal_ltp = float(petal_quote.get("ltp", 0.0))
                         mini_ltp = float(mini_quote.get("ltp", 0.0))
@@ -3298,13 +3402,15 @@ async def live_mcx_ticker_task():
                         if not a1_mini_token:
                             a1_mini_token = "250001"
                             
-                        # Build token list for active & month master
-                        tokens_to_query = {a1_petal_token, a1_mini_token}
-                        for m in system_state.month_master:
-                            if m.get("petal_token"):
-                                tokens_to_query.add(m["petal_token"])
-                            if m.get("mini_token"):
-                                tokens_to_query.add(m["mini_token"])
+                        # Priority: Query active contracts on every tick; rotate full month master every 3rd tick (~3-4s)
+                        primary_tokens = [t for t in [a1_petal_token, a1_mini_token] if t]
+                        tokens_to_query = set(primary_tokens)
+                        if tick_count % 3 == 0:
+                            for m in system_state.month_master:
+                                if m.get("petal_token"):
+                                    tokens_to_query.add(m["petal_token"])
+                                if m.get("mini_token"):
+                                    tokens_to_query.add(m["mini_token"])
                         tokens_to_query = [t for t in tokens_to_query if t]
 
                         loop = asyncio.get_running_loop()
@@ -3326,12 +3432,19 @@ async def live_mcx_ticker_task():
                                     if isinstance(item, dict) and "symbolToken" in item:
                                         tok = item["symbolToken"]
                                         quotes_map[tok] = item
+                                        cached_quotes_map[tok] = item
                                         if tok == a1_petal_token:
                                             petal_quote = item
                                         elif tok == a1_mini_token:
                                             mini_quote = item
                         
-                        system_state.month_master_live = calculate_month_master_live_stats(quotes_map)
+                        # Smooth fallback for active contracts if single tick had glitch
+                        if not petal_quote and a1_petal_token in cached_quotes_map:
+                            petal_quote = cached_quotes_map[a1_petal_token]
+                        if not mini_quote and a1_mini_token in cached_quotes_map:
+                            mini_quote = cached_quotes_map[a1_mini_token]
+
+                        system_state.month_master_live = calculate_month_master_live_stats(cached_quotes_map)
                                             
                         petal_ltp = float(petal_quote.get("ltp", 0.0))
                         mini_ltp = float(mini_quote.get("ltp", 0.0))
@@ -4289,6 +4402,7 @@ async def api_month_master_toggle_capture(payload: MonthMasterToggleCapturePaylo
     raise HTTPException(status_code=400, detail="Invalid month master index")
 
 class ManualBotStartPayload(BaseModel):
+    id: Optional[str] = None
     direction: str = "Expansion"
     petal_symbol: str = ""
     mini_symbol: str = ""
@@ -4296,6 +4410,13 @@ class ManualBotStartPayload(BaseModel):
     diff_gap: float = 20.0
     total_orders: int = 5
     quantity: int = 1
+
+class ManualBotStopPayload(BaseModel):
+    id: Optional[str] = None
+    stop_all: Optional[bool] = False
+
+class ManualBotDeletePayload(BaseModel):
+    id: str
 
 @app.post("/api/manual-bot/start")
 async def api_manual_bot_start(payload: ManualBotStartPayload, token: str = None, authorization: str = Header(None)):
@@ -4314,34 +4435,103 @@ async def api_manual_bot_start(payload: ManualBotStartPayload, token: str = None
     min_p = payload.trigger_diff - payload.diff_gap if payload.direction == "Expansion" else payload.trigger_diff
     max_p = payload.trigger_diff if payload.direction == "Expansion" else payload.trigger_diff + payload.diff_gap
 
-    system_state.manual_bot = {
-        "active": True,
-        "direction": payload.direction,
-        "petal_symbol": p_sym,
-        "mini_symbol": m_sym,
-        "trigger_diff": float(payload.trigger_diff),
-        "diff_gap": float(payload.diff_gap),
-        "total_orders": int(payload.total_orders),
-        "filled_orders": 0,
-        "quantity": int(payload.quantity),
-        "order_delay": 30.0,
-        "last_order_time": 0.0,
-        "status_message": f"Active: Scanning {payload.direction} spread in range [{min_p:.1f} - {max_p:.1f}]"
-    }
+    if not hasattr(system_state, "manual_bots") or not isinstance(system_state.manual_bots, list):
+        system_state.manual_bots = []
+
+    # Check if editing an existing task
+    target_bot = None
+    if payload.id:
+        for b in system_state.manual_bots:
+            if str(b.get("id")) == str(payload.id):
+                target_bot = b
+                break
+
+    if target_bot:
+        # Edit existing bot task
+        target_bot["active"] = True
+        target_bot["direction"] = payload.direction
+        target_bot["petal_symbol"] = p_sym
+        target_bot["mini_symbol"] = m_sym
+        target_bot["trigger_diff"] = float(payload.trigger_diff)
+        target_bot["diff_gap"] = float(payload.diff_gap)
+        target_bot["total_orders"] = int(payload.total_orders)
+        target_bot["quantity"] = int(payload.quantity)
+        target_bot["status_message"] = f"Active: Scanning {payload.direction} spread [{min_p:.1f} - {max_p:.1f}]"
+        target_bot["why_waiting"] = f"Scanning spread in [{min_p:.1f} - {max_p:.1f}]"
+        system_state.manual_bot = target_bot
+        system_state.log(f"[MANUAL BOT] Updated Task #{payload.id} for {p_sym}/{m_sym}: Target {payload.trigger_diff}, Gap {payload.diff_gap}, Orders {payload.total_orders}")
+    else:
+        # Add new bot task
+        bot_idx = len(system_state.manual_bots) + 1
+        new_id = f"MB-{bot_idx}"
+        new_bot = {
+            "id": new_id,
+            "active": True,
+            "direction": payload.direction,
+            "petal_symbol": p_sym,
+            "mini_symbol": m_sym,
+            "trigger_diff": float(payload.trigger_diff),
+            "diff_gap": float(payload.diff_gap),
+            "total_orders": int(payload.total_orders),
+            "filled_orders": 0,
+            "quantity": int(payload.quantity),
+            "order_delay": 30.0,
+            "last_order_time": 0.0,
+            "status_message": f"Active: Scanning {payload.direction} spread in range [{min_p:.1f} - {max_p:.1f}]",
+            "why_waiting": f"Scanning spread in [{min_p:.1f} - {max_p:.1f}]",
+            "created_time": get_ist_time_str("%H:%M:%S"),
+            "trades": []
+        }
+        system_state.manual_bots.append(new_bot)
+        system_state.manual_bot = new_bot
+        system_state.log(f"[MANUAL BOT] Added New Task #{new_id} for {p_sym}/{m_sym}: Target {payload.trigger_diff}, Gap {payload.diff_gap} [{min_p:.1f} - {max_p:.1f}], Orders {payload.total_orders}, Qty {payload.quantity}, 30s Cooldown")
+
     system_state.save_manual_bot()
-    system_state.log(f"[MANUAL BOT] Started for {p_sym}/{m_sym}: Target {payload.trigger_diff}, Gap {payload.diff_gap} [{min_p:.1f} - {max_p:.1f}], Orders {payload.total_orders}, Qty {payload.quantity}, 30s Cooldown")
     await broadcast_system_state()
-    return {"status": "SUCCESS", "message": "Manual BOT started successfully.", "manual_bot": system_state.manual_bot}
+    return {"status": "SUCCESS", "message": "Manual BOT configured and started.", "manual_bot": system_state.manual_bot, "manual_bots": system_state.manual_bots}
 
 @app.post("/api/manual-bot/stop")
-async def api_manual_bot_stop(token: str = None, authorization: str = Header(None)):
+async def api_manual_bot_stop(payload: Optional[ManualBotStopPayload] = None, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    system_state.manual_bot["active"] = False
-    system_state.manual_bot["status_message"] = "Stopped by user."
+    bot_id = payload.id if payload else None
+    stop_all = payload.stop_all if payload else False
+
+    if stop_all or not bot_id:
+        system_state.manual_bot["active"] = False
+        system_state.manual_bot["status_message"] = "Stopped by user."
+        system_state.manual_bot["why_waiting"] = "Stopped by user."
+        for b in getattr(system_state, "manual_bots", []):
+            b["active"] = False
+            b["status_message"] = "Stopped by user."
+            b["why_waiting"] = "Stopped by user."
+        system_state.log("[MANUAL BOT] All tasks stopped by user.")
+    else:
+        for b in getattr(system_state, "manual_bots", []):
+            if str(b.get("id")) == str(bot_id):
+                b["active"] = False
+                b["status_message"] = "Stopped by user."
+                b["why_waiting"] = "Stopped by user."
+                system_state.log(f"[MANUAL BOT] Task #{bot_id} stopped by user.")
+                break
+        if str(system_state.manual_bot.get("id")) == str(bot_id):
+            system_state.manual_bot["active"] = False
+            system_state.manual_bot["status_message"] = "Stopped by user."
+            system_state.manual_bot["why_waiting"] = "Stopped by user."
+
     system_state.save_manual_bot()
-    system_state.log("[MANUAL BOT] Stopped by user.")
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Manual BOT stopped."}
+
+@app.post("/api/manual-bot/delete")
+async def api_manual_bot_delete(payload: ManualBotDeletePayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    bot_id = payload.id
+    if hasattr(system_state, "manual_bots") and isinstance(system_state.manual_bots, list):
+        system_state.manual_bots = [b for b in system_state.manual_bots if str(b.get("id")) != str(bot_id)]
+    system_state.save_manual_bot()
+    system_state.log(f"[MANUAL BOT] Task #{bot_id} deleted by user.")
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": f"Task #{bot_id} deleted."}
 
 class TAConfigItem(BaseModel):
     month_idx: int

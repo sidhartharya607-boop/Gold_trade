@@ -159,9 +159,15 @@ const mbotTotalOrders = document.getElementById("mbot-total-orders");
 const mbotLotsPerOrder = document.getElementById("mbot-lots-per-order");
 const mbotStartBtn = document.getElementById("mbot-start-btn");
 const mbotStopBtn = document.getElementById("mbot-stop-btn");
+const mbotStopAllBtn = document.getElementById("mbot-stop-all-btn");
+const mbotCancelEditBtn = document.getElementById("mbot-cancel-edit-btn");
+const mbotEditId = document.getElementById("mbot-edit-id");
 const mbotActiveBadge = document.getElementById("manual-bot-active-badge");
 const mbotStatusText = document.getElementById("manual-bot-status-text");
+const mbotWhyWaiting = document.getElementById("manual-bot-why-waiting");
 const mbotProgressText = document.getElementById("manual-bot-progress-text");
+const mbotTasksBody = document.getElementById("mbot-tasks-body");
+const mbotTasksBadge = document.getElementById("mbot-tasks-badge");
 
 let lastMonthMasterStr = "";
 
@@ -1258,8 +1264,8 @@ window.toggleTaAccordion = function(tacardId) {
     updatePipelineTimeline(data);
 
     // Update Manual BOT UI
-    if (data.manual_bot !== undefined) {
-        updateManualBotUI(data.manual_bot);
+    if (data.manual_bot !== undefined || data.manual_bots !== undefined) {
+        updateManualBotUI(data.manual_bot, data.manual_bots);
     }
 }
 
@@ -2638,14 +2644,23 @@ document.addEventListener("DOMContentLoaded", () => {
 })();
 
 // ==========================================
-// Manual BOT (Staggered Slicer with 30s Cooldown)
+// Manual BOT (Multi-Pair Slicer with 30s Cooldown)
 // ==========================================
-function updateManualBotUI(mb) {
-    if (!mb) return;
+window.manualBotTasksCache = [];
 
+function updateManualBotUI(mb, mbs) {
+    if (!mb && !mbs) return;
+
+    const tasks = Array.isArray(mbs) ? mbs : (mb ? [mb] : []);
+    window.manualBotTasksCache = tasks;
+
+    const runningTasks = tasks.filter(t => t.active);
+    const hasRunning = runningTasks.length > 0;
+
+    // Update main header active badge
     if (mbotActiveBadge) {
-        if (mb.active) {
-            mbotActiveBadge.innerText = "RUNNING";
+        if (hasRunning) {
+            mbotActiveBadge.innerText = `${runningTasks.length} RUNNING`;
             mbotActiveBadge.style.background = "#10b981";
             mbotActiveBadge.style.color = "#ffffff";
         } else {
@@ -2655,50 +2670,138 @@ function updateManualBotUI(mb) {
         }
     }
 
+    // Update banner status and why-waiting text
     if (mbotStatusText) {
-        mbotStatusText.innerText = mb.status_message || (mb.active ? "Monitoring spread..." : "Idle - Bot not running.");
-    }
-
-    if (mbotProgressText) {
-        const filled = mb.filled_orders || 0;
-        const total = mb.total_orders || 5;
-        mbotProgressText.innerText = `${filled} / ${total} Orders`;
-    }
-
-    if (mbotStartBtn && mbotStopBtn) {
-        if (mb.active) {
-            mbotStartBtn.style.display = "none";
-            mbotStopBtn.style.display = "inline-block";
+        if (hasRunning) {
+            const activeMsg = runningTasks.map(t => `#${t.id || '1'}: ${t.status_message || 'Scanning'}`).join(" | ");
+            mbotStatusText.innerText = activeMsg;
         } else {
-            mbotStartBtn.style.display = "inline-block";
-            mbotStopBtn.style.display = "none";
+            mbotStatusText.innerText = (mb && mb.status_message) || "Idle - No bot tasks running.";
         }
     }
 
-    const isRunning = !!mb.active;
-    if (mbotSelectPair) mbotSelectPair.disabled = isRunning;
-    if (mbotSelectDirection) mbotSelectDirection.disabled = isRunning;
-    if (mbotTriggerDiff) mbotTriggerDiff.disabled = isRunning;
-    if (mbotDiffGap) mbotDiffGap.disabled = isRunning;
-    if (mbotTotalOrders) mbotTotalOrders.disabled = isRunning;
-    if (mbotLotsPerOrder) mbotLotsPerOrder.disabled = isRunning;
+    if (mbotWhyWaiting) {
+        if (hasRunning) {
+            const whyMsg = runningTasks.map(t => `#${t.id || '1'}: ${t.why_waiting || t.status_message || 'Monitoring market'}`).join(" | ");
+            mbotWhyWaiting.innerText = whyMsg;
+        } else {
+            mbotWhyWaiting.innerText = (mb && mb.why_waiting) || "Bot is idle. Ready to configure and start tasks.";
+        }
+    }
 
-    // Point 2: Render Manual BOT Executed Trades Window
+    if (mbotProgressText) {
+        const totalFilled = tasks.reduce((sum, t) => sum + (t.filled_orders || 0), 0);
+        const totalTarget = tasks.reduce((sum, t) => sum + (t.total_orders || 0), 0);
+        mbotProgressText.innerText = `${runningTasks.length} Active | ${totalFilled}/${totalTarget} Orders Filled`;
+    }
+
+    if (mbotTasksBadge) {
+        mbotTasksBadge.innerText = `${tasks.length} Tasks (${runningTasks.length} Active)`;
+    }
+
+    // Render Multi-Pair Bot Tasks Table
+    if (mbotTasksBody) {
+        if (tasks.length === 0) {
+            mbotTasksBody.innerHTML = `<tr><td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot tasks added yet. Configure above and click "Start / Add Bot Task".</td></tr>`;
+        } else {
+            mbotTasksBody.innerHTML = "";
+            tasks.forEach(t => {
+                const tr = document.createElement("tr");
+                tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
+                if (t.active) {
+                    tr.style.background = "rgba(16, 185, 129, 0.03)";
+                }
+
+                const tId = t.id || "1";
+                const pSym = (t.petal_symbol || "--").replace("GOLDPETAL", "PETAL");
+                const mSym = (t.mini_symbol || "--").replace("GOLDM", "M");
+                const pairStr = `${pSym} / ${mSym}`;
+                const dir = t.direction || "Expansion";
+                const dirColor = dir === "Expansion" ? "#34d399" : "#60a5fa";
+                
+                const minP = dir === "Expansion" ? (t.trigger_diff - t.diff_gap).toFixed(1) : t.trigger_diff.toFixed(1);
+                const maxP = dir === "Expansion" ? t.trigger_diff.toFixed(1) : (t.trigger_diff + t.diff_gap).toFixed(1);
+                const targetWindow = `${t.trigger_diff} [${minP} - ${maxP}]`;
+
+                const filled = t.filled_orders || 0;
+                const total = t.total_orders || 1;
+                const progressStr = `${filled} / ${total}`;
+
+                const liveSpread = (t.live_spread !== undefined && t.live_spread !== null) ? parseFloat(t.live_spread).toFixed(2) : "--";
+
+                // Status Badge & Reason
+                let statusBadge = "";
+                if (t.active) {
+                    if (t.why_waiting && t.why_waiting.includes("Cooldown")) {
+                        statusBadge = `<span style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">COOLDOWN</span>`;
+                    } else {
+                        statusBadge = `<span style="background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">SCANNING</span>`;
+                    }
+                } else if (filled >= total) {
+                    statusBadge = `<span style="background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">COMPLETED</span>`;
+                } else {
+                    statusBadge = `<span style="background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">STOPPED</span>`;
+                }
+
+                const reasonText = t.why_waiting || t.status_message || "--";
+
+                // Actions buttons
+                let actionBtns = `
+                    <button onclick="window.editManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; margin-right: 4px; cursor: pointer; color: #60a5fa; border-color: rgba(96,165,250,0.3);" title="Edit parameters">✏️</button>
+                `;
+                if (t.active) {
+                    actionBtns += `<button onclick="window.stopManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #f87171; border-color: rgba(239,68,68,0.3);" title="Cancel / Stop Task">🛑 Stop</button>`;
+                } else {
+                    actionBtns += `<button onclick="window.deleteManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #94a3b8; border-color: rgba(148,163,184,0.3);" title="Delete Task">🗑️</button>`;
+                }
+
+                tr.innerHTML = `
+                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-weight: 700; color: var(--text-primary); font-size: 0.72rem;">#${tId}</td>
+                    <td style="padding: 0.4rem 0.5rem; font-size: 0.7rem; font-weight: 600;" title="${t.petal_symbol} / ${t.mini_symbol}">${pairStr}</td>
+                    <td style="padding: 0.4rem 0.5rem; font-weight: 700; color: ${dirColor}; font-size: 0.7rem;">${dir}</td>
+                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-size: 0.7rem;">${targetWindow}</td>
+                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-weight: 700; color: #60a5fa; font-size: 0.7rem;">${progressStr}</td>
+                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-weight: 700; color: #34d399; font-size: 0.7rem;">${liveSpread}</td>
+                    <td style="padding: 0.4rem 0.5rem;">
+                        <div>${statusBadge}</div>
+                        <div class="font-mono" style="font-size: 0.68rem; color: #fde68a; margin-top: 2px;">${reasonText}</div>
+                    </td>
+                    <td style="padding: 0.4rem 0.5rem; text-align: center; white-space: nowrap;">${actionBtns}</td>
+                `;
+                mbotTasksBody.appendChild(tr);
+            });
+        }
+    }
+
+    // Render Executed Trades Window across all bots
     const mbotTradesBody = document.getElementById("mbot-trades-body");
     const mbotOrdersBadge = document.getElementById("mbot-orders-badge");
-    const botTrades = (mb && Array.isArray(mb.trades)) ? mb.trades : [];
     
-    if (mbotOrdersBadge) {
-        mbotOrdersBadge.innerText = `${botTrades.length} Orders`;
+    // Aggregate trades
+    let allBotTrades = [];
+    if (mb && Array.isArray(mb.trades)) {
+        allBotTrades = allBotTrades.concat(mb.trades);
     }
-    
+    tasks.forEach(t => {
+        if (Array.isArray(t.trades)) {
+            t.trades.forEach(tr => {
+                if (!allBotTrades.some(x => x.time === tr.time && x.order_num === tr.order_num && x.target_diff === tr.target_diff)) {
+                    allBotTrades.push(tr);
+                }
+            });
+        }
+    });
+
+    if (mbotOrdersBadge) {
+        mbotOrdersBadge.innerText = `${allBotTrades.length} Orders`;
+    }
+
     if (mbotTradesBody) {
-        if (botTrades.length === 0) {
+        if (allBotTrades.length === 0) {
             mbotTradesBody.innerHTML = `<tr><td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot orders executed yet.</td></tr>`;
         } else {
             mbotTradesBody.innerHTML = "";
-            // Render latest bot orders first
-            const sortedBotTrades = [...botTrades].reverse();
+            const sortedBotTrades = [...allBotTrades].reverse();
             sortedBotTrades.forEach(bt => {
                 const tr = document.createElement("tr");
                 tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
@@ -2731,6 +2834,88 @@ function updateManualBotUI(mb) {
     }
 }
 
+// Window global action handlers for task table
+window.editManualBotTask = function(taskId) {
+    const task = window.manualBotTasksCache.find(t => String(t.id) === String(taskId));
+    if (!task) return;
+
+    if (mbotEditId) mbotEditId.value = task.id;
+    if (mbotTriggerDiff) mbotTriggerDiff.value = task.trigger_diff;
+    if (mbotDiffGap) mbotDiffGap.value = task.diff_gap;
+    if (mbotTotalOrders) mbotTotalOrders.value = task.total_orders;
+    if (mbotLotsPerOrder) mbotLotsPerOrder.value = task.quantity;
+    if (mbotSelectDirection) mbotSelectDirection.value = task.direction;
+
+    // Set pair in dropdown if exists
+    if (mbotSelectPair && lastMonthMasterStr) {
+        try {
+            const mappings = JSON.parse(lastMonthMasterStr || "[]");
+            for (let i = 0; i < mappings.length; i++) {
+                if (mappings[i].petal_symbol === task.petal_symbol && mappings[i].mini_symbol === task.mini_symbol) {
+                    mbotSelectPair.value = String(i);
+                    break;
+                }
+            }
+        } catch(e) {}
+    }
+
+    if (mbotStartBtn) {
+        mbotStartBtn.innerText = `💾 Save / Update Task #${task.id}`;
+        mbotStartBtn.style.background = "#3b82f6";
+    }
+    if (mbotCancelEditBtn) {
+        mbotCancelEditBtn.style.display = "inline-block";
+    }
+
+    const cardEl = document.getElementById("card-manual-bot");
+    if (cardEl) {
+        cardEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+};
+
+window.stopManualBotTask = function(taskId) {
+    if (!confirm(`Are you sure you want to stop/cancel Bot Task #${taskId}?`)) return;
+    logLocalMessage(`[MANUAL BOT] Stopping Task #${taskId}...`);
+    postAction("manual-bot/stop", { id: taskId }).then(res => {
+        if (res && res.status === "SUCCESS") {
+            logLocalMessage(`[MANUAL BOT] Task #${taskId} stopped.`);
+        }
+    });
+};
+
+window.deleteManualBotTask = function(taskId) {
+    if (!confirm(`Are you sure you want to delete Bot Task #${taskId}?`)) return;
+    logLocalMessage(`[MANUAL BOT] Deleting Task #${taskId}...`);
+    postAction("manual-bot/delete", { id: taskId }).then(res => {
+        if (res && res.status === "SUCCESS") {
+            logLocalMessage(`[MANUAL BOT] Task #${taskId} deleted.`);
+        }
+    });
+};
+
+if (mbotCancelEditBtn) {
+    mbotCancelEditBtn.addEventListener("click", () => {
+        if (mbotEditId) mbotEditId.value = "";
+        if (mbotStartBtn) {
+            mbotStartBtn.innerText = "🚀 Start / Add Bot Task";
+            mbotStartBtn.style.background = "#10b981";
+        }
+        mbotCancelEditBtn.style.display = "none";
+    });
+}
+
+if (mbotStopAllBtn) {
+    mbotStopAllBtn.addEventListener("click", () => {
+        if (!confirm("Are you sure you want to STOP ALL running Manual Bot tasks?")) return;
+        logLocalMessage("[MANUAL BOT] Stopping all bot tasks...");
+        postAction("manual-bot/stop", { stop_all: true }).then(res => {
+            if (res && res.status === "SUCCESS") {
+                logLocalMessage("[MANUAL BOT] All tasks stopped.");
+            }
+        });
+    });
+}
+
 if (mbotStartBtn) {
     mbotStartBtn.addEventListener("click", () => {
         const triggerDiffVal = parseFloat(mbotTriggerDiff ? mbotTriggerDiff.value : 0);
@@ -2739,6 +2924,7 @@ if (mbotStartBtn) {
         const lotsPerOrderVal = parseInt(mbotLotsPerOrder ? mbotLotsPerOrder.value : 1);
         const directionVal = mbotSelectDirection ? mbotSelectDirection.value : "Expansion";
         const pairVal = mbotSelectPair ? mbotSelectPair.value : "";
+        const editIdVal = mbotEditId ? mbotEditId.value.trim() : "";
         
         let pSym = "";
         let mSym = "";
@@ -2776,11 +2962,13 @@ if (mbotStartBtn) {
         const minP = directionVal === "Expansion" ? (triggerDiffVal - diffGapVal).toFixed(1) : triggerDiffVal.toFixed(1);
         const maxP = directionVal === "Expansion" ? triggerDiffVal.toFixed(1) : (triggerDiffVal + diffGapVal).toFixed(1);
 
-        const confirmMsg = `Start Manual BOT?\nPair: ${symText}\nDirection: ${directionVal}\nTrigger Window: [${minP} to ${maxP}] (Target: ${triggerDiffVal}, Gap: ${diffGapVal})\nTotal Orders: ${totalOrdersVal} (Strict 30s cooldown between orders)\nLots Per Order: ${lotsPerOrderVal}`;
+        const actionText = editIdVal ? `Update Bot Task #${editIdVal}` : `Start / Add New Bot Task`;
+        const confirmMsg = `${actionText}?\nPair: ${symText}\nDirection: ${directionVal}\nTrigger Window: [${minP} to ${maxP}] (Target: ${triggerDiffVal}, Gap: ${diffGapVal})\nTotal Orders: ${totalOrdersVal} (Strict 30s cooldown)\nLots Per Order: ${lotsPerOrderVal}`;
         if (!confirm(confirmMsg)) return;
 
-        logLocalMessage(`[MANUAL BOT] Starting bot for ${symText}: Target ${triggerDiffVal}, Gap ${diffGapVal}, Orders: ${totalOrdersVal}...`);
+        logLocalMessage(`[MANUAL BOT] ${actionText} for ${symText}...`);
         postAction("manual-bot/start", {
+            id: editIdVal || null,
             direction: directionVal,
             petal_symbol: pSym,
             mini_symbol: mSym,
@@ -2790,21 +2978,16 @@ if (mbotStartBtn) {
             quantity: lotsPerOrderVal
         }).then(res => {
             if (res && res.status === "SUCCESS") {
-                logLocalMessage(`[MANUAL BOT] Started successfully. Monitoring spread in window [${minP} - ${maxP}]...`);
+                logLocalMessage(`[MANUAL BOT] Task configured successfully. Monitoring spread in [${minP} - ${maxP}]...`);
+                // Reset edit mode
+                if (mbotEditId) mbotEditId.value = "";
+                if (mbotStartBtn) {
+                    mbotStartBtn.innerText = "🚀 Start / Add Bot Task";
+                    mbotStartBtn.style.background = "#10b981";
+                }
+                if (mbotCancelEditBtn) mbotCancelEditBtn.style.display = "none";
             } else if (res && res.message) {
                 alert(res.message);
-            }
-        });
-    });
-}
-
-if (mbotStopBtn) {
-    mbotStopBtn.addEventListener("click", () => {
-        if (!confirm("Are you sure you want to stop the Manual BOT?")) return;
-        logLocalMessage("[MANUAL BOT] Stopping Manual BOT...");
-        postAction("manual-bot/stop").then(res => {
-            if (res && res.status === "SUCCESS") {
-                logLocalMessage("[MANUAL BOT] Manual BOT stopped.");
             }
         });
     });
