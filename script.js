@@ -150,6 +150,21 @@ const taClearAllTradesBtn = document.getElementById("ta-clear-all-trades-btn");
 const taConfigsBody = document.getElementById("ta-configs-body");
 const taTradesBody = document.getElementById("ta-trades-body");
 
+// Trade Automation with Lots DOM References
+const taLotsSelectMonth = document.getElementById("ta-lots-select-month");
+const taLotsSelectDirection = document.getElementById("ta-lots-select-direction");
+const taLotsInputEntryDiff = document.getElementById("ta-lots-input-entry-diff");
+const taLotsInputAveragingStep = document.getElementById("ta-lots-input-averaging-step");
+const taLotsInputExitGap = document.getElementById("ta-lots-input-exit-gap");
+const taLotsInputLots = document.getElementById("ta-lots-input-lots");
+const taLotsCheckboxPaperMode = document.getElementById("ta-lots-checkbox-paper-mode");
+const taLotsAddConfigBtn = document.getElementById("ta-lots-add-config-btn");
+const taLotsClearAllTradesBtn = document.getElementById("ta-lots-clear-all-trades-btn");
+const taLotsConfigsBody = document.getElementById("ta-lots-configs-body");
+const taLotsTradesBody = document.getElementById("ta-lots-trades-body");
+const taLotsPreviewGrid = document.getElementById("ta-lots-preview-grid");
+const taLotsPreviewTotal = document.getElementById("ta-lots-preview-total");
+
 // Manual BOT DOM References
 const mbotSelectPair = document.getElementById("mbot-select-pair");
 const mbotSelectDirection = document.getElementById("mbot-select-direction");
@@ -886,6 +901,53 @@ window.toggleTaAccordion = function(tacardId) {
         });
     }
 
+    // Render Active Trade Automation with Lots instances
+    const taLotsConfigs = data.ta_lots_configs || [];
+    window.taLotsConfigs = taLotsConfigs; // Store globally
+    if (!taLotsConfigsBody) {
+        // Guard
+    } else if (taLotsConfigs.length === 0) {
+        taLotsConfigsBody.innerHTML = `<tr><td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No lots bot instances configured. Set parameters above and click "Add Bot Instance (Lots)".</td></tr>`;
+    } else {
+        taLotsConfigsBody.innerHTML = "";
+        taLotsConfigs.forEach((config, index) => {
+            const tr = document.createElement("tr");
+            tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
+            
+            // Resolve Month Pair Name
+            let monthPairName = "Unknown Pair";
+            if (data.month_master && data.month_master[config.month_idx]) {
+                const m = data.month_master[config.month_idx];
+                monthPairName = `${m.petal_symbol} / ${m.mini_symbol}`;
+            }
+            
+            const isEnabled = config.enabled;
+            const statusToggle = `
+                <label class="switch">
+                    <input type="checkbox" onchange="toggleTaLotsConfig(${index}, this.checked)" ${isEnabled ? "checked" : ""}>
+                    <span class="slider"></span>
+                </label>
+            `;
+            
+            const lotsStr = Array.isArray(config.lots_list) ? config.lots_list.join(", ") : (config.lots_str || "--");
+            
+            tr.innerHTML = `
+                <td style="padding: 0.5rem; font-size: 0.75rem; font-weight: 600;">${monthPairName}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${config.direction}</strong></td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.entry_diff}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.averaging_step}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.exit_gap}</td>
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem; color: #f59e0b; font-weight: 700;">${lotsStr}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${config.paper_mode ? "Paper" : "Real"}</td>
+                <td style="padding: 0.5rem; text-align: center;">${statusToggle}</td>
+                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">
+                    <button class="action-btn exit-button" onclick="removeTaLotsConfig(${index})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444;">Remove</button>
+                </td>
+            `;
+            taLotsConfigsBody.appendChild(tr);
+        });
+    }
+
     // Render Trade Automation Trades Table
     const taTrades = data.ta_trades || [];
     const taSummaryEl = document.getElementById('ta-trades-summary');
@@ -1097,6 +1159,137 @@ window.toggleTaAccordion = function(tacardId) {
         }
     }
 
+    // Render Trade Automation with Lots Trades Table
+    const taLotsTrades = data.ta_lots_trades || [];
+    if (!taLotsTradesBody) {
+        // Guard
+    } else if (taLotsTrades.length === 0) {
+        taLotsTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated lots trades recorded. Configure a lots bot instance above.</td></tr>`;
+    } else {
+        taLotsTradesBody.innerHTML = "";
+        const openLots = taLotsTrades.filter(t => t.status === "Open" || !t.status);
+        const closedLots = taLotsTrades.filter(t => t.status !== "Open" && t.status);
+        const limitedClosedLots = closedLots.slice(-5);
+        const lotsTradesToRender = [...openLots, ...limitedClosedLots];
+
+        lotsTradesToRender.forEach(trade => {
+            const tr = document.createElement("tr");
+            tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
+            
+            let statusBadge = "";
+            const status = trade.status || "Open";
+            if (status === "Open") {
+                statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
+            } else if (status === "Closed" || status === "Completed") {
+                statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
+            } else {
+                statusBadge = `<span class="badge-failed" style="background-color: rgba(239,68,68,0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.25);">${status.toUpperCase()}</span>`;
+            }
+            
+            const entrySpreadVal = trade.entry_spread !== undefined ? parseFloat(trade.entry_spread).toFixed(2) : "--";
+            let spreadDisplay = "";
+            const currentExitGap = trade.exit_gap !== undefined ? parseFloat(trade.exit_gap) : 100.0;
+
+            if (status === "Open") {
+                const targetExitSpread = parseFloat(trade.entry_spread) + (trade.direction === "Expansion" ? currentExitGap : -currentExitGap);
+                spreadDisplay = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>Ent: <strong class="font-mono">${entrySpreadVal}</strong></div>
+                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono">${targetExitSpread.toFixed(2)}</span> <small style="color: #60a5fa; font-size: 0.65rem;">(Gap: ${currentExitGap})</small></div>
+                    </div>
+                `;
+            } else {
+                const exitSpreadVal = trade.actual_exit_spread !== undefined ? parseFloat(trade.actual_exit_spread).toFixed(2) : (trade.exit_spread !== undefined ? parseFloat(trade.exit_spread).toFixed(2) : "--");
+                spreadDisplay = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>Ent: <strong class="font-mono">${entrySpreadVal}</strong></div>
+                        <div style="color: #34d399;">Exit: <strong class="font-mono">${exitSpreadVal}</strong></div>
+                    </div>
+                `;
+            }
+            
+            const petalEntry = trade.petal_entry_price || 0.0;
+            const miniEntry = trade.mini_entry_price || 0.0;
+            const petalExit = trade.petal_exit_price || 0.0;
+            const miniExit = trade.mini_exit_price || 0.0;
+            
+            let pricesContent = "";
+            if (status === "Open") {
+                pricesContent = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>P: <strong>${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                        <div>M: <strong>${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                    </div>
+                `;
+            } else {
+                pricesContent = `
+                    <div style="font-size: 0.72rem; line-height: 1.4;">
+                        <div>Ent: P:${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })} / M:${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                        <div style="color: #34d399;">Exit: P:${petalExit.toLocaleString('en-IN', { minimumFractionDigits: 2 })} / M:${miniExit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                `;
+            }
+            
+            let pnlContent = "--";
+            if (status === "Open") {
+                const unrealizedPnl = trade.unrealized_pnl || 0.0;
+                const pnlClass = unrealizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
+                pnlContent = `<strong class="${pnlClass}" style="font-family: var(--font-mono);">${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>`;
+            } else {
+                const realizedPnl = trade.pnl || 0.0;
+                const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
+                pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
+            }
+            
+            let actionBtn = "";
+            if (status === "Open") {
+                actionBtn = `<button class="action-btn exit-button" onclick="exitTaLotsTrade(${trade.id})" style="padding: 0.25rem 0.6rem; font-size: 0.68rem; min-height: unset; margin: 0; background: #ef4444; color: white; border-radius: 4px; cursor: pointer; font-weight: 600;">Exit</button>`;
+            } else {
+                actionBtn = `<button class="metallic-button" onclick="dismissTaLotsTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
+            }
+            
+            const symbolsContent = `
+                <div style="font-size: 0.7rem; line-height: 1.3;">
+                    <div>L1: <strong class="font-mono" style="color: var(--text-primary);">${trade.petal_symbol}</strong></div>
+                    <div>L2: <strong class="font-mono" style="color: var(--text-secondary);">${trade.mini_symbol}</strong></div>
+                </div>
+            `;
+            
+            const orderLotsBadge = `
+                <div style="font-size: 0.72rem; line-height: 1.3;">
+                    <span style="font-weight: 700; color: #f59e0b;">Order #${trade.order_index || 1}</span>
+                    <span style="color: var(--text-muted);">/ ${trade.total_orders || 1}</span>
+                    <div><strong style="color: #38bdf8;">${trade.quantity || 1} Lots</strong></div>
+                </div>
+            `;
+
+            tr.innerHTML = `
+                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
+                <td style="padding: 0.5rem;">${symbolsContent}</td>
+                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
+                <td style="padding: 0.5rem;">${orderLotsBadge}</td>
+                <td style="padding: 0.5rem;">${spreadDisplay}</td>
+                <td style="padding: 0.5rem;">${statusBadge}</td>
+                <td class="font-mono" style="padding: 0.5rem;">${pricesContent}</td>
+                <td style="padding: 0.5rem;">${pnlContent}</td>
+                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+            `;
+            
+            taLotsTradesBody.appendChild(tr);
+        });
+
+        if (closedLots.length > 5) {
+            const noticeTr = document.createElement("tr");
+            noticeTr.innerHTML = `
+                <td colspan="10" style="text-align: center; color: var(--text-muted); font-size: 0.72rem; padding: 0.6rem; background: rgba(255,255,255,0.01); border-top: 1px dashed var(--border-color);">
+                    ℹ️ Showing latest 5 of ${closedLots.length} closed automated lots trades.
+                </td>
+            `;
+            taLotsTradesBody.appendChild(noticeTr);
+        }
+    }
+
     // 7. Trade History Table
     const historyTrades = data.trade_history || [];
     if (historyTrades.length === 0) {
@@ -1250,8 +1443,9 @@ window.toggleTaAccordion = function(tacardId) {
     const mobileBadge = document.getElementById("mobile-open-trades-badge");
     if (mobileBadge) {
         const openTaCount = (data.ta_trades || []).filter(t => t.status === "Open" || !t.status).length;
+        const openTaLotsCount = (data.ta_lots_trades || []).filter(t => t.status === "Open" || !t.status).length;
         const openManualCount = (data.manual_trades || []).filter(t => t.status === "Open" || t.status === "Pending" || !t.status).length;
-        const totalOpen = openTaCount + openManualCount;
+        const totalOpen = openTaCount + openTaLotsCount + openManualCount;
         if (totalOpen > 0) {
             mobileBadge.innerText = totalOpen;
             mobileBadge.style.display = "inline-block";
@@ -2155,6 +2349,20 @@ function updateMonthMasterUI(mappings) {
         }
     }
 
+    if (taLotsSelectMonth) {
+        const currentVal = taLotsSelectMonth.value;
+        let selectHtml = `<option value="-1">-- Select Month --</option>`;
+        mappings.forEach((m, idx) => {
+            selectHtml += `<option value="${idx}">${m.petal_symbol} / ${m.mini_symbol}</option>`;
+        });
+        taLotsSelectMonth.innerHTML = selectHtml;
+        if (currentVal && parseInt(currentVal) < mappings.length) {
+            taLotsSelectMonth.value = currentVal;
+        } else {
+            taLotsSelectMonth.value = "-1";
+        }
+    }
+
     // Populate Manual BOT Month Pair Dropdown
     if (mbotSelectPair) {
         const currentMbotVal = mbotSelectPair.value;
@@ -2412,6 +2620,161 @@ window.exitTaTrade = function(tradeId) {
 window.dismissTaTrade = function(tradeId) {
     postAction("ta-dismiss-trade", { trade_id: tradeId });
 };
+
+// ==========================================
+// Trade Automation with Lots (Tiered Lots Engine) Handlers
+// ==========================================
+function updateTaLotsPreview() {
+    if (!taLotsPreviewGrid || !taLotsInputLots || !taLotsInputEntryDiff || !taLotsInputAveragingStep) return;
+    
+    const baseDiff = parseFloat(taLotsInputEntryDiff.value) || 0;
+    const step = parseFloat(taLotsInputAveragingStep.value) || 0;
+    const direction = taLotsSelectDirection ? taLotsSelectDirection.value : "Expansion";
+    const rawLots = taLotsInputLots.value || "";
+    
+    const parts = rawLots.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0);
+    
+    if (parts.length === 0) {
+        taLotsPreviewGrid.innerHTML = `<span style="font-size: 0.72rem; color: var(--text-muted);">Please enter at least one valid lot count (e.g. 2, 3, 1)</span>`;
+        if (taLotsPreviewTotal) taLotsPreviewTotal.innerText = "0 Orders | 0 Lots";
+        return;
+    }
+    
+    let totalLots = 0;
+    let html = "";
+    parts.forEach((qty, idx) => {
+        totalLots += qty;
+        let triggerSpread = 0;
+        if (direction === "Expansion") {
+            triggerSpread = baseDiff + (idx * step);
+        } else {
+            triggerSpread = baseDiff - (idx * step);
+        }
+        const opSymbol = direction === "Expansion" ? "≤" : "≥";
+        
+        html += `
+            <div style="background: rgba(255,255,255,0.04); border: 1px solid rgba(245,158,11,0.25); border-radius: 5px; padding: 0.35rem 0.6rem; font-size: 0.72rem; display: flex; align-items: center; gap: 0.4rem;">
+                <span style="font-weight: 700; color: #f59e0b;">#${idx + 1}</span>
+                <span style="color: var(--text-secondary);">Spread ${opSymbol} <strong class="font-mono" style="color: #fff;">${triggerSpread.toFixed(1)}</strong></span>
+                <span style="background: rgba(56,189,248,0.15); color: #38bdf8; font-weight: 700; padding: 1px 5px; border-radius: 3px; font-family: var(--font-mono);">${qty} Lots</span>
+            </div>
+        `;
+    });
+    
+    taLotsPreviewGrid.innerHTML = html;
+    if (taLotsPreviewTotal) {
+        taLotsPreviewTotal.innerText = `${parts.length} Orders | Total: ${totalLots} Lots`;
+    }
+}
+
+if (taLotsInputEntryDiff) taLotsInputEntryDiff.addEventListener("input", updateTaLotsPreview);
+if (taLotsInputAveragingStep) taLotsInputAveragingStep.addEventListener("input", updateTaLotsPreview);
+if (taLotsInputLots) taLotsInputLots.addEventListener("input", updateTaLotsPreview);
+if (taLotsSelectDirection) taLotsSelectDirection.addEventListener("change", updateTaLotsPreview);
+updateTaLotsPreview();
+
+if (taLotsAddConfigBtn) {
+    taLotsAddConfigBtn.addEventListener("click", () => {
+        const selectedMonthIdx = parseInt(taLotsSelectMonth.value);
+        if (selectedMonthIdx < 0) {
+            alert("Please select a Month Master pair mapping first.");
+            return;
+        }
+        
+        const entryDiff = parseFloat(taLotsInputEntryDiff.value);
+        const averagingStep = parseFloat(taLotsInputAveragingStep.value);
+        const exitGap = parseFloat(taLotsInputExitGap.value);
+        const direction = taLotsSelectDirection.value;
+        const paperMode = taLotsCheckboxPaperMode ? taLotsCheckboxPaperMode.checked : true;
+        const rawLots = taLotsInputLots.value || "";
+        
+        const lotsList = rawLots.split(",").map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0);
+        
+        if (lotsList.length === 0) {
+            alert("Please enter a valid sequence of lots separated by commas (e.g. 2, 3, 1).");
+            return;
+        }
+        if (isNaN(entryDiff) || isNaN(averagingStep) || isNaN(exitGap)) {
+            alert("Please enter valid numbers for Entry Diff, Averaging Step, and Exit Gap.");
+            return;
+        }
+        
+        const currentConfigs = window.taLotsConfigs || [];
+        const exists = currentConfigs.some(cfg => cfg.month_idx === selectedMonthIdx);
+        if (exists) {
+            alert("A lots bot instance for this Month Master pair is already configured.");
+            return;
+        }
+        
+        const newConfig = {
+            month_idx: selectedMonthIdx,
+            entry_diff: entryDiff,
+            averaging_step: averagingStep,
+            exit_gap: exitGap,
+            lots_str: lotsList.join(", "),
+            lots_list: lotsList,
+            max_orders: lotsList.length,
+            direction: direction,
+            paper_mode: paperMode,
+            enabled: true
+        };
+        
+        currentConfigs.push(newConfig);
+        logLocalMessage("[SYSTEM] Adding new Trade Automation with Lots bot instance...");
+        postAction("ta-lots-config", { configs: currentConfigs })
+        .then(res => {
+            if (res && res.status === "SUCCESS") {
+                logLocalMessage("[SYSTEM] Trade Automation with Lots instance added successfully.");
+            }
+        });
+    });
+}
+
+if (taLotsClearAllTradesBtn) {
+    taLotsClearAllTradesBtn.addEventListener("click", () => {
+        if (confirm("Are you sure you want to clear all Trade Automation with Lots orders? This will wipe all current lots automation trades.")) {
+            logLocalMessage("[SYSTEM] Clearing all Trade Automation with Lots orders...");
+            postAction("clear-ta-lots-trades", {})
+            .then(res => {
+                if (res && res.status === "SUCCESS") {
+                    logLocalMessage(`[SYSTEM] ${res.message}`);
+                }
+            });
+        }
+    });
+}
+
+window.toggleTaLotsConfig = function(index, enabled) {
+    const currentConfigs = window.taLotsConfigs || [];
+    if (index >= 0 && index < currentConfigs.length) {
+        currentConfigs[index].enabled = enabled;
+        logLocalMessage(`[SYSTEM] ${enabled ? "Enabling" : "Disabling"} Trade Automation with Lots instance...`);
+        postAction("ta-lots-config", { configs: currentConfigs });
+    }
+};
+
+window.removeTaLotsConfig = function(index) {
+    const currentConfigs = window.taLotsConfigs || [];
+    if (index >= 0 && index < currentConfigs.length) {
+        if (confirm("Are you sure you want to remove this lots bot instance? This will stop future lots automation checks for this pair.")) {
+            currentConfigs.splice(index, 1);
+            logLocalMessage("[SYSTEM] Removing Trade Automation with Lots instance...");
+            postAction("ta-lots-config", { configs: currentConfigs });
+        }
+    }
+};
+
+window.exitTaLotsTrade = function(tradeId) {
+    if (confirm(`Are you sure you want to square off Trade Automation with Lots trade ID ${tradeId}?`)) {
+        logLocalMessage(`[SYSTEM] Squaring off Trade Automation with Lots trade ID ${tradeId}...`);
+        postAction("ta-lots-exit-trade", { trade_id: tradeId });
+    }
+};
+
+window.dismissTaLotsTrade = function(tradeId) {
+    postAction("ta-lots-dismiss-trade", { trade_id: tradeId });
+};
+
 
 // Export Trade Automation trades as CSV
 const taExportBtn = document.getElementById("ta-export-btn");

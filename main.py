@@ -330,9 +330,19 @@ class TradingSystem:
         self.ta_configs = []
         self.ta_trades = []
         self.ta_execution_in_progress = False
+        self.last_ta_exit_time = 0.0
         
         self.load_ta_trades()
         self.load_ta_configs()
+
+        # Trade Automation with Lots State
+        self.ta_lots_configs = []
+        self.ta_lots_trades = []
+        self.ta_lots_execution_in_progress = False
+        self.last_ta_lots_exit_time = 0.0
+
+        self.load_ta_lots_trades()
+        self.load_ta_lots_configs()
 
         # Daily Spread Tracking State (for Month Master Export)
         self.daily_spread_stats = {}
@@ -588,6 +598,44 @@ class TradingSystem:
                 json.dump(self.ta_configs, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta configs: {e}")
+
+    def load_ta_lots_trades(self):
+        try:
+            if os.path.exists("ta_lots_trades.json"):
+                with open("ta_lots_trades.json", "r", encoding="utf-8") as f:
+                    self.ta_lots_trades = json.load(f)
+                self.log(f"[PERSISTENCE] Loaded {len(self.ta_lots_trades)} Trade Automation with Lots trades from ta_lots_trades.json.")
+            else:
+                self.ta_lots_trades = []
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to load ta_lots trades: {e}")
+            self.ta_lots_trades = []
+
+    def save_ta_lots_trades(self):
+        try:
+            with open("ta_lots_trades.json", "w", encoding="utf-8") as f:
+                json.dump(self.ta_lots_trades, f, indent=4)
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to save ta_lots trades: {e}")
+
+    def load_ta_lots_configs(self):
+        try:
+            if os.path.exists("ta_lots_configs.json"):
+                with open("ta_lots_configs.json", "r", encoding="utf-8") as f:
+                    self.ta_lots_configs = json.load(f)
+                self.log(f"[PERSISTENCE] Loaded {len(self.ta_lots_configs)} Trade Automation with Lots configs from ta_lots_configs.json.")
+            else:
+                self.ta_lots_configs = []
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to load ta_lots configs: {e}")
+            self.ta_lots_configs = []
+
+    def save_ta_lots_configs(self):
+        try:
+            with open("ta_lots_configs.json", "w", encoding="utf-8") as f:
+                json.dump(self.ta_lots_configs, f, indent=4)
+        except Exception as e:
+            self.log(f"[PERSISTENCE ERROR] Failed to save ta_lots configs: {e}")
 
     def load_daily_spread_stats(self):
         try:
@@ -1241,6 +1289,8 @@ async def broadcast_system_state(force: bool = False):
         # Trade Automation Broadcast fields
         "ta_configs": system_state.ta_configs,
         "ta_trades": system_state.ta_trades,
+        "ta_lots_configs": getattr(system_state, "ta_lots_configs", []),
+        "ta_lots_trades": getattr(system_state, "ta_lots_trades", []),
         "manual_bot": system_state.manual_bot,
         "manual_bots": getattr(system_state, "manual_bots", []),
         
@@ -1713,9 +1763,11 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             cancel_order_func = cancel_real_order
             check_status_func = check_real_orders_status
 
-        # Place the market orders concurrently
-        petal_order_id = await place_order_func(target_petal_symbol, target_petal_token, petal_action, required_petal)
-        mini_order_id = await place_order_func(target_mini_symbol, target_mini_token, mini_action, required_mini)
+        # Place both market order legs concurrently at the exact same millisecond
+        petal_order_id, mini_order_id = await asyncio.gather(
+            place_order_func(target_petal_symbol, target_petal_token, petal_action, required_petal),
+            place_order_func(target_mini_symbol, target_mini_token, mini_action, required_mini)
+        )
         
         if not petal_order_id and not mini_order_id:
             system_state.log("[LIVE ORDER ERROR] Both market order placements failed to return IDs.")
@@ -2198,6 +2250,7 @@ async def run_ta_exit(trade: dict, mapping: dict, paper_mode: bool = True):
             
             system_state.save_ta_trades()
             system_state.save_trade_history()
+            system_state.last_ta_exit_time = time.time()
             system_state.log(f"[TA EXIT] Squared off trade ID {trade['id']}. Net PnL: INR {net_pnl:+.2f}")
     except Exception as e:
         system_state.log(f"[TA EXIT ERROR] {e}")
@@ -2248,6 +2301,11 @@ async def run_trade_automation_checks():
                 exit_triggered = True
                 
         if exit_triggered:
+            # Enforce 20-second time gap between consecutive autonomous exits to protect against slippage
+            last_exit = getattr(system_state, "last_ta_exit_time", 0.0)
+            if time.time() - last_exit < 20.0:
+                continue
+
             # Find month mapping
             mapping = None
             for m in system_state.month_master:
@@ -2319,9 +2377,9 @@ async def run_trade_automation_checks():
             # Reached max order limit for this bot instance - skip taking new entry/averaging trades
             continue
 
-        # Enforce minimum 5-second time gap between consecutive orders for this bot instance
+        # Enforce minimum 20-second time gap between consecutive orders for this bot instance to avoid slippage
         last_order_time = config.get("last_order_time", 0.0)
-        if time.time() - last_order_time < 5.0:
+        if time.time() - last_order_time < 20.0:
             continue
 
         # Fixed Anchor Grid (Slippage-Independent)
@@ -2347,6 +2405,331 @@ async def run_trade_automation_checks():
             trigger_label = "First" if num_open == 0 else f"Averaging #{num_open+1}"
             system_state.log(f"[TA TRIGGER] {trigger_label} (Order #{order_index}) entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {target_spread:.2f}, Base: {entry_diff:.2f}, Step: {averaging_step:.2f})")
             await run_ta_entry(mapping, direction, qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap)
+            return
+
+# ==============================================================================
+# 🌟 NEW MODULE: Trade Automation with Lots (Tiered / Custom Lots Grid)
+# ==============================================================================
+async def run_ta_lots_entry(mapping: dict, direction: str, qty: int, expected_spread: float, paper_mode: bool = True, exit_gap: float = 100.0, order_index: int = 1):
+    if system_state.ta_lots_execution_in_progress:
+        return
+    system_state.ta_lots_execution_in_progress = True
+    try:
+        petal_action = "BUY" if direction == "Expansion" else "SELL"
+        mini_action = "SELL" if direction == "Expansion" else "BUY"
+        
+        result = await execute_trade(
+            petal_action, mini_action,
+            check_liquidity=False,
+            is_entry=True,
+            qty=qty,
+            alt_petal_symbol=mapping["petal_symbol"],
+            alt_petal_token=mapping.get("petal_token"),
+            alt_mini_symbol=mapping["mini_symbol"],
+            alt_mini_token=mapping.get("mini_token"),
+            paper_mode_override=paper_mode
+        )
+        if result["success"]:
+            p_spec = get_gold_contract_specs(mapping["petal_symbol"])
+            m_spec = get_gold_contract_specs(mapping["mini_symbol"])
+            trade_id = len(system_state.ta_lots_trades) + 1
+            new_trade = {
+                "id": trade_id,
+                "order_index": order_index,
+                "direction": direction,
+                "quantity": qty,
+                "status": "Open",
+                "entry_time": get_ist_time_str("%H:%M:%S"),
+                "entry_date": get_ist_time_str("%Y-%m-%d"),
+                "petal_symbol": mapping["petal_symbol"],
+                "mini_symbol": mapping["mini_symbol"],
+                "petal_entry_price": result["petal_fill_price"],
+                "mini_entry_price": result["mini_fill_price"],
+                "entry_spread": (result["petal_fill_price"] * p_spec["price_scale_to_10g"]) - (result["mini_fill_price"] * m_spec["price_scale_to_10g"]),
+                "expected_entry_spread": expected_spread,
+                "exit_gap": exit_gap,
+                "petal_entry_type": result["petal_order_type"],
+                "mini_entry_type": result["mini_order_type"],
+                "petal_exit_price": 0.0,
+                "mini_exit_price": 0.0,
+                "exit_spread": 0.0,
+                "actual_exit_spread": 0.0,
+                "paper_mode": paper_mode,
+                "petal_exit_type": "--",
+                "mini_exit_type": "--",
+                "exit_time": "--",
+                "exit_date": "--",
+                "pnl": 0.0,
+                "charges": 0.0
+            }
+            system_state.ta_lots_trades.append(new_trade)
+            system_state.save_ta_lots_trades()
+            system_state.log(f"[TA LOTS ENTRY] Filled Order #{order_index} ({qty} lots) {direction} entry. Expected: {expected_spread:.2f}, Filled: {new_trade['entry_spread']:.2f}. Petal: {new_trade['petal_entry_price']:.2f}, Mini: {new_trade['mini_entry_price']:.2f}")
+    except Exception as e:
+        system_state.log(f"[TA LOTS ENTRY ERROR] {e}")
+    finally:
+        system_state.ta_lots_execution_in_progress = False
+        await broadcast_system_state()
+
+async def run_ta_lots_exit(trade: dict, mapping: dict, paper_mode: bool = True):
+    if system_state.ta_lots_execution_in_progress:
+        return
+    system_state.ta_lots_execution_in_progress = True
+    try:
+        direction = trade["direction"]
+        petal_action = "SELL" if direction == "Expansion" else "BUY"
+        mini_action = "BUY" if direction == "Expansion" else "SELL"
+        qty = trade["quantity"]
+        
+        result = await execute_trade(
+            petal_action, mini_action,
+            check_liquidity=False,
+            is_entry=False,
+            qty=qty,
+            alt_petal_symbol=mapping["petal_symbol"],
+            alt_petal_token=mapping.get("petal_token"),
+            alt_mini_symbol=mapping["mini_symbol"],
+            alt_mini_token=mapping.get("mini_token"),
+            paper_mode_override=paper_mode
+        )
+        if result["success"]:
+            p_spec = get_gold_contract_specs(mapping["petal_symbol"])
+            m_spec = get_gold_contract_specs(mapping["mini_symbol"])
+            petal_exit = result["petal_fill_price"]
+            mini_exit = result["mini_fill_price"]
+            petal_exit_type = result["petal_order_type"]
+            mini_exit_type = result["mini_order_type"]
+            
+            actual_exit_spread = (petal_exit * p_spec["price_scale_to_10g"]) - (mini_exit * m_spec["price_scale_to_10g"])
+            expected_exit_spread = system_state.depth_sell_spread if direction == "Expansion" else system_state.depth_buy_spread
+            
+            if direction == "Expansion":
+                p_pnl = (petal_exit - trade["petal_entry_price"]) * p_spec["pnl_multiplier"] * qty
+                m_pnl = (trade["mini_entry_price"] - mini_exit) * m_spec["pnl_multiplier"] * qty
+                exit_slippage = expected_exit_spread - actual_exit_spread
+            else:
+                p_pnl = (trade["petal_entry_price"] - petal_exit) * p_spec["pnl_multiplier"] * qty
+                m_pnl = (mini_exit - trade["mini_entry_price"]) * m_spec["pnl_multiplier"] * qty
+                exit_slippage = actual_exit_spread - expected_exit_spread
+                
+            trade_pnl = p_pnl + m_pnl
+            charges = system_state.calculate_mcx_charges(
+                direction, qty, trade["petal_entry_price"], trade["mini_entry_price"], petal_exit, mini_exit,
+                petal_symbol=mapping["petal_symbol"], mini_symbol=mapping["mini_symbol"]
+            )
+            net_pnl = trade_pnl - charges
+            
+            trade["status"] = "Closed"
+            trade["petal_exit_price"] = petal_exit
+            trade["mini_exit_price"] = mini_exit
+            trade["petal_exit_type"] = petal_exit_type
+            trade["mini_exit_type"] = mini_exit_type
+            trade["exit_spread"] = expected_exit_spread
+            trade["actual_exit_spread"] = actual_exit_spread
+            trade["exit_slippage"] = exit_slippage
+            trade["pnl"] = net_pnl
+            trade["charges"] = charges
+            trade["exit_time"] = get_ist_time_str("%H:%M:%S")
+            trade["exit_date"] = get_ist_time_str("%Y-%m-%d")
+            
+            # Update overall realized PnL
+            system_state.realized_pnl += net_pnl
+            system_state.total_trades += 1
+            if net_pnl > 0:
+                system_state.winning_trades += 1
+            system_state.win_ratio = (system_state.winning_trades / system_state.total_trades) * 100.0 if system_state.total_trades > 0 else 0.0
+            
+            # Record in trade history
+            history_record = {
+                "id": len(system_state.trade_history) + 1,
+                "date": trade["entry_date"],
+                "direction": direction,
+                "status": "COMPLETED",
+                "entry_time": trade["entry_time"],
+                "exit_time": trade["exit_time"],
+                "petal_action": petal_action,
+                "mini_action": mini_action,
+                "petal_entry": round(trade["petal_entry_price"], 2),
+                "mini_entry": round(trade["mini_entry_price"], 2),
+                "petal_exit": round(petal_exit, 2),
+                "mini_exit": round(mini_exit, 2),
+                "entry_spread": round(trade["expected_entry_spread"], 2),
+                "actual_entry_spread": round(trade["entry_spread"], 2),
+                "entry_slippage": round(trade.get("entry_slippage", 0.0), 2),
+                "exit_spread": round(expected_exit_spread, 2),
+                "actual_exit_spread": round(actual_exit_spread, 2),
+                "exit_slippage": round(exit_slippage, 2),
+                "petal_entry_type": trade["petal_entry_type"],
+                "mini_entry_type": trade["mini_entry_type"],
+                "petal_exit_type": petal_exit_type,
+                "mini_exit_type": mini_exit_type,
+                "petal_pnl": round(p_pnl, 2),
+                "mini_pnl": round(m_pnl, 2),
+                "gross_pnl": round(trade_pnl, 2),
+                "charges": round(charges, 2),
+                "pnl": round(net_pnl, 2),
+                "reason": "TA-Lots-Exit",
+                "details": f"Trade Automation with Lots ID {trade['id']} (Order #{trade.get('order_index', 1)}, Qty {qty}) closed. Net P&L: {net_pnl:.2f}."
+            }
+            system_state.trade_history.append(history_record)
+            
+            system_state.save_ta_lots_trades()
+            system_state.save_trade_history()
+            system_state.last_ta_lots_exit_time = time.time()
+            system_state.log(f"[TA LOTS EXIT] Squared off trade ID {trade['id']} ({qty} lots). Net PnL: INR {net_pnl:+.2f}")
+    except Exception as e:
+        system_state.log(f"[TA LOTS EXIT ERROR] {e}")
+    finally:
+        system_state.ta_lots_execution_in_progress = False
+        await broadcast_system_state()
+
+async def run_trade_automation_lots_checks():
+    if getattr(system_state, "ta_lots_execution_in_progress", False):
+        return
+        
+    # 1. Autonomous Exit Monitoring for Trade Automation with Lots
+    open_trades = [t for t in getattr(system_state, "ta_lots_trades", []) if t.get("status") == "Open"]
+    for trade in open_trades:
+        p_sym = trade.get("petal_symbol")
+        m_sym = trade.get("mini_symbol")
+        
+        live_stat = None
+        for stat in system_state.month_master_live:
+            if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
+                live_stat = stat
+                break
+                
+        if not live_stat:
+            if system_state.petal_symbol == p_sym and system_state.mini_symbol == m_sym:
+                live_stat = {
+                    "depth_buy_spread": system_state.depth_buy_spread,
+                    "depth_sell_spread": system_state.depth_sell_spread
+                }
+            else:
+                continue
+                
+        buy_spread = live_stat["depth_buy_spread"]
+        sell_spread = live_stat["depth_sell_spread"]
+        
+        direction = trade.get("direction", "Expansion")
+        entry_spread = float(trade.get("entry_spread", 0.0))
+        t_exit_gap = float(trade.get("exit_gap", 100.0))
+        
+        exit_triggered = False
+        if direction == "Expansion":
+            if sell_spread >= entry_spread + t_exit_gap:
+                exit_triggered = True
+        elif direction == "Contraction":
+            if buy_spread <= entry_spread - t_exit_gap:
+                exit_triggered = True
+                
+        if exit_triggered:
+            # Enforce 20-second time gap between consecutive autonomous exits to avoid market slippage
+            last_exit = getattr(system_state, "last_ta_lots_exit_time", 0.0)
+            if time.time() - last_exit < 20.0:
+                continue
+
+            mapping = None
+            for m in system_state.month_master:
+                if m.get("petal_symbol") == p_sym and m.get("mini_symbol") == m_sym:
+                    mapping = m
+                    break
+            if not mapping:
+                mapping = {
+                    "petal_symbol": p_sym,
+                    "petal_token": getattr(system_state, "petal_token", "") if system_state.petal_symbol == p_sym else "",
+                    "mini_symbol": m_sym,
+                    "mini_token": getattr(system_state, "mini_token", "") if system_state.mini_symbol == m_sym else ""
+                }
+                
+            paper_mode = trade.get("paper_mode", True)
+            for cfg in getattr(system_state, "ta_lots_configs", []):
+                c_idx = cfg.get("month_idx", -1)
+                if 0 <= c_idx < len(system_state.month_master):
+                    cm = system_state.month_master[c_idx]
+                    if cm.get("petal_symbol") == p_sym and cm.get("mini_symbol") == m_sym:
+                        paper_mode = cfg.get("paper_mode", True)
+                        break
+                        
+            system_state.log(f"[TA LOTS TRIGGER] Autonomous Exit met for trade ID {trade['id']} ({p_sym}/{m_sym}, Qty: {trade.get('quantity', 1)}). Entry: {entry_spread:.2f}, Exit: {sell_spread if direction == 'Expansion' else buy_spread:.2f} (Target Gap: {t_exit_gap:.2f})")
+            await run_ta_lots_exit(trade, mapping, paper_mode)
+            return
+
+    # 2. Check Entries for Trade Automation with Lots
+    for config in getattr(system_state, "ta_lots_configs", []):
+        if not config.get("enabled", False):
+            continue
+            
+        idx = config.get("month_idx", -1)
+        if idx < 0 or idx >= len(system_state.month_master):
+            continue
+            
+        mapping = system_state.month_master[idx]
+        p_sym = mapping["petal_symbol"]
+        m_sym = mapping["mini_symbol"]
+        
+        live_stat = None
+        for stat in system_state.month_master_live:
+            if stat["petal_symbol"] == p_sym and stat["mini_symbol"] == m_sym:
+                live_stat = stat
+                break
+                
+        if not live_stat:
+            continue
+            
+        buy_spread = live_stat["depth_buy_spread"]
+        sell_spread = live_stat["depth_sell_spread"]
+        
+        # Get active (Open) Trade Automation with Lots trades for this specific month pair
+        pair_open_trades = [t for t in getattr(system_state, "ta_lots_trades", []) if t["status"] == "Open" and t["petal_symbol"] == p_sym and t["mini_symbol"] == m_sym]
+        num_open = len(pair_open_trades)
+        
+        # Parse custom tiered lots sequence
+        lots_list = config.get("lots_list")
+        if not lots_list and config.get("lots_str"):
+            try:
+                lots_list = [int(x.strip()) for x in str(config["lots_str"]).split(",") if x.strip() and int(x.strip()) > 0]
+            except Exception:
+                lots_list = []
+        if not lots_list:
+            lots_list = [config.get("quantity", 1)]
+            
+        max_orders = len(lots_list)
+        if num_open >= max_orders:
+            continue
+            
+        # Enforce minimum 20-second time gap between consecutive orders for this bot instance
+        last_order_time = config.get("last_order_time", 0.0)
+        if time.time() - last_order_time < 20.0:
+            continue
+            
+        direction = config.get("direction", "Expansion")
+        entry_diff = config.get("entry_diff", 500.0)
+        averaging_step = config.get("averaging_step", 50.0)
+        exit_gap = config.get("exit_gap", 100.0)
+        paper_mode = config.get("paper_mode", True)
+        
+        current_qty = lots_list[num_open]
+        order_index = num_open + 1
+        
+        if direction == "Expansion":
+            target_spread = entry_diff - (num_open * averaging_step)
+        else:
+            target_spread = entry_diff + (num_open * averaging_step)
+            
+        entry_triggered = False
+        if direction == "Expansion":
+            if buy_spread <= target_spread:
+                entry_triggered = True
+        elif direction == "Contraction":
+            if sell_spread >= target_spread:
+                entry_triggered = True
+                
+        if entry_triggered:
+            config["last_order_time"] = time.time()
+            trigger_label = "First" if num_open == 0 else f"Averaging #{num_open+1}"
+            system_state.log(f"[TA LOTS TRIGGER] {trigger_label} (Order #{order_index}, {current_qty} lots) entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {target_spread:.2f}, Base: {entry_diff:.2f}, Step: {averaging_step:.2f})")
+            await run_ta_lots_entry(mapping, direction, current_qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap, order_index)
             return
 
 async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None,
@@ -2990,8 +3373,34 @@ async def process_market_data(data: dict):
             ta_unrealized_pnl += trade["unrealized_pnl"]
             ta_used_margin += 50000.0 * t_qty
             
-    system_state.used_margin += manual_used_margin + ta_used_margin
-    system_state.total_pnl = system_state.realized_pnl + system_state.unrealized_pnl + manual_unrealized_pnl + ta_unrealized_pnl
+    # Calculate live Trade Automation with Lots trades P&Ls and margins
+    ta_lots_unrealized_pnl = 0.0
+    ta_lots_used_margin = 0.0
+    for trade in getattr(system_state, "ta_lots_trades", []):
+        if trade.get("status") == "Open":
+            t_qty = trade.get("quantity", 1)
+            t_dir = trade.get("direction")
+            t_petal_symbol = trade.get("petal_symbol")
+            t_mini_symbol = trade.get("mini_symbol")
+            t_p_spec = get_gold_contract_specs(t_petal_symbol)
+            t_m_spec = get_gold_contract_specs(t_mini_symbol)
+            t_petal_ltp = system_state.symbol_ltps.get(t_petal_symbol) or petal_ltp
+            t_mini_ltp = system_state.symbol_ltps.get(t_mini_symbol) or mini_ltp
+            
+            if t_dir == "Expansion":
+                t_petal_pnl = (t_petal_ltp - trade.get("petal_entry_price", 0.0)) * t_p_spec["pnl_multiplier"] * t_qty
+                t_mini_pnl = (trade.get("mini_entry_price", 0.0) - t_mini_ltp) * t_m_spec["pnl_multiplier"] * t_qty
+            else:
+                t_petal_pnl = (trade.get("petal_entry_price", 0.0) - t_petal_ltp) * t_p_spec["pnl_multiplier"] * t_qty
+                t_mini_pnl = (t_mini_ltp - trade.get("mini_entry_price", 0.0)) * t_m_spec["pnl_multiplier"] * t_qty
+            trade["petal_pnl"] = t_petal_pnl
+            trade["mini_pnl"] = t_mini_pnl
+            trade["unrealized_pnl"] = t_petal_pnl + t_mini_pnl
+            ta_lots_unrealized_pnl += trade["unrealized_pnl"]
+            ta_lots_used_margin += 50000.0 * t_qty
+
+    system_state.used_margin += manual_used_margin + ta_used_margin + ta_lots_used_margin
+    system_state.total_pnl = system_state.realized_pnl + system_state.unrealized_pnl + manual_unrealized_pnl + ta_unrealized_pnl + ta_lots_unrealized_pnl
     system_state.available_balance = system_state.total_capital - system_state.used_margin + system_state.total_pnl
     if system_state.total_capital > 0:
         system_state.returns_percentage = (system_state.total_pnl / system_state.total_capital) * 100.0
@@ -3113,6 +3522,10 @@ async def process_market_data(data: dict):
     # Process Trade Automation Strategy Checks (Entries & Autonomous Exits)
     if system_state.ta_configs or any(t.get("status") == "Open" for t in system_state.ta_trades):
         asyncio.create_task(run_trade_automation_checks())
+
+    # Process Trade Automation with Lots Strategy Checks
+    if getattr(system_state, "ta_lots_configs", None) or any(t.get("status") == "Open" for t in getattr(system_state, "ta_lots_trades", [])):
+        asyncio.create_task(run_trade_automation_lots_checks())
 
     # Process Manual BOT Strategy Checks (Tolerance Range & 30s Cooldown)
     if system_state.manual_bot.get("active", False) or any(b.get("active", False) for b in getattr(system_state, "manual_bots", [])):
@@ -3898,6 +4311,10 @@ async def live_data_endpoint(websocket: WebSocket):
             # Trade Automation Broadcast fields
             "ta_configs": system_state.ta_configs,
             "ta_trades": system_state.ta_trades,
+            "ta_lots_configs": getattr(system_state, "ta_lots_configs", []),
+            "ta_lots_trades": getattr(system_state, "ta_lots_trades", []),
+            "manual_bot": system_state.manual_bot,
+            "manual_bots": getattr(system_state, "manual_bots", []),
             
             "logs": system_state.logs
         })
@@ -4732,6 +5149,116 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
         "exit_gap": round(new_gap, 2), 
         "target_spread": round(target_val, 2)
     }
+
+# ----------------- Trade Automation with Lots REST Endpoints -----------------
+class TALotsConfigItem(BaseModel):
+    month_idx: int
+    entry_diff: float
+    averaging_step: float
+    exit_gap: float
+    lots_str: str
+    lots_list: Optional[List[int]] = None
+    direction: str
+    paper_mode: bool
+    enabled: bool
+
+class TALotsConfigPayload(BaseModel):
+    configs: List[TALotsConfigItem]
+
+@app.post("/api/ta-lots-config")
+async def api_post_ta_lots_config(payload: TALotsConfigPayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    session_status = get_market_session_status()
+    if session_status == "SUSPENDED":
+        has_enabled = any(c.dict().get("enabled") for c in payload.configs)
+        if has_enabled:
+            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation with Lots configs after market close (23:27 - 09:00).")
+
+    configs_list = []
+    for c in payload.configs:
+        c_dict = c.dict()
+        # Parse lots list if not already parsed
+        if not c_dict.get("lots_list") and c_dict.get("lots_str"):
+            try:
+                c_dict["lots_list"] = [int(x.strip()) for x in str(c_dict["lots_str"]).split(",") if x.strip() and int(x.strip()) > 0]
+            except Exception:
+                c_dict["lots_list"] = [1]
+        configs_list.append(c_dict)
+
+    system_state.ta_lots_configs = configs_list
+    system_state.save_ta_lots_configs()
+    system_state.log(f"Trade Automation with Lots configs updated: {len(system_state.ta_lots_configs)} instance(s).")
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": "Trade Automation with Lots configurations updated successfully."}
+
+@app.post("/api/clear-ta-lots-trades")
+async def api_clear_ta_lots_trades(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    count = len(getattr(system_state, "ta_lots_trades", []))
+    system_state.ta_lots_trades = []
+    system_state.save_ta_lots_trades()
+    system_state.log(f"[TA LOTS] Cleared all {count} Trade Automation with Lots trades.")
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": f"Cleared all {count} Trade Automation with Lots trades successfully."}
+
+class TALotsExitTradePayload(BaseModel):
+    trade_id: int
+
+@app.post("/api/ta-lots-exit-trade")
+async def api_ta_lots_exit_trade(payload: TALotsExitTradePayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    trade = None
+    for t in getattr(system_state, "ta_lots_trades", []):
+        if t["id"] == payload.trade_id:
+            trade = t
+            break
+            
+    if not trade:
+        raise HTTPException(status_code=404, detail="Trade Automation with Lots trade not found.")
+        
+    if trade["status"] != "Open":
+        raise HTTPException(status_code=400, detail="Trade is not active.")
+        
+    # Find month mapping
+    mapping = None
+    for m in system_state.month_master:
+        if m["petal_symbol"] == trade["petal_symbol"] and m["mini_symbol"] == trade["mini_symbol"]:
+            mapping = m
+            break
+            
+    if not mapping:
+        mapping = {
+            "petal_symbol": trade["petal_symbol"],
+            "petal_token": "",
+            "mini_symbol": trade["mini_symbol"],
+            "mini_token": ""
+        }
+        
+    paper_mode = trade.get("paper_mode", True)
+    for config in getattr(system_state, "ta_lots_configs", []):
+        idx = config.get("month_idx", -1)
+        if 0 <= idx < len(system_state.month_master):
+            m = system_state.month_master[idx]
+            if m["petal_symbol"] == trade["petal_symbol"] and m["mini_symbol"] == trade["mini_symbol"]:
+                paper_mode = config.get("paper_mode", True)
+                break
+                
+    system_state.log(f"[TA LOTS MANUAL EXIT] Squaring off Trade ID {trade['id']}...")
+    await run_ta_lots_exit(trade, mapping, paper_mode)
+    return {"status": "SUCCESS", "message": "Trade Automation with Lots trade closed successfully."}
+
+class TALotsDismissTradePayload(BaseModel):
+    trade_id: int
+
+@app.post("/api/ta-lots-dismiss-trade")
+async def api_ta_lots_dismiss_trade(payload: TALotsDismissTradePayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    system_state.ta_lots_trades = [t for t in getattr(system_state, "ta_lots_trades", []) if t["id"] != payload.trade_id]
+    system_state.save_ta_lots_trades()
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": "Trade dismissed successfully."}
 
 @app.post("/api/update-rules")
 async def api_update_rules(payload: UpdateParamsPayload, token: str = None, authorization: str = Header(None)):

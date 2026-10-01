@@ -831,6 +831,130 @@
             </div>
         </section>
 
+        <!-- Trade Automation with Lots (Custom Lots Per Order) Section -->
+        <section class="month-master-section" data-tab="automation" style="margin-bottom: 1.25rem; width: 100%;">
+            <div class="control-card month-master-panel collapsible-card" id="card-trade-automation-lots" style="width: 100%; border-top: 3px solid #f59e0b;">
+                <div class="card-header-toggle" onclick="toggleCard('card-trade-automation-lots')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">🎯 Trade Automation with Lots (Custom Lots Per Order)</h2>
+                        <span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; text-transform: uppercase;">NEW</span>
+                    </div>
+                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                </div>
+                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
+                    
+                    <!-- Strategy Parameters Input Form -->
+                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
+                        <div class="config-item">
+                            <label class="rule-label">Select Month Pair</label>
+                            <select id="ta-lots-select-month" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                <option value="-1">-- Select Month --</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Strategy Direction</label>
+                            <select id="ta-lots-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                <option value="Expansion">Spread Expansion (Buy P / Sell M)</option>
+                                <option value="Contraction">Spread Contraction (Sell P / Buy M)</option>
+                            </select>
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Base Entry Diff (1st Order)</label>
+                            <input type="number" id="ta-lots-input-entry-diff" class="rule-input font-mono" value="900" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Averaging Step Size</label>
+                            <input type="number" id="ta-lots-input-averaging-step" class="rule-input font-mono" value="50" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div class="config-item">
+                            <label class="rule-label">Exit Profit Gap</label>
+                            <input type="number" id="ta-lots-input-exit-gap" class="rule-input font-mono" value="100" style="width: 100%; box-sizing: border-box;">
+                        </div>
+                        <div class="config-item" style="grid-column: span 2;">
+                            <label class="rule-label">Lots Sequence (Comma-separated, e.g. 2, 3, 1)
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Enter lots for each order level separated by commas (e.g. 2, 3, 1). Total orders will be equal to the number of levels (3 orders).</span>
+                                </div>
+                            </label>
+                            <input type="text" id="ta-lots-input-lots" class="rule-input font-mono" value="2, 3, 1" placeholder="e.g. 2, 3, 1" style="width: 100%; box-sizing: border-box; font-weight: 700; color: #f59e0b;">
+                        </div>
+                        <div class="config-item checkbox-input-group" style="display: flex; gap: 1.5rem; align-items: center; margin-top: 1.25rem;">
+                            <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="rule-label" style="margin-bottom: 0;">Paper Mode</span>
+                                <label class="switch">
+                                    <input type="checkbox" id="ta-lots-checkbox-paper-mode" checked>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Live Visual Grid Ladder Preview -->
+                    <div style="background: rgba(245, 158, 11, 0.04); border: 1px dashed rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 0.75rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                            <span style="font-size: 0.72rem; font-weight: 700; color: #f59e0b; display: flex; align-items: center; gap: 0.3rem;">
+                                <span>🪜</span> Order Ladder Preview (Custom Lots per Level)
+                            </span>
+                            <span id="ta-lots-preview-total" style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">3 Orders | Total: 6 Lots</span>
+                        </div>
+                        <div id="ta-lots-preview-grid" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                            <!-- Dynamically generated badges -->
+                        </div>
+                    </div>
+
+                    <!-- Anti-Slippage Cooldown Notice -->
+                    <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; background: rgba(59,130,246,0.05); padding: 0.4rem 0.6rem; border-radius: 4px; border: 1px solid rgba(59,130,246,0.15);">
+                        <span>⏱️</span>
+                        <span><strong>Anti-Slippage Cooldown:</strong> 20 seconds delay is strictly enforced between consecutive order entries and consecutive exits. Leg 1 &amp; Leg 2 fire simultaneously without delay.</span>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.25rem;">
+                        <button id="ta-lots-add-config-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem; display: flex; align-items: center; gap: 0.25rem; background: #f59e0b; color: #000; font-weight: 700;">➕ Add Bot Instance (Lots)</button>
+                    </div>
+
+                    <!-- Active Lots Bot Instances Table -->
+                    <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
+                        <div onclick="(function(){
+                                var body = document.getElementById('bot-lots-instances-body');
+                                var arrow = document.getElementById('bot-lots-instances-arrow');
+                                var open = body.style.display !== 'none';
+                                body.style.display = open ? 'none' : 'block';
+                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                            })()"
+                            style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 0.5rem;">
+                            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🎯 Active Lots Bot Instances</h3>
+                            <span id="bot-lots-instances-arrow" class="mobile-only" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                        </div>
+                        <div id="bot-lots-instances-body">
+                            <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead>
+                                        <tr style="background-color: rgba(255,255,255,0.03);">
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Month Pair</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 100px;">Direction</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Entry Diff</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Step</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Gap</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Lots Sequence</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Mode</th>
+                                            <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
+                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 75px; padding-right: 1.5rem;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ta-lots-configs-body">
+                                        <tr>
+                                            <td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No lots bot instances configured. Set parameters above and click "Add Bot Instance (Lots)".</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Trade Automation Trades Table Section -->
         <section class="automation-trades-section" data-tab="trades" style="margin-bottom: 1.25rem; width: 100%;">
             <div class="data-card automation-trades-panel" id="card-automation-trades" style="width: 100%;">
@@ -880,6 +1004,62 @@
                             <tbody id="ta-trades-body">
                                 <tr>
                                     <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Trade Automation with Lots Trades Table Section -->
+        <section class="automation-trades-section" data-tab="trades" style="margin-bottom: 1.25rem; width: 100%;">
+            <div class="data-card automation-trades-panel" id="card-automation-lots-trades" style="width: 100%; border-top: 3px solid #f59e0b;">
+                <!-- Panel Header -->
+                <div class="panel-header" id="ta-lots-panel-hdr"
+                    onclick="(function(){
+                        var body = document.getElementById('ta-lots-panel-body');
+                        var arrow = document.getElementById('ta-lots-panel-arrow');
+                        var open = body.style.display !== 'none';
+                        body.style.display = open ? 'none' : 'block';
+                        arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                    })()"
+                    style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <h2>🎯 Active &amp; Closed Trades (Automation with Lots)</h2>
+                        <span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px;">LOTS</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div class="desktop-only" style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button id="ta-lots-clear-all-trades-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Lots Orders</button>
+                        </div>
+                        <div class="mobile-only" style="display: flex; gap: 0.4rem; align-items: center;">
+                            <button id="ta-lots-clear-all-trades-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-lots-clear-all-trades-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️</button>
+                            <span id="ta-lots-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Collapsible body -->
+                <div id="ta-lots-panel-body">
+                    <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                        <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background-color: rgba(255,255,255,0.03);">
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Order / Lot</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
+                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
+                                    <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ta-lots-trades-body">
+                                <tr>
+                                    <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated lots trades recorded. Configure a lots bot instance above.</td>
                                 </tr>
                             </tbody>
                         </table>

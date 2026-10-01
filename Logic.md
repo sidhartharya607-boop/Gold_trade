@@ -119,3 +119,26 @@ The bot can execute and exit trades autonomously using these parameters:
 | **Auto Target P&L** | Exit | Square off position if total trade unrealized P&L $\ge$ `auto_target_val` (e.g. +5,000 INR) |
 | **Auto Stop Loss P&L** | Exit | Square off position if total trade unrealized P&L $\le$ `auto_sl_val` (e.g. -3,000 INR) |
 | **Auto Square-Off Time** | Exit | Automatically exits all open positions when local time $\ge$ `auto_square_off_time` (e.g., 23:30) |
+
+---
+
+## ⚡ 8. Advanced Execution & Modules
+
+### Concurrent Order Placement (Zero Leg-to-Leg Delay)
+- **Simultaneous Legs**: When placing spread orders, **Leg 1 (GOLDPETAL)** and **Leg 2 (GOLDMINI)** are fired across the broker API concurrently using `asyncio.gather`. Neither leg waits for the other, guaranteeing near-zero millisecond latency between both sides of the arbitrage spread.
+
+### Anti-Slippage Cooldown (20-Second Gap)
+- **Consecutive Order Cooldown**: A strict **20-second minimum cooldown** is enforced between consecutive orders (Order 1 $\rightarrow$ Order 2 $\rightarrow$ Order 3, etc.) for both entries and exits in Trade Automation and Trade Automation with Lots.
+- *Note:* This delay is strictly between consecutive spread orders, NOT between Leg 1 and Leg 2. It ensures market liquidity recovers after each order fill, preventing adverse slippage.
+
+### Module: Trade Automation with Lots (Custom Lots Per Order)
+- Allows specifying custom, tiered lot quantities for each level in the averaging ladder (e.g., `2, 3, 1`).
+- **Example**:
+  - Base Entry: `900`, Averaging Step: `50`, Lots Sequence: `2, 3, 1`
+  - **Order 1**: Spread $\le 900 \rightarrow$ Executes **2 Lots**
+  - *(20 seconds delay strictly enforced)*
+  - **Order 2**: Spread $\le 950 \rightarrow$ Executes **3 Lots**
+  - *(20 seconds delay strictly enforced)*
+  - **Order 3**: Spread $\le 1000 \rightarrow$ Executes **1 Lot**
+- **Exit Logic**: Individual orders exit upon reaching their Target Exit Spread (`Entry Spread + Exit Gap` for Expansion or `Entry Spread - Exit Gap` for Contraction) with the same strict 20-second cooldown between consecutive exits.
+
