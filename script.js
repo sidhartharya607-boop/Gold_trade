@@ -630,8 +630,9 @@ function updateDashboard(data) {
     if (manualSummaryEl) {
         let mPending = 0, mClosed = 0;
         manualTrades.forEach(t => {
-            if (t.status === 'Pending' || t.status === 'Open' || !t.status) mPending++;
-            else mClosed++;
+            const s = String(t.status || "").trim().toLowerCase();
+            if (s === 'pending') mPending++;
+            else if (s === 'closed' || s === 'completed') mClosed++;
         });
         manualSummaryEl.innerHTML = `
             <div class="summary-item">Pending <strong>${mPending}</strong></div>
@@ -669,206 +670,185 @@ window.toggleTaAccordion = function(tacardId) {
 
     if (!manualTradesBody) {
         // Guard if element is missing
-    } else if (manualTrades.length === 0) {
-        manualTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table">No active or pending manual trades.</td></tr>`;
     } else {
         manualTradesBody.innerHTML = "";
-        // Separate Pending (which includes Open trades) and Closed trades
-        // Group Open trades under Pending view as requested
-        const pendingManual = manualTrades.filter(t => t.status === "Open" || t.status === "Pending" || !t.status);
-        const closedManual = manualTrades.filter(t => t.status !== "Open" && t.status !== "Pending" && t.status);
-
-        // Sort pending trades descending by ID so latest pending order is at the very top
-        pendingManual.sort((a, b) => (b.id || 0) - (a.id || 0));
-
-        // Sort closed trades descending by ID and place all closed trades at the bottom
-        closedManual.sort((a, b) => (b.id || 0) - (a.id || 0));
-
-        // Point 5: Show all active/pending trades + strictly latest 5 closed trades in UI
-        const limitedClosedManual = closedManual.slice(0, 5);
-        const manualTradesToRender = [...pendingManual, ...limitedClosedManual];
-
-        manualTradesToRender.forEach(trade => {
-            const tr = document.createElement("tr");
-            
-            // Format status badge:
-            const rawStatus = (trade.status !== undefined && trade.status !== null) ? String(trade.status).trim() : "";
-            const normStatus = rawStatus.toLowerCase();
-            
-            let status = "Pending";
-            let statusBadge = "";
-            let isPendingGroup = false;
-
-            if (normStatus === "open") {
-                status = "Open";
-                isPendingGroup = true;
-                statusBadge = `<span class="badge-open" style="background-color: rgba(16,185,129,0.15); color: #10b981; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(16,185,129,0.25);">OPEN</span>`;
-            } else if (normStatus === "pending" || normStatus === "") {
-                status = "Pending";
-                isPendingGroup = true;
-                statusBadge = `<span class="badge-pending" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.25);">PENDING</span>`;
-            } else if (normStatus === "failed") {
-                status = "Failed";
-                isPendingGroup = false;
-                statusBadge = `<span class="badge-failed" style="background-color: rgba(239,68,68,0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.25);">FAILED</span>`;
-            } else if (normStatus === "cancelled") {
-                status = "Cancelled";
-                isPendingGroup = false;
-                statusBadge = `<span class="badge-cancelled" style="background-color: rgba(245,158,11,0.15); color: #f97316; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.25);">CANCELLED</span>`;
-            } else {
-                status = "Closed";
-                isPendingGroup = false;
-                statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
-            }
-            
-            const triggerDiffDisplay = (trade.trigger_diff !== null && trade.trigger_diff !== undefined) ? parseFloat(trade.trigger_diff).toFixed(2) : "Immediate";
-            const filledSpreadDisplay = (trade.entry_spread !== undefined && trade.entry_spread !== null && trade.entry_spread !== 0.0) ? parseFloat(trade.entry_spread).toFixed(2) : "--";
-            const entrySlippage = trade.entry_slippage !== undefined ? trade.entry_slippage : 0.0;
-            const slippageClass = entrySlippage > 0 ? "pnl-loss" : entrySlippage < 0 ? "pnl-profit" : "";
-            const slippageText = (entrySlippage !== 0.0 && status !== "Pending") ? `<small class="${slippageClass}">(${(entrySlippage >= 0 ? "+" : "")}${entrySlippage.toFixed(1)})</small>` : "";
-
-            let triggerColContent = "";
-            if (status === "Pending") {
-                triggerColContent = `<span class="font-mono"><strong>${triggerDiffDisplay}</strong></span>`;
-            } else {
-                triggerColContent = `
-                    <div style="font-size: 0.72rem; line-height: 1.4;">
-                        <div>Target: <span class="font-mono"><strong>${triggerDiffDisplay}</strong></span></div>
-                        <div>Filled: <span class="font-mono"><strong>${filledSpreadDisplay}</strong></span> ${slippageText}</div>
-                    </div>
-                `;
-            }
-
-            const petalEntry = trade.petal_entry_price || 0.0;
-            const miniEntry = trade.mini_entry_price || 0.0;
-            
-            // Format Col: Execution Prices
-            let pricesContent = "--";
-            if (status === "Open" || status === "Closed" || status === "Completed") {
-                pricesContent = `
-                    <div style="font-size: 0.72rem; line-height: 1.4;">
-                        <div>P: <strong>${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
-                        <div>M: <strong>${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
-                    </div>
-                `;
-            }
-            
-            // Format Col: Live P&L
-            let pnlContent = "--";
-            if (status === "Open") {
-                const unrealizedPnl = trade.unrealized_pnl || 0.0;
-                const pnlClass = unrealizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
-                pnlContent = `<strong class="${pnlClass}" style="font-family: var(--font-mono);">${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>`;
-            } else if (status === "Closed" || status === "Completed") {
-                const realizedPnl = trade.pnl || 0.0;
-                const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
-                pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
-            } else if (status === "Failed") {
-                pnlContent = `<span style="color: var(--text-muted); font-size: 0.65rem; max-width: 150px; display: inline-block; word-break: break-word;">${trade.reason || "Trigger failed"}</span>`;
-            }
-            
-            // Action button: Cancel for Pending, Exit for Open, Dismiss for Failed/Cancelled/Closed
-            let actionBtn = "";
-            if (status === "Pending") {
-                actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c; cursor: pointer;">Cancel</button>`;
-            } else if (status === "Open") {
-                actionBtn = `<button class="action-btn exit-button" onclick="exitManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444; cursor: pointer;">Exit</button>`;
-            } else {
-                actionBtn = `<button class="metallic-button" onclick="dismissManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted); cursor: pointer;">Dismiss</button>`;
-            }
-            
-            const tradeTime = trade.entry_time || "--";
-            const petalSym = trade.petal_symbol || data.petal_symbol || "GOLDPETAL";
-            const miniSym = trade.mini_symbol || data.mini_symbol || "GOLDMINI";
-            const symbolsContent = `
-                <div style="font-size: 0.7rem; line-height: 1.3;">
-                    <div>L1: <strong class="font-mono" style="color: var(--text-primary);">${petalSym}</strong></div>
-                    <div>L2: <strong class="font-mono" style="color: var(--text-secondary);">${miniSym}</strong></div>
-                </div>
-            `;
-            
-            // Point 4: Persist accordion state across WebSocket ticks
-            const mcardId = `m-card-${trade.id}`;
-            const userState = (window.manualAccordionState && window.manualAccordionState[mcardId] !== undefined)
-                ? window.manualAccordionState[mcardId]
-                : undefined;
-            const isOpen = (userState !== undefined) ? userState : isPendingGroup;
-            const mobileCardHTML = `
-                <td class="mobile-only" colspan="10">
-                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
-                        <!-- Accordion Header: always visible, tap to toggle without resetting on ticks -->
-                        <div onclick="window.toggleManualAccordion('${mcardId}')" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background: ${status==='Open' ? 'rgba(16,185,129,0.05)' : status==='Pending' ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom: 1px solid var(--border-color); user-select:none;">
-                            <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
-                                <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
-                                ${statusBadge}
-                                <span style="font-size:0.68rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px;" title="${petalSym}">${petalSym.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</span>
-                            </div>
-                            <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
-                                <span style="font-size:0.72rem;">${pnlContent}</span>
-                                <span id="arr-${mcardId}" class="macc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${isOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
-                            </div>
-                        </div>
-                        <!-- Accordion Body: details -->
-                        <div id="${mcardId}" style="display:${isOpen ? 'block' : 'none'}; padding:0.65rem 0.75rem;">
-                            <div style="margin-bottom:0.6rem; line-height:1.5; font-size:0.78rem; color:var(--text-secondary);">
-                                <div><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 1</strong></div>
-                                <div style="color:var(--text-primary);">${petalSym}</div>
-                                <div style="margin-top:0.2rem;"><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 2</strong></div>
-                                <div style="color:var(--text-primary);">${miniSym}</div>
-                            </div>
-                            <div style="border:1px solid var(--border-color); border-radius:6px; overflow:hidden; margin-bottom:0.6rem;">
-                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
-                                    <span style="color:var(--text-muted);">QTY</span>
-                                    <strong style="color:var(--text-primary);">${trade.quantity}</strong>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color);">
-                                    <span style="color:var(--text-muted);">TARGET DIFF</span>
-                                    <span style="color:var(--text-primary); text-align:right;">${triggerColContent}</span>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
-                                    <span style="color:var(--text-muted);">PETAL PRICE</span>
-                                    <strong style="color:var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
-                                </div>
-                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem;">
-                                    <span style="color:var(--text-muted);">MINI PRICE</span>
-                                    <strong style="color:var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
-                                </div>
-                            </div>
-                            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.73rem;">
-                                <div style="color:var(--text-muted);">↕ <strong style="color:var(--text-primary); text-transform:uppercase;">${trade.direction}</strong> &nbsp;·&nbsp; ${tradeTime}</div>
-                                ${actionBtn}
-                            </div>
-                        </div>
-                    </div>
-                </td>
-            `;
-
-            tr.innerHTML = `
-                <td data-label="ID" class="font-mono desktop-only">${trade.id}</td>
-                <td data-label="Time" class="desktop-only">${tradeTime}</td>
-                <td data-label="Symbols" class="desktop-only">${symbolsContent}</td>
-                <td data-label="Direction" class="desktop-only"><strong>${trade.direction}</strong></td>
-                <td data-label="Qty" class="font-mono desktop-only">${trade.quantity}</td>
-                <td data-label="Trigger Diff" class="desktop-only">${triggerColContent}</td>
-                <td data-label="Status" class="desktop-only">${statusBadge}</td>
-                <td data-label="Prices" class="desktop-only">${pricesContent}</td>
-                <td data-label="Live P&L" class="desktop-only">${pnlContent}</td>
-                <td data-label="Action" class="desktop-only" style="text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
-                ${mobileCardHTML}
-            `;
-            
-            manualTradesBody.appendChild(tr);
+        // Strictly show only 2 types of orders: Pending and Closed
+        const pendingManual = manualTrades.filter(t => {
+            const s = String(t.status || "").trim().toLowerCase();
+            return s === "pending";
+        });
+        const closedManual = manualTrades.filter(t => {
+            const s = String(t.status || "").trim().toLowerCase();
+            return s === "closed" || s === "completed";
         });
 
-        // Point 5: Notice for UI closed trades limit
-        if (closedManual.length > 5) {
-            const noticeTr = document.createElement("tr");
-            noticeTr.innerHTML = `
-                <td colspan="10" style="text-align: center; color: var(--text-muted); font-size: 0.72rem; padding: 0.6rem; background: rgba(255,255,255,0.01); border-top: 1px dashed var(--border-color);">
-                    ℹ️ Showing latest 5 of ${closedManual.length} closed trades. Full trade history is available via <strong>Export All Trades (CSV)</strong>.
-                </td>
-            `;
-            manualTradesBody.appendChild(noticeTr);
+        // Sort pending trades descending by ID so the latest pending order is at the very top
+        pendingManual.sort((a, b) => (b.id || 0) - (a.id || 0));
+
+        // Sort closed trades descending by ID so latest closed are on top within closed, limited to strictly 5
+        closedManual.sort((a, b) => (b.id || 0) - (a.id || 0));
+        const limitedClosedManual = closedManual.slice(0, 5);
+
+        // Pending orders on top, Closed orders at the bottom
+        const manualTradesToRender = [...pendingManual, ...limitedClosedManual];
+
+        if (manualTradesToRender.length === 0) {
+            manualTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table">No pending or closed manual orders.</td></tr>`;
+        } else {
+            manualTradesToRender.forEach(trade => {
+                const tr = document.createElement("tr");
+                
+                // Format status badge (Only Pending or Closed):
+                const rawStatus = (trade.status !== undefined && trade.status !== null) ? String(trade.status).trim() : "";
+                const normStatus = rawStatus.toLowerCase();
+                
+                const isPending = normStatus === "pending";
+                const status = isPending ? "Pending" : "Closed";
+                const statusBadge = isPending
+                    ? `<span class="badge-pending" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.25);">PENDING</span>`
+                    : `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
+                
+                const triggerDiffDisplay = (trade.trigger_diff !== null && trade.trigger_diff !== undefined) ? parseFloat(trade.trigger_diff).toFixed(2) : "Immediate";
+                const filledSpreadDisplay = (trade.entry_spread !== undefined && trade.entry_spread !== null && trade.entry_spread !== 0.0) ? parseFloat(trade.entry_spread).toFixed(2) : "--";
+                const entrySlippage = trade.entry_slippage !== undefined ? trade.entry_slippage : 0.0;
+                const slippageClass = entrySlippage > 0 ? "pnl-loss" : entrySlippage < 0 ? "pnl-profit" : "";
+                const slippageText = (entrySlippage !== 0.0 && status !== "Pending") ? `<small class="${slippageClass}">(${(entrySlippage >= 0 ? "+" : "")}${entrySlippage.toFixed(1)})</small>` : "";
+
+                let triggerColContent = "";
+                if (status === "Pending") {
+                    triggerColContent = `<span class="font-mono"><strong>${triggerDiffDisplay}</strong></span>`;
+                } else {
+                    triggerColContent = `
+                        <div style="font-size: 0.72rem; line-height: 1.4;">
+                            <div>Target: <span class="font-mono"><strong>${triggerDiffDisplay}</strong></span></div>
+                            <div>Filled: <span class="font-mono"><strong>${filledSpreadDisplay}</strong></span> ${slippageText}</div>
+                        </div>
+                    `;
+                }
+
+                const petalEntry = trade.petal_entry_price || 0.0;
+                const miniEntry = trade.mini_entry_price || 0.0;
+                
+                // Format Col: Execution Prices
+                let pricesContent = "--";
+                if (status === "Closed") {
+                    pricesContent = `
+                        <div style="font-size: 0.72rem; line-height: 1.4;">
+                            <div>P: <strong>${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                            <div>M: <strong>${miniEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
+                        </div>
+                    `;
+                }
+                
+                // Format Col: Live P&L
+                let pnlContent = "--";
+                if (status === "Closed") {
+                    const realizedPnl = trade.pnl || 0.0;
+                    const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
+                    pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
+                }
+                
+                // Action button: Cancel for Pending, Dismiss for Closed (STRICTLY NO EXIT BUTTON)
+                let actionBtn = "";
+                if (status === "Pending") {
+                    actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c; cursor: pointer;">Cancel</button>`;
+                } else {
+                    actionBtn = `<button class="metallic-button" onclick="dismissManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted); cursor: pointer;">Dismiss</button>`;
+                }
+                
+                const tradeTime = trade.entry_time || "--";
+                const petalSym = trade.petal_symbol || data.petal_symbol || "GOLDPETAL";
+                const miniSym = trade.mini_symbol || data.mini_symbol || "GOLDMINI";
+                const symbolsContent = `
+                    <div style="font-size: 0.7rem; line-height: 1.3;">
+                        <div>L1: <strong class="font-mono" style="color: var(--text-primary);">${petalSym}</strong></div>
+                        <div>L2: <strong class="font-mono" style="color: var(--text-secondary);">${miniSym}</strong></div>
+                    </div>
+                `;
+                
+                // Mobile Accordion item
+                const mcardId = `m-card-${trade.id}`;
+                const userState = (window.manualAccordionState && window.manualAccordionState[mcardId] !== undefined)
+                    ? window.manualAccordionState[mcardId]
+                    : undefined;
+                const isOpen = (userState !== undefined) ? userState : isPending;
+                const mobileCardHTML = `
+                    <td class="mobile-only" colspan="10">
+                        <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
+                            <!-- Accordion Header -->
+                            <div onclick="window.toggleManualAccordion('${mcardId}')" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background: ${isPending ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom: 1px solid var(--border-color); user-select:none;">
+                                <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
+                                    <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
+                                    ${statusBadge}
+                                    <span style="font-size:0.68rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px;" title="${petalSym}">${petalSym.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</span>
+                                </div>
+                                <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+                                    <span style="font-size:0.72rem;">${pnlContent}</span>
+                                    <span id="arr-${mcardId}" class="macc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${isOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
+                                </div>
+                            </div>
+                            <!-- Accordion Body -->
+                            <div id="${mcardId}" style="display:${isOpen ? 'block' : 'none'}; padding:0.65rem 0.75rem;">
+                                <div style="margin-bottom:0.6rem; line-height:1.5; font-size:0.78rem; color:var(--text-secondary);">
+                                    <div><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 1</strong></div>
+                                    <div style="color:var(--text-primary);">${petalSym}</div>
+                                    <div style="margin-top:0.2rem;"><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 2</strong></div>
+                                    <div style="color:var(--text-primary);">${miniSym}</div>
+                                </div>
+                                <div style="border:1px solid var(--border-color); border-radius:6px; overflow:hidden; margin-bottom:0.6rem;">
+                                    <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
+                                        <span style="color:var(--text-muted);">QTY</span>
+                                        <strong style="color:var(--text-primary);">${trade.quantity}</strong>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color);">
+                                        <span style="color:var(--text-muted);">TARGET DIFF</span>
+                                        <span style="color:var(--text-primary); text-align:right;">${triggerColContent}</span>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
+                                        <span style="color:var(--text-muted);">PETAL PRICE</span>
+                                        <strong style="color:var(--text-primary);">₹${trade.petal_entry_price || '0.00'}</strong>
+                                    </div>
+                                    <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem;">
+                                        <span style="color:var(--text-muted);">MINI PRICE</span>
+                                        <strong style="color:var(--text-primary);">₹${trade.mini_entry_price || '0.00'}</strong>
+                                    </div>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.73rem;">
+                                    <div style="color:var(--text-muted);">↕ <strong style="color:var(--text-primary); text-transform:uppercase;">${trade.direction}</strong> &nbsp;·&nbsp; ${tradeTime}</div>
+                                    ${actionBtn}
+                                </div>
+                            </div>
+                        </div>
+                    </td>
+                `;
+
+                tr.innerHTML = `
+                    <td data-label="ID" class="font-mono desktop-only">${trade.id}</td>
+                    <td data-label="Time" class="desktop-only">${tradeTime}</td>
+                    <td data-label="Symbols" class="desktop-only">${symbolsContent}</td>
+                    <td data-label="Direction" class="desktop-only"><strong>${trade.direction}</strong></td>
+                    <td data-label="Qty" class="font-mono desktop-only">${trade.quantity}</td>
+                    <td data-label="Trigger Diff" class="desktop-only">${triggerColContent}</td>
+                    <td data-label="Status" class="desktop-only">${statusBadge}</td>
+                    <td data-label="Prices" class="desktop-only">${pricesContent}</td>
+                    <td data-label="Live P&L" class="desktop-only">${pnlContent}</td>
+                    <td data-label="Action" class="desktop-only" style="text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                    ${mobileCardHTML}
+                `;
+                
+                manualTradesBody.appendChild(tr);
+            });
+
+            // Notice for UI closed trades limit
+            if (closedManual.length > 5) {
+                const noticeTr = document.createElement("tr");
+                noticeTr.innerHTML = `
+                    <td colspan="10" style="text-align: center; color: var(--text-muted); font-size: 0.72rem; padding: 0.6rem; background: rgba(255,255,255,0.01); border-top: 1px dashed var(--border-color);">
+                        ℹ️ Showing latest 5 of ${closedManual.length} closed orders. Full trade history is available via <strong>Export All Trades (CSV)</strong>.
+                    </td>
+                `;
+                manualTradesBody.appendChild(noticeTr);
+            }
         }
     }
 
@@ -1461,7 +1441,7 @@ window.toggleTaAccordion = function(tacardId) {
     if (mobileBadge) {
         const openTaCount = (data.ta_trades || []).filter(t => t.status === "Open" || !t.status).length;
         const openTaLotsCount = (data.ta_lots_trades || []).filter(t => t.status === "Open" || !t.status).length;
-        const openManualCount = (data.manual_trades || []).filter(t => t.status === "Open" || t.status === "Pending" || !t.status).length;
+        const openManualCount = (data.manual_trades || []).filter(t => (t.status || "").toLowerCase() === "pending").length;
         const totalOpen = openTaCount + openTaLotsCount + openManualCount;
         if (totalOpen > 0) {
             mobileBadge.innerText = totalOpen;
