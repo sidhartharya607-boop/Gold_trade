@@ -673,19 +673,16 @@ window.toggleTaAccordion = function(tacardId) {
         manualTradesBody.innerHTML = `<tr><td colspan="10" class="empty-table">No active or pending manual trades.</td></tr>`;
     } else {
         manualTradesBody.innerHTML = "";
-        // Separate Pending/Active and Closed trades cleanly (case-insensitive)
-        const isPendingOrActive = (t) => {
-            const s = String(t.status || "Pending").trim().toLowerCase();
-            return s === "pending" || s === "open" || s === "executing" || s === "created" || s === "";
-        };
-        const pendingManual = manualTrades.filter(isPendingOrActive);
-        const closedManual = manualTrades.filter(t => !isPendingOrActive(t));
+        // Separate Pending (which includes Open trades) and Closed trades
+        // Group Open trades under Pending view as requested
+        const pendingManual = manualTrades.filter(t => t.status === "Open" || t.status === "Pending" || !t.status);
+        const closedManual = manualTrades.filter(t => t.status !== "Open" && t.status !== "Pending" && t.status);
 
         // Sort pending trades descending by ID so latest pending order is at the very top
-        pendingManual.sort((a, b) => (parseInt(b.id) || 0) - (parseInt(a.id) || 0));
+        pendingManual.sort((a, b) => (b.id || 0) - (a.id || 0));
 
         // Sort closed trades descending by ID and place all closed trades at the bottom
-        closedManual.sort((a, b) => (parseInt(b.id) || 0) - (parseInt(a.id) || 0));
+        closedManual.sort((a, b) => (b.id || 0) - (a.id || 0));
 
         // Point 5: Show all active/pending trades + strictly latest 5 closed trades in UI
         const limitedClosedManual = closedManual.slice(0, 5);
@@ -694,33 +691,27 @@ window.toggleTaAccordion = function(tacardId) {
         manualTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
             
-            // Format status badge with clear visual representation for each state
-            const rawStatus = String(trade.status || "Pending").trim();
-            const statusLower = rawStatus.toLowerCase();
+            // Format status badge: Only show Pending and Closed statuses (Open trades grouped under Pending view)
             let statusBadge = "";
+            const status = trade.status || "Pending";
+            const isPendingGroup = (status === "Pending" || status === "Open" || !status);
 
-            if (statusLower === "pending" || statusLower === "created" || statusLower === "") {
+            if (isPendingGroup) {
                 statusBadge = `<span class="badge-pending" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.25);">PENDING</span>`;
-            } else if (statusLower === "executing") {
-                statusBadge = `<span class="badge-executing" style="background-color: rgba(59,130,246,0.15); color: #3b82f6; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(59,130,246,0.25);">EXECUTING</span>`;
-            } else if (statusLower === "open") {
-                statusBadge = `<span class="badge-open" style="background-color: rgba(16,185,129,0.15); color: #10b981; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(16,185,129,0.25);">OPEN</span>`;
-            } else if (statusLower === "failed") {
+            } else if (status === "Failed") {
                 statusBadge = `<span class="badge-failed" style="background-color: rgba(239,68,68,0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.25);">FAILED</span>`;
-            } else if (statusLower === "cancelled") {
-                statusBadge = `<span class="badge-cancelled" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CANCELLED</span>`;
             } else {
-                statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">${rawStatus.toUpperCase()}</span>`;
+                statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
             }
             
             const triggerDiffDisplay = (trade.trigger_diff !== null && trade.trigger_diff !== undefined) ? parseFloat(trade.trigger_diff).toFixed(2) : "Immediate";
             const filledSpreadDisplay = (trade.entry_spread !== undefined && trade.entry_spread !== null && trade.entry_spread !== 0.0) ? parseFloat(trade.entry_spread).toFixed(2) : "--";
             const entrySlippage = trade.entry_slippage !== undefined ? trade.entry_slippage : 0.0;
             const slippageClass = entrySlippage > 0 ? "pnl-loss" : entrySlippage < 0 ? "pnl-profit" : "";
-            const slippageText = (entrySlippage !== 0.0 && statusLower !== "pending") ? `<small class="${slippageClass}">(${(entrySlippage >= 0 ? "+" : "")}${entrySlippage.toFixed(1)})</small>` : "";
+            const slippageText = (entrySlippage !== 0.0 && status !== "Pending") ? `<small class="${slippageClass}">(${(entrySlippage >= 0 ? "+" : "")}${entrySlippage.toFixed(1)})</small>` : "";
 
             let triggerColContent = "";
-            if (statusLower === "pending" || statusLower === "executing" || statusLower === "created" || statusLower === "") {
+            if (status === "Pending") {
                 triggerColContent = `<span class="font-mono"><strong>${triggerDiffDisplay}</strong></span>`;
             } else {
                 triggerColContent = `
@@ -736,7 +727,7 @@ window.toggleTaAccordion = function(tacardId) {
             
             // Format Col: Execution Prices
             let pricesContent = "--";
-            if (statusLower === "open" || statusLower === "closed" || statusLower === "completed") {
+            if (status === "Open" || status === "Closed" || status === "Completed") {
                 pricesContent = `
                     <div style="font-size: 0.72rem; line-height: 1.4;">
                         <div>P: <strong>${petalEntry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong></div>
@@ -747,24 +738,24 @@ window.toggleTaAccordion = function(tacardId) {
             
             // Format Col: Live P&L
             let pnlContent = "--";
-            if (statusLower === "open") {
+            if (status === "Open") {
                 const unrealizedPnl = trade.unrealized_pnl || 0.0;
                 const pnlClass = unrealizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
                 pnlContent = `<strong class="${pnlClass}" style="font-family: var(--font-mono);">${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>`;
-            } else if (statusLower === "closed" || statusLower === "completed") {
+            } else if (status === "Closed" || status === "Completed") {
                 const realizedPnl = trade.pnl || 0.0;
                 const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
                 pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
-            } else if (statusLower === "failed") {
+            } else if (status === "Failed") {
                 pnlContent = `<span style="color: var(--text-muted); font-size: 0.65rem; max-width: 150px; display: inline-block; word-break: break-word;">${trade.reason || "Trigger failed"}</span>`;
             }
             
-            // Action button: Cancel for pending/executing/created, Square Off for open position, Dismiss for closed/failed/cancelled
+            // Point 1: Action button: Cancel for pending trigger, -- for open position (prevent accidental exit), Dismiss for closed
             let actionBtn = "";
-            if (statusLower === "pending" || statusLower === "executing" || statusLower === "created" || statusLower === "") {
+            if (status === "Pending") {
                 actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c;">Cancel</button>`;
-            } else if (statusLower === "open") {
-                actionBtn = `<button class="action-btn exit-button" onclick="exitManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444;">Square Off</button>`;
+            } else if (status === "Open") {
+                actionBtn = `<span style="color: var(--text-muted); font-size: 0.72rem; font-weight: 500;">--</span>`;
             } else {
                 actionBtn = `<button class="metallic-button" onclick="dismissManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
             }
@@ -789,7 +780,7 @@ window.toggleTaAccordion = function(tacardId) {
                 <td class="mobile-only" colspan="10">
                     <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
                         <!-- Accordion Header: always visible, tap to toggle without resetting on ticks -->
-                        <div onclick="window.toggleManualAccordion('${mcardId}')" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background: ${statusLower==='open' ? 'rgba(16,185,129,0.05)' : (statusLower==='pending'||statusLower==='executing'||statusLower==='created') ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom: 1px solid var(--border-color); user-select:none;">
+                        <div onclick="window.toggleManualAccordion('${mcardId}')" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background: ${status==='Open' ? 'rgba(16,185,129,0.05)' : status==='Pending' ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom: 1px solid var(--border-color); user-select:none;">
                             <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
                                 <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
                                 ${statusBadge}
@@ -1604,45 +1595,21 @@ killSwitchBtn.addEventListener("click", () => {
 
 // Window-level manual trade action helper functions
 window.cancelManualTrade = function(tradeId) {
-    if (confirm(`Are you sure you want to cancel manual trade ID ${tradeId}?`)) {
-        logLocalMessage(`[SYSTEM] Cancelling manual trade ID ${tradeId}...`);
-        postAction("exit-manual", { trade_id: tradeId })
-            .then(res => {
-                if (res && res.status === "SUCCESS") {
-                    logLocalMessage(`[SYSTEM] Manual trade ID ${tradeId} cancelled successfully.`);
-                }
-            })
-            .catch(err => {
-                alert(`Cancel failed: ${err.message || err}`);
-            });
+    if (confirm(`Are you sure you want to cancel pending manual trade ID ${tradeId}?`)) {
+        logLocalMessage(`[SYSTEM] Cancelling pending manual trade ID ${tradeId}...`);
+        postAction("exit-manual", { trade_id: tradeId });
     }
 };
 
 window.exitManualTrade = function(tradeId) {
     if (confirm(`Are you sure you want to square off manual trade ID ${tradeId}?`)) {
         logLocalMessage(`[SYSTEM] Squaring off manual trade ID ${tradeId}...`);
-        postAction("exit-manual", { trade_id: tradeId })
-            .then(res => {
-                if (res && res.status === "SUCCESS") {
-                    logLocalMessage(`[SYSTEM] Manual trade ID ${tradeId} squared off successfully.`);
-                }
-            })
-            .catch(err => {
-                alert(`Square-off failed: ${err.message || err}`);
-            });
+        postAction("exit-manual", { trade_id: tradeId });
     }
 };
 
 window.dismissManualTrade = function(tradeId) {
-    postAction("dismiss-manual", { trade_id: tradeId })
-        .then(res => {
-            if (res && res.status === "SUCCESS") {
-                logLocalMessage(`[SYSTEM] Manual trade ID ${tradeId} dismissed.`);
-            }
-        })
-        .catch(err => {
-            alert(`Dismiss failed: ${err.message || err}`);
-        });
+    postAction("dismiss-manual", { trade_id: tradeId });
 };
 
 // Submit strategy rules & config form parameters to the backend
