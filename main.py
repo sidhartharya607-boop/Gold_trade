@@ -523,6 +523,34 @@ class TradingSystem:
                 with open("manual_trades.json", "r", encoding="utf-8") as f:
                     self.manual_trades = json.load(f)
                 self.log(f"[PERSISTENCE] Loaded {len(self.manual_trades)} manual trades from manual_trades.json.")
+                # Deduplicate IDs and reset any stuck Executing trades
+                seen_ids = set()
+                max_id = 0
+                modified = False
+                for t in self.manual_trades:
+                    # Clean executing status
+                    if str(t.get("status", "")).strip().lower() == "executing":
+                        t["status"] = "Pending"
+                        t["reason"] = "Reset from Executing to Pending on startup"
+                        modified = True
+                    # Check unique ID
+                    t_id = t.get("id")
+                    if t_id is not None and str(t_id).isdigit():
+                        t_id = int(t_id)
+                        t["id"] = t_id
+                        if t_id > max_id:
+                            max_id = t_id
+                # Fix duplicates
+                for t in self.manual_trades:
+                    t_id = t.get("id")
+                    if t_id is None or t_id in seen_ids:
+                        max_id += 1
+                        t["id"] = max_id
+                        modified = True
+                    seen_ids.add(t.get("id"))
+                if modified:
+                    self.save_manual_trades()
+                    self.log("[PERSISTENCE] Cleaned manual trade IDs and recovered stuck statuses.")
             else:
                 self.manual_trades = []
                 self.log("[PERSISTENCE] No manual trades file found. Starting fresh.")
@@ -2991,7 +3019,7 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
                 pending_trade["mini_entry_type"] = result_open["mini_order_type"]
                 system_state.log(f"MANUAL TRIGGER FILLED (IN-PLACE): ID {pending_trade['id']}, Dir {new_direction}, Qty {open_qty}, Spread {entry_spread:.2f}")
             else:
-                trade_id = len(system_state.manual_trades) + 1
+                trade_id = max([int(t.get("id", 0)) for t in system_state.manual_trades if str(t.get("id", "")).isdigit()], default=0) + 1
                 new_trade = {
                     "id": trade_id,
                     "direction": new_direction,
@@ -3042,38 +3070,44 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
 
 async def trigger_manual_trade_execution(trade: dict, expected_entry_spread: float = None):
     global system_state
-    direction = trade["direction"]
-    p_sym = trade.get("petal_symbol") or system_state.petal_symbol
-    m_sym = trade.get("mini_symbol") or system_state.mini_symbol
-    
-    if expected_entry_spread is None:
-        if p_sym == system_state.petal_symbol and m_sym == system_state.mini_symbol:
-            expected_entry_spread = system_state.depth_buy_spread if direction == "Expansion" else system_state.depth_sell_spread
-        else:
-            for stat in system_state.month_master_live:
-                if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
-                    expected_entry_spread = stat["depth_buy_spread"] if direction == "Expansion" else stat["depth_sell_spread"]
-                    break
-            if expected_entry_spread is None:
-                expected_entry_spread = 0.0
-                
-    system_state.log(f"[MANUAL TRIGGER] Pending manual trade ID {trade['id']} ({p_sym}/{m_sym}) triggered. Processing netting/entry...")
-    
-    result = await execute_netting_manual_trades(
-        direction, 
-        trade["quantity"], 
-        expected_entry_spread, 
-        pending_trade=trade,
-        petal_symbol=p_sym,
-        mini_symbol=m_sym
-    )
-    if not result["success"]:
-        trade["status"] = "Failed"
-        trade["reason"] = result.get("reason", "Unknown execution error")
-        system_state.log(f"[MANUAL TRIGGER ERROR] Pending trade ID {trade['id']} execution failed: {trade['reason']}")
-        system_state.save_manual_trades()
+    try:
+        direction = trade["direction"]
+        p_sym = trade.get("petal_symbol") or system_state.petal_symbol
+        m_sym = trade.get("mini_symbol") or system_state.mini_symbol
         
-    await broadcast_system_state()
+        if expected_entry_spread is None:
+            if p_sym == system_state.petal_symbol and m_sym == system_state.mini_symbol:
+                expected_entry_spread = system_state.depth_buy_spread if direction == "Expansion" else system_state.depth_sell_spread
+            else:
+                for stat in system_state.month_master_live:
+                    if stat.get("petal_symbol") == p_sym and stat.get("mini_symbol") == m_sym:
+                        expected_entry_spread = stat["depth_buy_spread"] if direction == "Expansion" else stat["depth_sell_spread"]
+                        break
+                if expected_entry_spread is None:
+                    expected_entry_spread = 0.0
+                    
+        system_state.log(f"[MANUAL TRIGGER] Pending manual trade ID {trade['id']} ({p_sym}/{m_sym}) triggered. Processing netting/entry...")
+        
+        result = await execute_netting_manual_trades(
+            direction, 
+            trade["quantity"], 
+            expected_entry_spread, 
+            pending_trade=trade,
+            petal_symbol=p_sym,
+            mini_symbol=m_sym
+        )
+        if not result["success"]:
+            trade["status"] = "Failed"
+            trade["reason"] = result.get("reason", "Unknown execution error")
+            system_state.log(f"[MANUAL TRIGGER ERROR] Pending trade ID {trade['id']} execution failed: {trade['reason']}")
+            system_state.save_manual_trades()
+    except Exception as exc:
+        trade["status"] = "Failed"
+        trade["reason"] = f"Trigger execution error: {str(exc)}"
+        system_state.log(f"[MANUAL TRIGGER EXCEPTION] Pending trade ID {trade.get('id')} failed with exception: {exc}")
+        system_state.save_manual_trades()
+    finally:
+        await broadcast_system_state()
 
 async def run_manual_bot_check():
     global system_state
@@ -4410,7 +4444,7 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
     
     if payload.trigger_diff is not None:
         # Create pending manual trade
-        trade_id = len(system_state.manual_trades) + 1
+        trade_id = max([int(t.get("id", 0)) for t in system_state.manual_trades if str(t.get("id", "")).isdigit()], default=0) + 1
         new_trade = {
             "id": trade_id,
             "direction": payload.direction,
@@ -4486,25 +4520,44 @@ class ExitManualPayload(BaseModel):
 async def api_exit_manual(payload: ExitManualPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     
-    trade = None
-    for t in system_state.manual_trades:
-        if t["id"] == payload.trade_id:
-            trade = t
-            break
-            
-    if not trade:
+    # 1. Match trades by ID (supporting both int and str id comparison)
+    matching_trades = [t for t in system_state.manual_trades if str(t.get("id")) == str(payload.trade_id)]
+    if not matching_trades:
         raise HTTPException(status_code=404, detail=f"Manual trade ID {payload.trade_id} not found.")
         
-    if trade["status"] == "Pending":
+    # 2. Prioritize active/pending trades over closed/failed/cancelled trades
+    active_candidates = [
+        t for t in matching_trades 
+        if str(t.get("status", "")).strip().lower() in ["pending", "executing", "created", "open"]
+    ]
+    trade = active_candidates[0] if active_candidates else matching_trades[-1]
+    
+    raw_status = str(trade.get("status", "")).strip().lower()
+    
+    # 3. If Pending, Executing, Created, empty, or None: Cancel cleanly!
+    if raw_status in ["pending", "executing", "created", "", "none"]:
         trade["status"] = "Cancelled"
+        trade["reason"] = "Cancelled by user"
         system_state.log(f"MANUAL PENDING ENTRY ID {trade['id']} CANCELLED.")
         system_state.save_manual_trades()
         await broadcast_system_state()
         return {"status": "SUCCESS", "message": f"Pending trade ID {trade['id']} cancelled."}
         
-    if trade["status"] != "Open":
-        raise HTTPException(status_code=400, detail=f"Trade is not active (Status: {trade['status']}).")
+    # 4. If already cancelled, failed, or closed: confirm cancellation without throwing 400
+    if raw_status in ["cancelled", "failed", "closed"]:
+        trade["status"] = "Cancelled"
+        system_state.save_manual_trades()
+        await broadcast_system_state()
+        return {"status": "SUCCESS", "message": f"Trade ID {trade['id']} marked as Cancelled."}
         
+    if raw_status != "open":
+        trade["status"] = "Cancelled"
+        trade["reason"] = "Cancelled by user"
+        system_state.save_manual_trades()
+        await broadcast_system_state()
+        return {"status": "SUCCESS", "message": f"Trade ID {trade['id']} cancelled."}
+        
+    # Trade is OPEN: Square off active market position
     direction = trade["direction"]
     petal_action = "SELL" if direction == "Expansion" else "BUY"
     mini_action = "BUY" if direction == "Expansion" else "SELL"
@@ -4526,6 +4579,7 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
             
     system_state.log(f"[MANUAL EXIT] Squaring off manual trade ID {trade['id']} ({direction}) for {p_sym}/{m_sym}...")
     
+    paper_override = trade.get("paper_mode", system_state.paper_trading_mode)
     result = await execute_trade(
         petal_action, mini_action, 
         check_liquidity=False, 
@@ -4534,7 +4588,8 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
         alt_petal_symbol=p_sym,
         alt_petal_token=p_tok,
         alt_mini_symbol=m_sym,
-        alt_mini_token=m_tok
+        alt_mini_token=m_tok,
+        paper_mode_override=paper_override
     )
     if not result["success"]:
         raise HTTPException(status_code=400, detail=f"Square off trade execution failed: {result['reason']}")
@@ -4632,7 +4687,7 @@ class DismissManualPayload(BaseModel):
 @app.post("/api/dismiss-manual")
 async def api_dismiss_manual(payload: DismissManualPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    system_state.manual_trades = [t for t in system_state.manual_trades if t["id"] != payload.trade_id]
+    system_state.manual_trades = [t for t in system_state.manual_trades if str(t.get("id")) != str(payload.trade_id)]
     system_state.save_manual_trades()
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": f"Manual trade ID {payload.trade_id} dismissed."}
