@@ -8,7 +8,7 @@ import asyncio
 import aiohttp
 import logging
 from io import StringIO
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union, Any
 
 import uvicorn
 from dotenv import load_dotenv
@@ -40,6 +40,26 @@ except ImportError as e:
 
 # Load environment variables
 load_dotenv()
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_data_filepath(filename: str) -> str:
+    path_in_base = os.path.join(BASE_DIR, filename)
+    if os.path.exists(path_in_base):
+        return path_in_base
+    if os.path.exists(filename):
+        cwd_file = os.path.abspath(filename)
+        try:
+            if cwd_file != path_in_base and os.path.exists(cwd_file) and os.path.getsize(cwd_file) > 0:
+                with open(cwd_file, "r", encoding="utf-8") as f_in:
+                    content = f_in.read()
+                with open(path_in_base, "w", encoding="utf-8") as f_out:
+                    f_out.write(content)
+                return path_in_base
+        except Exception:
+            pass
+        return cwd_file
+    return path_in_base
 
 # IST Timezone Helper Functions
 from datetime import datetime, timezone, timedelta
@@ -373,8 +393,9 @@ class TradingSystem:
         
     def load_rules(self):
         try:
-            if os.path.exists("rules_config.json"):
-                with open("rules_config.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("rules_config.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if "entry_threshold" in data: self.entry_threshold = float(data["entry_threshold"])
                     if "target_threshold" in data: self.target_threshold = float(data["target_threshold"])
@@ -409,7 +430,7 @@ class TradingSystem:
                     if "upstox_access_token" in data: self.upstox_access_token = str(data["upstox_access_token"])
                     if "upstox_petal_symbol" in data: self.upstox_petal_symbol = str(data["upstox_petal_symbol"])
                     if "upstox_mini_symbol" in data: self.upstox_mini_symbol = str(data["upstox_mini_symbol"])
-                self.log("[PERSISTENCE] Loaded strategy rules from rules_config.json.")
+                self.log(f"[PERSISTENCE] Loaded strategy rules from {filepath}.")
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to load rules config: {e}")
 
@@ -450,22 +471,24 @@ class TradingSystem:
                 "upstox_petal_symbol": self.upstox_petal_symbol,
                 "upstox_mini_symbol": self.upstox_mini_symbol
             }
-            with open("rules_config.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("rules_config.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
-            self.log("[PERSISTENCE] Saved strategy rules to rules_config.json.")
+            self.log(f"[PERSISTENCE] Saved strategy rules to {filepath}.")
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save rules config: {e}")
 
     def load_angel_master(self):
         try:
-            if os.path.exists("angel_master.json"):
-                with open("angel_master.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("angel_master.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if data.get("api_key"): self.api_key = data["api_key"]
                     if data.get("client_id"): self.client_id = data["client_id"]
                     if data.get("password"): self.password = data["password"]
                     if data.get("totp_secret"): self.totp_secret = data["totp_secret"]
-                self.log("[PERSISTENCE] Loaded Angel One master credentials from angel_master.json.")
+                self.log(f"[PERSISTENCE] Loaded Angel One master credentials from {filepath}.")
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to load Angel One master config: {e}")
 
@@ -477,16 +500,18 @@ class TradingSystem:
                 "password": self.password,
                 "totp_secret": self.totp_secret
             }
-            with open("angel_master.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("angel_master.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
-            self.log("[PERSISTENCE] Saved Angel One master credentials.")
+            self.log(f"[PERSISTENCE] Saved Angel One master credentials to {filepath}.")
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save Angel One master config: {e}")
         
     def load_trade_history(self):
         try:
-            if os.path.exists("trade_history.json"):
-                with open("trade_history.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("trade_history.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     self.trade_history = json.load(f)
                 
                 # Recalculate counters and statistics
@@ -502,7 +527,7 @@ class TradingSystem:
                 
                 self.realized_pnl = sum(float(t.get("pnl", 0.0)) for t in completed_trades)
                 self.total_pnl = self.realized_pnl
-                self.log(f"[PERSISTENCE] Loaded {len(self.trade_history)} trades from trade_history.json. Realized PnL: INR {self.realized_pnl:.2f}")
+                self.log(f"[PERSISTENCE] Loaded {len(self.trade_history)} trades from {filepath}. Realized PnL: INR {self.realized_pnl:.2f}")
             else:
                 self.trade_history = []
                 self.log("[PERSISTENCE] No trade history file found. Starting fresh.")
@@ -512,17 +537,19 @@ class TradingSystem:
 
     def save_trade_history(self):
         try:
-            with open("trade_history.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("trade_history.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.trade_history, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save trade history: {e}")
 
     def load_manual_trades(self):
         try:
-            if os.path.exists("manual_trades.json"):
-                with open("manual_trades.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("manual_trades.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     self.manual_trades = json.load(f)
-                self.log(f"[PERSISTENCE] Loaded {len(self.manual_trades)} manual trades from manual_trades.json.")
+                self.log(f"[PERSISTENCE] Loaded {len(self.manual_trades)} manual trades from {filepath}.")
             else:
                 self.manual_trades = []
                 self.log("[PERSISTENCE] No manual trades file found. Starting fresh.")
@@ -532,41 +559,82 @@ class TradingSystem:
 
     def save_manual_trades(self):
         try:
-            with open("manual_trades.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("manual_trades.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.manual_trades, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save manual trades: {e}")
 
     def load_month_master(self):
         try:
-            if os.path.exists("month_master.json"):
-                with open("month_master.json", "r", encoding="utf-8") as f:
-                    self.month_master = json.load(f)
-                for m in self.month_master:
-                    if "capture_data" not in m:
-                        m["capture_data"] = True
-                self.log(f"[PERSISTENCE] Loaded {len(self.month_master)} month master mappings from month_master.json.")
-            else:
-                self.month_master = []
-                self.log("[PERSISTENCE] No month master file found. Starting fresh.")
+            filepath = get_data_filepath("month_master.json")
+            base_filepath = os.path.join(BASE_DIR, "month_master.json")
+            candidate_paths = [filepath, base_filepath, "month_master.json"]
+            loaded = False
+            for p in candidate_paths:
+                if os.path.exists(p):
+                    try:
+                        with open(p, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        if isinstance(data, list) and len(data) > 0:
+                            self.month_master = data
+                            for m in self.month_master:
+                                if "capture_data" not in m:
+                                    m["capture_data"] = True
+                            self.log(f"[PERSISTENCE] Loaded {len(self.month_master)} month master mappings from {p}.")
+                            loaded = True
+                            if os.path.abspath(p) != os.path.abspath(base_filepath):
+                                try:
+                                    with open(base_filepath, "w", encoding="utf-8") as f_out:
+                                        json.dump(self.month_master, f_out, indent=4)
+                                except Exception:
+                                    pass
+                            break
+                    except Exception as err:
+                        self.log(f"[PERSISTENCE ERROR] Error reading {p}: {err}")
+            if not loaded:
+                if not getattr(self, "month_master", None):
+                    self.month_master = []
+                self.log(f"[PERSISTENCE] Retaining {len(self.month_master)} Month Master entries.")
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to load month master: {e}")
-            self.month_master = []
+            if not getattr(self, "month_master", None):
+                self.month_master = []
 
     def save_month_master(self):
         try:
-            with open("month_master.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("month_master.json")
+            # CRITICAL SAFETY GUARD: Never overwrite non-empty disk mappings with an empty list!
+            if len(self.month_master) == 0 and os.path.exists(filepath):
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        disk_data = json.load(f)
+                    if isinstance(disk_data, list) and len(disk_data) > 0:
+                        self.log("[SAFETY GUARD] In-memory month_master is empty, but disk file has entries. Preserving disk data!")
+                        self.month_master = disk_data
+                        return
+                except Exception:
+                    pass
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.month_master, f, indent=4)
-            self.log("[PERSISTENCE] Saved month master mappings.")
+            base_filepath = os.path.join(BASE_DIR, "month_master.json")
+            if os.path.abspath(filepath) != os.path.abspath(base_filepath) and len(self.month_master) > 0:
+                try:
+                    with open(base_filepath, "w", encoding="utf-8") as f:
+                        json.dump(self.month_master, f, indent=4)
+                except Exception:
+                    pass
+            self.log(f"[PERSISTENCE] Saved {len(self.month_master)} month master mappings to {filepath}.")
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save month master: {e}")
 
     def load_ta_trades(self):
         try:
-            if os.path.exists("ta_trades.json"):
-                with open("ta_trades.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_trades.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     self.ta_trades = json.load(f)
-                self.log(f"[PERSISTENCE] Loaded {len(self.ta_trades)} Trade Automation trades from ta_trades.json.")
+                self.log(f"[PERSISTENCE] Loaded {len(self.ta_trades)} Trade Automation trades from {filepath}.")
             else:
                 self.ta_trades = []
         except Exception as e:
@@ -575,17 +643,19 @@ class TradingSystem:
 
     def save_ta_trades(self):
         try:
-            with open("ta_trades.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_trades.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.ta_trades, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta trades: {e}")
 
     def load_ta_configs(self):
         try:
-            if os.path.exists("ta_configs.json"):
-                with open("ta_configs.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_configs.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     self.ta_configs = json.load(f)
-                self.log(f"[PERSISTENCE] Loaded {len(self.ta_configs)} Trade Automation configs from ta_configs.json.")
+                self.log(f"[PERSISTENCE] Loaded {len(self.ta_configs)} Trade Automation configs from {filepath}.")
             else:
                 self.ta_configs = []
         except Exception as e:
@@ -594,17 +664,19 @@ class TradingSystem:
 
     def save_ta_configs(self):
         try:
-            with open("ta_configs.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_configs.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.ta_configs, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta configs: {e}")
 
     def load_ta_lots_trades(self):
         try:
-            if os.path.exists("ta_lots_trades.json"):
-                with open("ta_lots_trades.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_lots_trades.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     self.ta_lots_trades = json.load(f)
-                self.log(f"[PERSISTENCE] Loaded {len(self.ta_lots_trades)} Trade Automation with Lots trades from ta_lots_trades.json.")
+                self.log(f"[PERSISTENCE] Loaded {len(self.ta_lots_trades)} Trade Automation with Lots trades from {filepath}.")
             else:
                 self.ta_lots_trades = []
         except Exception as e:
@@ -613,17 +685,19 @@ class TradingSystem:
 
     def save_ta_lots_trades(self):
         try:
-            with open("ta_lots_trades.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_lots_trades.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.ta_lots_trades, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta_lots trades: {e}")
 
     def load_ta_lots_configs(self):
         try:
-            if os.path.exists("ta_lots_configs.json"):
-                with open("ta_lots_configs.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_lots_configs.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     self.ta_lots_configs = json.load(f)
-                self.log(f"[PERSISTENCE] Loaded {len(self.ta_lots_configs)} Trade Automation with Lots configs from ta_lots_configs.json.")
+                self.log(f"[PERSISTENCE] Loaded {len(self.ta_lots_configs)} Trade Automation with Lots configs from {filepath}.")
             else:
                 self.ta_lots_configs = []
         except Exception as e:
@@ -632,17 +706,19 @@ class TradingSystem:
 
     def save_ta_lots_configs(self):
         try:
-            with open("ta_lots_configs.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("ta_lots_configs.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.ta_lots_configs, f, indent=4)
         except Exception as e:
             self.log(f"[PERSISTENCE ERROR] Failed to save ta_lots configs: {e}")
 
     def load_daily_spread_stats(self):
         try:
-            if os.path.exists("daily_spread_stats.json"):
-                with open("daily_spread_stats.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("daily_spread_stats.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     self.daily_spread_stats = json.load(f)
-                self.log(f"[PERSISTENCE] Loaded daily spread stats for {len(self.daily_spread_stats)} date(s).")
+                self.log(f"[PERSISTENCE] Loaded daily spread stats for {len(self.daily_spread_stats)} date(s) from {filepath}.")
             else:
                 self.daily_spread_stats = {}
         except Exception as e:
@@ -651,15 +727,17 @@ class TradingSystem:
 
     def save_daily_spread_stats(self):
         try:
-            with open("daily_spread_stats.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("daily_spread_stats.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.daily_spread_stats, f, indent=4)
         except Exception as e:
             pass
 
     def load_manual_bot(self):
         try:
-            if os.path.exists("manual_bot_config.json"):
-                with open("manual_bot_config.json", "r", encoding="utf-8") as f:
+            filepath = get_data_filepath("manual_bot_config.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, dict):
                         # Multi-bot tasks list
@@ -706,7 +784,8 @@ class TradingSystem:
 
     def save_manual_bot(self):
         try:
-            with open("manual_bot_config.json", "w", encoding="utf-8") as f:
+            filepath = get_data_filepath("manual_bot_config.json")
+            with open(filepath, "w", encoding="utf-8") as f:
                 payload = {
                     "manual_bot": self.manual_bot,
                     "bots": self.manual_bots
@@ -3165,10 +3244,39 @@ async def run_manual_bot_check():
             bot["why_waiting"] = "Execution lock in progress or system Halted"
             continue
 
+        # Double check disk persistence to guard against any process desync or duplicate processes
+        try:
+            cfg_path = get_data_filepath("manual_bot_config.json")
+            if os.path.exists(cfg_path):
+                with open(cfg_path, "r", encoding="utf-8") as f_chk:
+                    disk_cfg = json.load(f_chk)
+                disk_bots = disk_cfg.get("bots", [])
+                for db in disk_bots:
+                    if str(db.get("id")) == str(bot.get("id")):
+                        disk_filled = int(db.get("filled_orders", 0))
+                        if disk_filled > filled_orders:
+                            filled_orders = disk_filled
+                            bot["filled_orders"] = disk_filled
+                        if disk_filled >= total_orders or not db.get("active", True):
+                            bot["active"] = False
+                            break
+        except Exception:
+            pass
+
+        if filled_orders >= total_orders or not bot.get("active", True):
+            state_changed = True
+            continue
+
         order_idx = filled_orders + 1
         bot_label = bot.get("id", "MAIN")
         system_state.log(f"[MANUAL BOT {bot_label}] Triggered Order #{order_idx}/{total_orders} for {p_sym}/{m_sym} at spread {live_spread:.2f} (Target Window: {min_p:.1f} - {max_p:.1f})...")
         bot["last_order_time"] = time.time()
+        
+        # Pessimistic reservation: advance filled_orders immediately and persist to prevent duplicate or concurrent execution
+        bot["filled_orders"] = order_idx
+        if bot["filled_orders"] >= total_orders:
+            bot["active"] = False
+        system_state.save_manual_bot()
         
         result = await execute_netting_manual_trades(
             direction, qty, live_spread,
@@ -3176,7 +3284,6 @@ async def run_manual_bot_check():
             trade_source="MANUAL_BOT"
         )
         if result.get("success", False):
-            bot["filled_orders"] = order_idx
             if "trades" not in bot or not isinstance(bot["trades"], list):
                 bot["trades"] = []
             bot_trade_record = {
@@ -3215,6 +3322,8 @@ async def run_manual_bot_check():
                 bot["why_waiting"] = f"Order #{order_idx} filled. 30s cooldown before Order #{order_idx + 1}"
             state_changed = True
         else:
+            bot["filled_orders"] = order_idx - 1
+            bot["active"] = True
             bot["status_message"] = f"Order #{order_idx} failed: {result.get('reason', 'Execution error')}"
             bot["why_waiting"] = f"Order #{order_idx} execution error: {result.get('reason', 'Execution error')}"
             system_state.log(f"[MANUAL BOT ERROR] Order #{order_idx} execution failed: {result.get('reason')}")
@@ -4480,7 +4589,33 @@ async def api_exit(token: str = None, authorization: str = Header(None)):
     return {"status": "SUCCESS", "message": "Position closed successfully."}
 
 class ExitManualPayload(BaseModel):
-    trade_id: int
+    trade_id: Union[int, str]
+
+@app.post("/api/cancel-manual")
+async def api_cancel_manual(payload: ExitManualPayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    trade = None
+    for t in system_state.manual_trades:
+        if str(t.get("id")) == str(payload.trade_id):
+            trade = t
+            break
+            
+    if not trade:
+        return {"status": "SUCCESS", "message": f"Trade ID {payload.trade_id} already removed or not found."}
+        
+    status_lower = str(trade.get("status", "")).strip().lower()
+    if status_lower == "open":
+        return await api_exit_manual(payload, token, authorization)
+    else:
+        trade["status"] = "Cancelled"
+        trade["reason"] = "Cancelled by user"
+        trade["exit_time"] = get_ist_time_str("%H:%M:%S")
+        trade["exit_date"] = get_ist_time_str("%Y-%m-%d")
+        system_state.log(f"MANUAL TRADE ID {trade.get('id')} CANCELLED.")
+        system_state.save_manual_trades()
+        await broadcast_system_state()
+        return {"status": "SUCCESS", "message": f"Manual trade ID {trade.get('id')} cancelled successfully."}
 
 @app.post("/api/exit-manual")
 async def api_exit_manual(payload: ExitManualPayload, token: str = None, authorization: str = Header(None)):
@@ -4488,22 +4623,25 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
     
     trade = None
     for t in system_state.manual_trades:
-        if t["id"] == payload.trade_id:
+        if str(t.get("id")) == str(payload.trade_id):
             trade = t
             break
             
     if not trade:
-        raise HTTPException(status_code=404, detail=f"Manual trade ID {payload.trade_id} not found.")
+        return {"status": "SUCCESS", "message": f"Manual trade ID {payload.trade_id} not found or already closed."}
         
-    if trade["status"] == "Pending":
+    status_lower = str(trade.get("status", "")).strip().lower()
+    
+    # If trade is NOT Open (e.g. Pending, pending, Failed, Cancelled, empty, etc.), cancel it safely without 400!
+    if status_lower != "open":
         trade["status"] = "Cancelled"
-        system_state.log(f"MANUAL PENDING ENTRY ID {trade['id']} CANCELLED.")
+        trade["reason"] = "Cancelled by user"
+        trade["exit_time"] = get_ist_time_str("%H:%M:%S")
+        trade["exit_date"] = get_ist_time_str("%Y-%m-%d")
+        system_state.log(f"MANUAL PENDING/INACTIVE ENTRY ID {trade.get('id')} CANCELLED.")
         system_state.save_manual_trades()
         await broadcast_system_state()
-        return {"status": "SUCCESS", "message": f"Pending trade ID {trade['id']} cancelled."}
-        
-    if trade["status"] != "Open":
-        raise HTTPException(status_code=400, detail=f"Trade is not active (Status: {trade['status']}).")
+        return {"status": "SUCCESS", "message": f"Pending trade ID {trade.get('id')} cancelled."}
         
     direction = trade["direction"]
     petal_action = "SELL" if direction == "Expansion" else "BUY"
@@ -4627,15 +4765,27 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
     return {"status": "SUCCESS", "message": "Position closed successfully."}
 
 class DismissManualPayload(BaseModel):
-    trade_id: int
+    trade_id: Union[int, str]
 
 @app.post("/api/dismiss-manual")
 async def api_dismiss_manual(payload: DismissManualPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    system_state.manual_trades = [t for t in system_state.manual_trades if t["id"] != payload.trade_id]
+    system_state.manual_trades = [t for t in system_state.manual_trades if str(t.get("id")) != str(payload.trade_id)]
     system_state.save_manual_trades()
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": f"Manual trade ID {payload.trade_id} dismissed."}
+
+@app.post("/api/clear-manual-trades")
+async def api_clear_manual_trades(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    initial_count = len(system_state.manual_trades)
+    # Keep only Open trades, clear all Cancelled, Failed, Closed trades
+    system_state.manual_trades = [t for t in system_state.manual_trades if str(t.get("status", "")).strip().lower() == "open"]
+    removed_count = initial_count - len(system_state.manual_trades)
+    system_state.save_manual_trades()
+    await broadcast_system_state()
+    system_state.log(f"MANUAL TRADES CLEANUP: Removed {removed_count} inactive trades.")
+    return {"status": "SUCCESS", "message": f"Removed {removed_count} inactive trades."}
 
 # REST Emergency Kill Switch endpoint
 @app.post("/api/kill-switch")

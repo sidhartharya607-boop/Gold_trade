@@ -691,16 +691,33 @@ window.toggleTaAccordion = function(tacardId) {
         manualTradesToRender.forEach(trade => {
             const tr = document.createElement("tr");
             
-            // Format status badge: Only show Pending and Closed statuses (Open trades grouped under Pending view)
+            // Format status badge:
+            const rawStatus = (trade.status !== undefined && trade.status !== null) ? String(trade.status).trim() : "";
+            const normStatus = rawStatus.toLowerCase();
+            
+            let status = "Pending";
             let statusBadge = "";
-            const status = trade.status || "Pending";
-            const isPendingGroup = (status === "Pending" || status === "Open" || !status);
+            let isPendingGroup = false;
 
-            if (isPendingGroup) {
+            if (normStatus === "open") {
+                status = "Open";
+                isPendingGroup = true;
+                statusBadge = `<span class="badge-open" style="background-color: rgba(16,185,129,0.15); color: #10b981; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(16,185,129,0.25);">OPEN</span>`;
+            } else if (normStatus === "pending" || normStatus === "") {
+                status = "Pending";
+                isPendingGroup = true;
                 statusBadge = `<span class="badge-pending" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.25);">PENDING</span>`;
-            } else if (status === "Failed") {
+            } else if (normStatus === "failed") {
+                status = "Failed";
+                isPendingGroup = false;
                 statusBadge = `<span class="badge-failed" style="background-color: rgba(239,68,68,0.15); color: #ef4444; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.25);">FAILED</span>`;
+            } else if (normStatus === "cancelled") {
+                status = "Cancelled";
+                isPendingGroup = false;
+                statusBadge = `<span class="badge-cancelled" style="background-color: rgba(245,158,11,0.15); color: #f97316; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.25);">CANCELLED</span>`;
             } else {
+                status = "Closed";
+                isPendingGroup = false;
                 statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
             }
             
@@ -750,14 +767,14 @@ window.toggleTaAccordion = function(tacardId) {
                 pnlContent = `<span style="color: var(--text-muted); font-size: 0.65rem; max-width: 150px; display: inline-block; word-break: break-word;">${trade.reason || "Trigger failed"}</span>`;
             }
             
-            // Point 1: Action button: Cancel for pending trigger, -- for open position (prevent accidental exit), Dismiss for closed
+            // Action button: Cancel for Pending, Exit for Open, Dismiss for Failed/Cancelled/Closed
             let actionBtn = "";
             if (status === "Pending") {
-                actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c;">Cancel</button>`;
+                actionBtn = `<button class="action-btn exit-button" onclick="cancelManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ea580c; cursor: pointer;">Cancel</button>`;
             } else if (status === "Open") {
-                actionBtn = `<span style="color: var(--text-muted); font-size: 0.72rem; font-weight: 500;">--</span>`;
+                actionBtn = `<button class="action-btn exit-button" onclick="exitManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444; cursor: pointer;">Exit</button>`;
             } else {
-                actionBtn = `<button class="metallic-button" onclick="dismissManualTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
+                actionBtn = `<button class="metallic-button" onclick="dismissManualTrade('${trade.id}')" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted); cursor: pointer;">Dismiss</button>`;
             }
             
             const tradeTime = trade.entry_time || "--";
@@ -1595,9 +1612,9 @@ killSwitchBtn.addEventListener("click", () => {
 
 // Window-level manual trade action helper functions
 window.cancelManualTrade = function(tradeId) {
-    if (confirm(`Are you sure you want to cancel pending manual trade ID ${tradeId}?`)) {
-        logLocalMessage(`[SYSTEM] Cancelling pending manual trade ID ${tradeId}...`);
-        postAction("exit-manual", { trade_id: tradeId });
+    if (confirm(`Are you sure you want to cancel manual trade ID ${tradeId}?`)) {
+        logLocalMessage(`[SYSTEM] Cancelling manual trade ID ${tradeId}...`);
+        postAction("cancel-manual", { trade_id: tradeId });
     }
 };
 
@@ -1610,6 +1627,13 @@ window.exitManualTrade = function(tradeId) {
 
 window.dismissManualTrade = function(tradeId) {
     postAction("dismiss-manual", { trade_id: tradeId });
+};
+
+window.clearAllInactiveManualTrades = function() {
+    if (confirm("Are you sure you want to clear all cancelled, failed, and closed manual trades?")) {
+        logLocalMessage("[SYSTEM] Clearing all inactive manual trades...");
+        postAction("clear-manual-trades");
+    }
 };
 
 // Submit strategy rules & config form parameters to the backend
@@ -2284,8 +2308,28 @@ window.renderLiveSpreads = function() {
 
 // Month Master management functions
 function updateMonthMasterUI(mappings) {
+    // 1. Safety net: Cache non-empty mappings to browser localStorage
+    if (mappings && Array.isArray(mappings) && mappings.length > 0) {
+        try {
+            localStorage.setItem("ACCUSTOCK_MONTH_MASTER_BACKUP", JSON.stringify(mappings));
+        } catch(e) {}
+    } else if (!mappings || mappings.length === 0) {
+        // If server sent empty array, check if we have a client-side localStorage backup
+        try {
+            const backupStr = localStorage.getItem("ACCUSTOCK_MONTH_MASTER_BACKUP");
+            if (backupStr) {
+                const backup = JSON.parse(backupStr);
+                if (Array.isArray(backup) && backup.length > 0) {
+                    logLocalMessage("[SYSTEM] Restoring Month Master mappings from client backup...");
+                    postAction("month-master", { mappings: backup });
+                    mappings = backup;
+                }
+            }
+        } catch(e) {}
+    }
+
     if (monthMasterTableBody) {
-        if (mappings.length === 0) {
+        if (!mappings || mappings.length === 0) {
             monthMasterTableBody.innerHTML = `<tr><td colspan="6" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td></tr>`;
         } else {
             let tableHtml = "";
