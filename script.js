@@ -1110,7 +1110,7 @@ window.toggleTaLotsAccordion = function(talotscardId) {
             if (status === "Open") {
                 actionBtn = `
                     <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
-                        <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${currentExitGap}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap / Target Spread for this trade">✏️ Edit Tgt</button>
+                        <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${currentExitGap}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}', 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap / Target Spread for this trade">✏️ Edit Tgt</button>
                     </div>
                 `;
             } else {
@@ -1295,7 +1295,7 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                 const lotsExitGapVal = trade.exit_gap !== undefined ? parseFloat(trade.exit_gap) : 100.0;
                 actionBtn = `
                     <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
-                        <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${lotsExitGapVal}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap for this Lots trade">✏️ Edit Tgt</button>
+                        <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${lotsExitGapVal}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}', 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap for this Lots trade">✏️ Edit Tgt</button>
                     </div>
                 `;
             } else {
@@ -1670,6 +1670,7 @@ function postAction(endpoint, payload = {}) {
     .catch(error => {
         console.error(`Error executing ${endpoint}:`, error);
         logLocalMessage(`[SYSTEM] API Action failed: ${error.message}`);
+        return { status: "ERROR", message: error.message };
     });
 }
 
@@ -3260,20 +3261,23 @@ const taEditModalTitle = document.getElementById("ta-edit-modal-title");
 const taEditTradeId = document.getElementById("ta-edit-trade-id");
 const taEditTradeDirection = document.getElementById("ta-edit-trade-direction");
 const taEditTradeEntrySpread = document.getElementById("ta-edit-trade-entry-spread");
+const taEditTradeType = document.getElementById("ta-edit-trade-type");
 const taEditDispDirection = document.getElementById("ta-edit-disp-direction");
 const taEditDispEntrySpread = document.getElementById("ta-edit-disp-entry-spread");
 const taEditInputGap = document.getElementById("ta-edit-input-gap");
 const taEditInputTargetSpread = document.getElementById("ta-edit-input-target-spread");
 const taEditSaveBtn = document.getElementById("ta-edit-save-btn");
 
-window.openEditTaTradeModal = function(tradeId, currentGap, entrySpread, direction) {
+window.openEditTaTradeModal = function(tradeId, currentGap, entrySpread, direction, tradeType = 'lots') {
     if (!taEditModal) return;
     
     taEditTradeId.value = tradeId;
     taEditTradeDirection.value = direction;
     taEditTradeEntrySpread.value = entrySpread;
+    if (taEditTradeType) taEditTradeType.value = tradeType || 'lots';
     
-    if (taEditModalTitle) taEditModalTitle.innerText = `Edit Target - Trade #${tradeId}`;
+    const typeLabel = tradeType === 'ta' ? 'Trade' : 'Lots Trade';
+    if (taEditModalTitle) taEditModalTitle.innerText = `Edit Target - ${typeLabel} #${tradeId}`;
     if (taEditDispDirection) taEditDispDirection.innerText = direction;
     if (taEditDispEntrySpread) taEditDispEntrySpread.innerText = Number(entrySpread).toFixed(2);
     
@@ -3321,6 +3325,7 @@ if (taEditInputTargetSpread) {
 window.saveEditTaTrade = async function() {
     const tradeId = parseInt(taEditTradeId.value);
     const newGap = parseFloat(taEditInputGap.value);
+    const tradeType = (taEditTradeType && taEditTradeType.value) ? taEditTradeType.value : "lots";
     
     if (isNaN(tradeId) || isNaN(newGap) || newGap <= 0) {
         alert("Please enter a valid target gap greater than 0.");
@@ -3335,14 +3340,15 @@ window.saveEditTaTrade = async function() {
     try {
         const result = await postAction("ta-edit-trade", {
             trade_id: tradeId,
-            exit_gap: newGap
+            exit_gap: newGap,
+            trade_type: tradeType
         });
         
         if (result && result.status === "SUCCESS") {
-            logLocalMessage(`[SYSTEM] Target for Trade ID ${tradeId} updated to Gap: ${newGap} (Target Spread: ${result.target_spread})`);
+            logLocalMessage(`[SYSTEM] Target for ${tradeType === 'ta' ? 'Trade' : 'Lots Trade'} #${tradeId} updated to Gap: ${newGap} (Target Spread: ${result.target_spread})`);
             closeEditTaTradeModal();
-        } else if (result && result.message) {
-            alert(`Error: ${result.message}`);
+        } else {
+            alert((result && result.message) ? result.message : "Failed to update target. Please check terminal logs.");
         }
     } catch (err) {
         alert(`Network Error: ${err.message}`);

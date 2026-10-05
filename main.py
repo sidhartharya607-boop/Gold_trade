@@ -5341,9 +5341,10 @@ async def api_ta_dismiss_trade(payload: TADismissTradePayload, token: str = None
     return {"status": "SUCCESS", "message": "Trade dismissed successfully."}
 
 class TAEditTradePayload(BaseModel):
-    trade_id: int
+    trade_id: Union[int, str]
     exit_gap: Optional[float] = None
     target_spread: Optional[float] = None
+    trade_type: Optional[str] = None
 
 @app.post("/api/ta-edit-trade")
 async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, authorization: str = Header(None)):
@@ -5352,32 +5353,84 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
     trade = None
     is_lots = False
     target_id_str = str(payload.trade_id).strip()
+    req_type = (payload.trade_type or "").strip().lower()
     
-    for t in system_state.ta_trades:
-        if str(t.get("id", "")).strip() == target_id_str:
-            trade = t
-            break
-            
-    if not trade:
+    # 1. Search specified list first if trade_type is provided
+    if req_type == "lots":
         for t in getattr(system_state, "ta_lots_trades", []):
             if str(t.get("id", "")).strip() == target_id_str:
                 trade = t
                 is_lots = True
                 break
+    elif req_type == "ta":
+        for t in system_state.ta_trades:
+            if str(t.get("id", "")).strip() == target_id_str:
+                trade = t
+                is_lots = False
+                break
+                
+    # 2. If not found or if matched trade is already closed/inactive,
+    # PRIORITIZE finding an OPEN trade across both lists!
+    if not trade or str(trade.get("status", "")).strip().lower() not in ["open", "active"]:
+        open_lots_candidate = None
+        for t in getattr(system_state, "ta_lots_trades", []):
+            if str(t.get("id", "")).strip() == target_id_str and str(t.get("status", "")).strip().lower() in ["open", "active"]:
+                open_lots_candidate = t
+                break
+                
+        open_ta_candidate = None
+        for t in system_state.ta_trades:
+            if str(t.get("id", "")).strip() == target_id_str and str(t.get("status", "")).strip().lower() in ["open", "active"]:
+                open_ta_candidate = t
+                break
+                
+        if req_type == "lots" and open_lots_candidate:
+            trade = open_lots_candidate
+            is_lots = True
+        elif req_type == "ta" and open_ta_candidate:
+            trade = open_ta_candidate
+            is_lots = False
+        elif open_lots_candidate:
+            trade = open_lots_candidate
+            is_lots = True
+        elif open_ta_candidate:
+            trade = open_ta_candidate
+            is_lots = False
+
+    # 3. Fallback to any trade matching ID if still none found (to give proper error response)
+    if not trade:
+        if req_type == "lots":
+            for t in getattr(system_state, "ta_lots_trades", []):
+                if str(t.get("id", "")).strip() == target_id_str:
+                    trade = t
+                    is_lots = True
+                    break
+        else:
+            for t in system_state.ta_trades:
+                if str(t.get("id", "")).strip() == target_id_str:
+                    trade = t
+                    is_lots = False
+                    break
+            if not trade:
+                for t in getattr(system_state, "ta_lots_trades", []):
+                    if str(t.get("id", "")).strip() == target_id_str:
+                        trade = t
+                        is_lots = True
+                        break
                 
     if not trade:
-        raise HTTPException(status_code=404, detail="Trade Automation trade not found.")
+        raise HTTPException(status_code=404, detail=f"Trade Automation trade #{target_id_str} not found.")
         
-    if str(trade.get("status", "")).strip() != "Open":
-        raise HTTPException(status_code=400, detail="Only OPEN trades can have their target edited.")
+    if str(trade.get("status", "")).strip().lower() not in ["open", "active"]:
+        raise HTTPException(status_code=400, detail=f"Trade #{trade.get('id')} is already {trade.get('status', 'Closed')}. Only OPEN trades can have their target edited.")
         
-    direction = trade.get("direction", "Expansion")
+    direction = str(trade.get("direction", "Expansion")).capitalize()
     entry_spread = float(trade.get("entry_spread", 0.0))
     old_gap = float(trade.get("exit_gap", 100.0))
     
-    if payload.exit_gap is not None:
+    if payload.exit_gap is not None and str(payload.exit_gap).strip() != "":
         new_gap = float(payload.exit_gap)
-    elif payload.target_spread is not None:
+    elif payload.target_spread is not None and str(payload.target_spread).strip() != "":
         target_spread = float(payload.target_spread)
         if direction == "Expansion":
             new_gap = target_spread - entry_spread
@@ -5387,7 +5440,7 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
         raise HTTPException(status_code=400, detail="Either exit_gap or target_spread must be provided.")
         
     if new_gap <= 0:
-        raise HTTPException(status_code=400, detail="Target gap must be greater than 0.")
+        raise HTTPException(status_code=400, detail=f"Target gap must be greater than 0 (got {new_gap:.2f}).")
         
     trade["exit_gap"] = round(new_gap, 2)
     if is_lots:
