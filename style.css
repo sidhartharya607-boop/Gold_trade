@@ -89,6 +89,40 @@ body {
     gap: 1.15rem;
     align-items: start;
     width: 100%;
+    transition: grid-template-columns 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Left Column Collapsed -> Middle Expands to fill left space */
+.workstation-layout.collapsed-left {
+    grid-template-columns: minmax(560px, 1fr) 350px;
+}
+.workstation-layout.collapsed-left .workstation-col-left {
+    display: none !important;
+}
+
+/* Right Column Collapsed -> Middle Expands to fill right space */
+.workstation-layout.collapsed-right {
+    grid-template-columns: 440px minmax(560px, 1fr);
+}
+.workstation-layout.collapsed-right .workstation-col-right {
+    display: none !important;
+}
+
+/* Both Left & Right Collapsed -> Middle takes 100% Full Width Focus Mode */
+.workstation-layout.collapsed-left.collapsed-right {
+    grid-template-columns: 1fr !important;
+}
+
+/* Allow Middle Stats Grid to expand to 3 columns when more width is available */
+.workstation-layout.collapsed-left .workstation-col-middle .stats-grid,
+.workstation-layout.collapsed-right .workstation-col-middle .stats-grid,
+.workstation-layout.collapsed-left.collapsed-right .workstation-col-middle .stats-grid {
+    grid-template-columns: 1fr 1fr 1.15fr;
+}
+.workstation-layout.collapsed-left .workstation-col-middle .stats-grid #card-spread,
+.workstation-layout.collapsed-right .workstation-col-middle .stats-grid #card-spread,
+.workstation-layout.collapsed-left.collapsed-right .workstation-col-middle .stats-grid #card-spread {
+    grid-column: auto;
 }
 
 .workstation-col {
@@ -154,6 +188,161 @@ body {
     background: rgba(245, 158, 11, 0.12);
     color: #d97706;
     border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+/* ==============================================================================
+   🌟 Workstation Collapsible Controls & Expand Buttons
+   ============================================================================== */
+.col-collapse-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.68rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.col-collapse-btn:hover {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.35);
+    color: #38bdf8;
+    transform: translateY(-1px);
+}
+
+/* Middle Column Quick Re-Expand Buttons */
+.dock-quick-expand-btn {
+    padding: 0.22rem 0.65rem;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: all 0.2s ease;
+    user-select: none;
+    animation: fadeInScale 0.25s ease;
+}
+
+.dock-quick-expand-btn.expand-left-btn {
+    background: rgba(16, 185, 129, 0.12);
+    color: #059669;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.dock-quick-expand-btn.expand-left-btn:hover {
+    background: rgba(16, 185, 129, 0.22);
+    border-color: #10b981;
+    color: #047857;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+}
+
+.dock-quick-expand-btn.expand-right-btn {
+    background: rgba(59, 130, 246, 0.12);
+    color: #2563eb;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.dock-quick-expand-btn.expand-right-btn:hover {
+    background: rgba(59, 130, 246, 0.22);
+    border-color: #3b82f6;
+    color: #1d4ed8;
+    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+/* Top Dashboard Header Dock Buttons */
+.dock-toggle-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    padding: 0.22rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: all 0.2s ease;
+}
+
+.dock-toggle-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+}
+
+.dock-toggle-btn.active {
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: #3b82f6;
+}
+
+/* Floating Screen Edge Toggle Buttons */
+.floating-col-toggle {
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 999;
+    padding: 0.55rem 0.65rem;
+    background: #0f172a;
+    color: #f8fafc;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    font-size: 0.74rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: all 0.2s ease;
+    user-select: none;
+    letter-spacing: 0.02em;
+}
+
+.floating-col-toggle.floating-left {
+    left: 0;
+    border-left: none;
+    border-radius: 0 8px 8px 0;
+}
+
+.floating-col-toggle.floating-left:hover {
+    background: #1e293b;
+    border-color: #10b981;
+    color: #34d399;
+    padding-left: 0.85rem;
+    box-shadow: 2px 4px 20px rgba(16, 185, 129, 0.3);
+}
+
+.floating-col-toggle.floating-right {
+    right: 0;
+    border-right: none;
+    border-radius: 8px 0 0 8px;
+}
+
+.floating-col-toggle.floating-right:hover {
+    background: #1e293b;
+    border-color: #38bdf8;
+    color: #38bdf8;
+    padding-right: 0.85rem;
+    box-shadow: -2px 4px 20px rgba(56, 189, 248, 0.3);
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.92);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 /* ==============================================================================
@@ -371,12 +560,30 @@ body {
         grid-template-columns: 400px minmax(460px, 1fr) 330px;
         gap: 0.85rem;
     }
+    .workstation-layout.collapsed-left {
+        grid-template-columns: 1fr 330px;
+    }
+    .workstation-layout.collapsed-right {
+        grid-template-columns: 400px 1fr;
+    }
+    .workstation-layout.collapsed-left.collapsed-right {
+        grid-template-columns: 1fr !important;
+    }
 }
 
 @media (max-width: 1079px) and (min-width: 769px) {
     .workstation-layout {
         grid-template-columns: 380px 1fr;
         gap: 0.85rem;
+    }
+    .workstation-layout.collapsed-left {
+        grid-template-columns: 1fr;
+    }
+    .workstation-layout.collapsed-right {
+        grid-template-columns: 380px 1fr;
+    }
+    .workstation-layout.collapsed-left.collapsed-right {
+        grid-template-columns: 1fr !important;
     }
     .workstation-col-right {
         grid-column: 1 / -1;
@@ -388,7 +595,8 @@ body {
     .workstation-col {
         display: contents !important;
     }
-    .workstation-col-header {
+    .workstation-col-header,
+    .floating-col-toggle {
         display: none !important;
     }
     .panel-tab-switcher {

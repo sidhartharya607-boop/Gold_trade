@@ -3116,7 +3116,77 @@ window.switchMobileTab = function(tabName) {
     window.scrollTo({ top: 0, behavior: "smooth" });
 };
 
-// Initialize default/persisted mobile tab
+// =========================================================================
+// Workstation 3-Column Collapsible System (Focus Mode)
+// =========================================================================
+window.toggleLeftCol = function() {
+    const ws = document.getElementById("workstation-layout");
+    if (!ws) return;
+    const isCurrentlyCollapsed = ws.classList.contains("collapsed-left");
+    setLeftColCollapsed(!isCurrentlyCollapsed);
+};
+
+window.toggleRightCol = function() {
+    const ws = document.getElementById("workstation-layout");
+    if (!ws) return;
+    const isCurrentlyCollapsed = ws.classList.contains("collapsed-right");
+    setRightColCollapsed(!isCurrentlyCollapsed);
+};
+
+function setLeftColCollapsed(collapse) {
+    const ws = document.getElementById("workstation-layout");
+    const btnExpand = document.getElementById("btn-expand-left");
+    const floatingBtn = document.getElementById("floating-expand-left");
+    const topBtn = document.getElementById("top-btn-toggle-left");
+    if (!ws) return;
+
+    if (collapse) {
+        ws.classList.add("collapsed-left");
+        if (btnExpand) btnExpand.style.display = "inline-flex";
+        if (floatingBtn) floatingBtn.style.display = "flex";
+        if (topBtn) topBtn.classList.remove("active");
+        try { localStorage.setItem("ws_collapsed_left", "1"); } catch(e) {}
+    } else {
+        ws.classList.remove("collapsed-left");
+        if (btnExpand) btnExpand.style.display = "none";
+        if (floatingBtn) floatingBtn.style.display = "none";
+        if (topBtn) topBtn.classList.add("active");
+        try { localStorage.setItem("ws_collapsed_left", "0"); } catch(e) {}
+    }
+}
+
+function setRightColCollapsed(collapse) {
+    const ws = document.getElementById("workstation-layout");
+    const btnExpand = document.getElementById("btn-expand-right");
+    const floatingBtn = document.getElementById("floating-expand-right");
+    const topBtn = document.getElementById("top-btn-toggle-right");
+    if (!ws) return;
+
+    if (collapse) {
+        ws.classList.add("collapsed-right");
+        if (btnExpand) btnExpand.style.display = "inline-flex";
+        if (floatingBtn) floatingBtn.style.display = "flex";
+        if (topBtn) topBtn.classList.remove("active");
+        try { localStorage.setItem("ws_collapsed_right", "1"); } catch(e) {}
+    } else {
+        ws.classList.remove("collapsed-right");
+        if (btnExpand) btnExpand.style.display = "none";
+        if (floatingBtn) floatingBtn.style.display = "none";
+        if (topBtn) topBtn.classList.add("active");
+        try { localStorage.setItem("ws_collapsed_right", "0"); } catch(e) {}
+    }
+}
+
+function initWorkstationCollapse() {
+    try {
+        const leftCollapsed = localStorage.getItem("ws_collapsed_left") === "1";
+        const rightCollapsed = localStorage.getItem("ws_collapsed_right") === "1";
+        if (leftCollapsed) setLeftColCollapsed(true);
+        if (rightCollapsed) setRightColCollapsed(true);
+    } catch(e) {}
+}
+
+// Initialize default/persisted mobile tab & workstation collapse state
 document.addEventListener("DOMContentLoaded", () => {
     const savedTab = localStorage.getItem("activeMobileTab") || "spreads";
     if (window.innerWidth <= 768) {
@@ -3124,6 +3194,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
         document.body.dataset.mobileTab = "spreads";
     }
+    initWorkstationCollapse();
 });
 
 // Also trigger immediately in case DOM is already ready
@@ -3134,12 +3205,14 @@ document.addEventListener("DOMContentLoaded", () => {
     } else {
         document.body.dataset.mobileTab = "spreads";
     }
+    initWorkstationCollapse();
 })();
 
 // =========================================================================
 // Studio Workstation 3-Column: Segmented Tab Switchers (Left & Right Docks)
 // =========================================================================
 window.switchLeftTab = function(tabName) {
+    setLeftColCollapsed(false); // auto-expand if collapsed when switching tab
     const tabs = ['lots', 'manual', 'grid', 'slicer'];
     tabs.forEach(t => {
         const btn = document.getElementById(`left-btn-${t}`);
@@ -3161,6 +3234,7 @@ window.switchLeftTab = function(tabName) {
 };
 
 window.switchRightTab = function(tabName) {
+    setRightColCollapsed(false); // auto-expand if collapsed when switching tab
     const tabs = ['broker', 'master', 'terminal', 'reports'];
     tabs.forEach(t => {
         const btn = document.getElementById(`right-btn-${t}`);

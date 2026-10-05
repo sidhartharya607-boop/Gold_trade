@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.7">
+    <link rel="stylesheet" href="style.css?v=2.8">
 </head>
 <body>
     <div class="dashboard-container">
@@ -46,6 +46,15 @@
                     <span class="status-dot"></span>
                     <span id="status-text" class="status-label">Active</span>
                 </div>
+                <!-- Top Workstation Dock Switchers -->
+                <div class="header-dock-controls desktop-only" style="display: flex; gap: 0.35rem; align-items: center; margin-left: 0.25rem; border-left: 1px solid var(--border-color); padding-left: 0.5rem;">
+                    <button id="top-btn-toggle-left" class="dock-toggle-btn active" onclick="toggleLeftCol()" title="Toggle Bots Studio (Left Column)">
+                        <span>🤖 Bots</span>
+                    </button>
+                    <button id="top-btn-toggle-right" class="dock-toggle-btn active" onclick="toggleRightCol()" title="Toggle Settings Dock (Right Column)">
+                        <span>⚙️ Settings</span>
+                    </button>
+                </div>
                 <!-- Logout Button -->
                 <button id="btn-logout" class="logout-btn" onclick="logout()" title="Logout of work session">
                     <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
@@ -61,15 +70,21 @@
         </div>
 
         <!-- 3-Column Professional Workstation Layout -->
-        <div class="workstation-layout">
+        <div class="workstation-layout" id="workstation-layout">
             
             <!-- =========================================================================
                  LEFT COLUMN (440px): Dedicated Bots & Order Execution Studio
                  ========================================================================= -->
-            <aside class="workstation-col workstation-col-left">
+            <aside class="workstation-col workstation-col-left" id="workstation-col-left">
                 <div class="workstation-col-header col-bots">
-                    <span class="col-title">🤖 <span>Order &amp; Bot Execution Pad</span></span>
-                    <span class="col-badge">Studio</span>
+                    <div style="display: flex; align-items: center; gap: 0.45rem;">
+                        <span class="col-title">🤖 <span>Order &amp; Bot Execution Pad</span></span>
+                        <span class="col-badge">Studio</span>
+                    </div>
+                    <button type="button" class="col-collapse-btn" onclick="toggleLeftCol()" title="Collapse Left Sidebar (Focus Mode)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                        <span>Collapse</span>
+                    </button>
                 </div>
 
                 <!-- Segmented Mode Pill Switcher -->
@@ -410,10 +425,22 @@
             <!-- =========================================================================
                  MIDDLE COLUMN: Live Market Rates & All Trades (Alag-Alag)
                  ========================================================================= -->
-            <main class="workstation-col workstation-col-middle">
-                <div class="workstation-col-header col-trades">
-                    <span class="col-title">📊 <span>Live Market &amp; Separate Trades</span></span>
-                    <span class="col-badge">Positions &amp; Spreads</span>
+            <main class="workstation-col workstation-col-middle" id="workstation-col-middle">
+                <div class="workstation-col-header col-trades" id="middle-col-header">
+                    <div style="display: flex; align-items: center; gap: 0.6rem;">
+                        <button type="button" id="btn-expand-left" class="dock-quick-expand-btn expand-left-btn" onclick="toggleLeftCol()" style="display: none;" title="Open Bot Studio (Left Column)">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                            <span>🤖 Show Bots Pad</span>
+                        </button>
+                        <span class="col-title">📊 <span>Live Market &amp; Separate Trades</span></span>
+                        <span class="col-badge">Positions &amp; Spreads</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <button type="button" id="btn-expand-right" class="dock-quick-expand-btn expand-right-btn" onclick="toggleRightCol()" style="display: none;" title="Open Settings &amp; Tools Dock (Right Column)">
+                            <span>⚙️ Show Settings</span>
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Top Workflow Flow Tracker banner -->
@@ -828,10 +855,16 @@
             <!-- =========================================================================
                  RIGHT COLUMN (350px): Focused Settings, Master, Terminal & Reports
                  ========================================================================= -->
-            <aside class="workstation-col workstation-col-right">
+            <aside class="workstation-col workstation-col-right" id="workstation-col-right">
                 <div class="workstation-col-header col-settings">
-                    <span class="col-title">⚙️ <span>Settings &amp; Tools Dock</span></span>
-                    <span class="col-badge">Dock</span>
+                    <button type="button" class="col-collapse-btn" onclick="toggleRightCol()" title="Collapse Right Dock (Focus Mode)">
+                        <span>Collapse</span>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                    </button>
+                    <div style="display: flex; align-items: center; gap: 0.45rem;">
+                        <span class="col-title">⚙️ <span>Settings &amp; Tools Dock</span></span>
+                        <span class="col-badge">Dock</span>
+                    </div>
                 </div>
 
                 <!-- Segmented Settings Tab Switcher -->
@@ -1251,6 +1284,16 @@
         </div>
     </div>
     
-    <script src="script.js?v=2.7"></script>
+    <!-- Floating Screen Edge Quick-Expand Buttons -->
+    <button id="floating-expand-left" class="floating-col-toggle floating-left desktop-only" onclick="toggleLeftCol()" style="display: none;" title="Open Bot Studio (Left Column)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        <span>🤖 Bots</span>
+    </button>
+    <button id="floating-expand-right" class="floating-col-toggle floating-right desktop-only" onclick="toggleRightCol()" style="display: none;" title="Open Settings Dock (Right Column)">
+        <span>⚙️ Settings</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
+    </button>
+    
+    <script src="script.js?v=2.8"></script>
 </body>
 </html>
