@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.3">
+    <link rel="stylesheet" href="style.css?v=2.4">
 </head>
 <body>
     <div class="dashboard-container">
@@ -60,1137 +60,1093 @@
             <span><strong>API Server Not Connected:</strong> Live MCX broker market data feed is offline. Simulated ticks halted.</span>
         </div>
 
-        <!-- Top Workflow Flow Tracker banner -->
-        <div id="top-workflow-banner" class="workflow-banner" data-tab="spreads">
-            <div class="workflow-flow-top">
-                <div class="wf-step active" id="wf-step-scan">
-                    <span class="wf-dot"></span>
-                    <span class="wf-label">1. Scanning Spread</span>
+        <!-- 3-Column Workstation Layout -->
+        <div class="workstation-layout">
+            
+            <!-- =========================================================================
+                 LEFT COLUMN: All Bots & Manual Execution
+                 ========================================================================= -->
+            <aside class="workstation-col workstation-col-left">
+                <div class="workstation-col-header col-bots">
+                    <span class="col-title">🤖 <span>Bots &amp; Manual Orders</span></span>
+                    <span class="col-badge">Execution</span>
                 </div>
-                <div class="wf-arrow">➔</div>
-                <div class="wf-step" id="wf-step-liquidity">
-                    <span class="wf-dot"></span>
-                    <span class="wf-label">2. Depth Check</span>
-                </div>
-                <div class="wf-arrow">➔</div>
-                <div class="wf-step" id="wf-step-order1">
-                    <span class="wf-dot"></span>
-                    <span class="wf-label">3. Order Leg 1</span>
-                </div>
-                <div class="wf-arrow">➔</div>
-                <div class="wf-step" id="wf-step-order2">
-                    <span class="wf-dot"></span>
-                    <span class="wf-label">4. Order Leg 2</span>
-                </div>
-                <div class="wf-arrow">➔</div>
-                <div class="wf-step" id="wf-step-position">
-                    <span class="wf-dot"></span>
-                    <span class="wf-label">5. Holding Position</span>
-                </div>
-            </div>
-        </div>
 
-        <!-- Quick Help Guide -->
-        <section class="help-section" data-tab="spreads" style="background-color: rgba(59,130,246,0.05); border: 1px solid rgba(59,130,246,0.15); border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 0.1rem;">
-            <div id="toggle-help-btn" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                <h3 style="font-size: 0.82rem; color: #60A5FA; display: flex; align-items: center; gap: 0.4rem; font-weight: 700; margin: 0;">
-                    💡 Understanding Spread Arbitrage (Click to Toggle)
-                </h3>
-                <span id="help-arrow" style="font-size: 0.8rem; color: #60A5FA; font-weight: 700;">▼</span>
-            </div>
-            <div id="help-content" style="display: none; margin-top: 0.75rem; border-top: 1px dashed rgba(59,130,246,0.2); padding-top: 0.65rem; font-size: 0.76rem; color: #94A3B8; line-height: 1.5;">
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
-                    <div>
-                        <strong style="color: #60A5FA; display: block; margin-bottom: 0.2rem;">🔹 What is Arbitrage?</strong>
-                        Arbitrage occurs when there is a pricing discrepancy (Spread) between two highly correlated Gold contracts (GOLD_PETAL and GOLD_MINI). This bot aims to capture profits when this spread deviates from standard levels.
-                        <br><br>
-                        <strong style="color: #60A5FA; display: block; margin-bottom: 0.2rem;">🔹 Scenario 1: Spread Expansion (Spread is Low)</strong>
-                        When the spread is <strong style="color: #E2E8F0;">850 or lower</strong> (undervalued), we execute: <strong style="color: #34D399;">Buy Petal & Sell Mini</strong>. We expect the spread to expand back to its target of <strong style="color: #E2E8F0;">1050</strong>, where we exit to book profits.
+                <!-- 1. Manual Trade Entry & Exit -->
+                <div class="control-card execution-panel collapsible-card" id="card-execution" data-tab="automation">
+                    <div class="card-header-toggle" onclick="toggleCard('card-execution')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">⚡ Manual Trade Entry &amp; Exit</h2>
+                        <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s; transform: rotate(180deg);">▼</span>
                     </div>
-                    <div>
-                        <strong style="color: #60A5FA; display: block; margin-bottom: 0.2rem;">🔹 Scenario 2: Spread Contraction (Spread is High)</strong>
-                        When the spread is <strong style="color: #E2E8F0;">1050 or higher</strong> (overvalued), we execute: <strong style="color: #F87171;">Sell Petal & Buy Mini</strong>. We expect the spread to contract back down to its entry level of <strong style="color: #E2E8F0;">850</strong>, where we exit to book profits.
-                        <br><br>
-                        <strong style="color: #60A5FA; display: block; margin-bottom: 0.2rem;">🔹 P&L Calculation: Multipliers</strong>
-                        - <strong style="color: #E2E8F0;">GOLD_PETAL (Leg 1)</strong> has a multiplier of <strong style="color: #FCD34D;">100x</strong> (1 INR change = 100 INR P&L).
-                        - <strong style="color: #E2E8F0;">GOLD_MINI (Leg 2)</strong> has a multiplier of <strong style="color: #FCD34D;">10x</strong> (1 INR change = 10 INR P&L).
-                        - P&L is calculated automatically depending on the execution direction.
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Month Master Live Spread Section -->
-        <section id="month-master-live-section" data-tab="spreads" style="display: none; margin-bottom: 1.25rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-                <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 0.4rem;">
-                    📊 Month Master Live Spreads
-                </h3>
-                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-                    <select id="live-spread-category" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; background: white; font-weight: 600;">
-                        <option value="ALL">All Spreads</option>
-                        <option value="PETAL">Petal with Mini</option>
-                        <option value="GUINEA">Guinea with Mini</option>
-                        <option value="GOLD">GoldTen with Mini</option>
-                    </select>
-                    <button id="export-month-master-csv-btn" class="csv-export-button" style="padding: 0.25rem 0.65rem; font-size: 0.72rem; min-height: unset; margin: 0; background: var(--accent-light, #3b82f6); color: white; display: flex; align-items: center; gap: 0.35rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                        Export Daily Spreads (CSV)
-                    </button>
-                </div>
-            </div>
-            <div id="month-master-live-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
-                <!-- Dynamic cards will be generated here -->
-            </div>
-        </section>
-
-        <!-- Main Stats Grid -->
-        <main class="stats-grid" data-tab="spreads">
-            <!-- Card 1: Gold Petal -->
-            <div class="metric-card double-card" id="card-petal">
-                <div class="metric-header">
-                    <span class="symbol-name" id="petal-symbol-name">GOLD_PETAL</span>
-                    <div class="tooltip-container">
-                        <span>ⓘ</span>
-                        <span class="tooltip-text">Gold Petal contract on MCX. Price is per 10 grams (Multiplier = 10x).</span>
-                    </div>
-                    <span class="asset-type">10x Mult</span>
-                </div>
-                <div class="metric-body">
-                    <span id="petal-ltp" class="price-value">0.00</span>
-                    <span class="currency">INR</span>
-                </div>
-                <!-- 5-Level Market Depth Table -->
-                <div class="orderbook-widget">
-                    <div class="ob-header">
-                        <span class="ob-hdr-item">Qty</span>
-                        <span class="ob-hdr-item">Ord</span>
-                        <span class="ob-hdr-item text-green">Bid</span>
-                        <span class="ob-hdr-item text-red">Ask</span>
-                        <span class="ob-hdr-item">Ord</span>
-                        <span class="ob-hdr-item">Qty</span>
-                    </div>
-                    <div class="ob-rows" id="petal-ob-rows">
-                        <!-- Dynamic rows (1 to 5) -->
-                        <div class="ob-row-placeholder">Loading depth data...</div>
-                    </div>
-                </div>
-                <div class="metric-footer" style="display: flex; flex-direction: column; gap: 0.4rem;">
-                    <span class="footer-label" id="petal-entry-info">Entry: --</span>
-                    <div class="depth-container">
-                        <div class="depth-bar-wrapper">
-                            <div id="petal-depth-bid" class="depth-bid" style="width: 50%;"></div>
-                            <div id="petal-depth-ask" class="depth-ask" style="width: 50%;"></div>
-                        </div>
-                        <div class="depth-details">
-                            <span class="depth-buyer-lbl">B: <strong id="petal-buy-qty" class="font-mono">--</strong></span>
-                            <span class="depth-pct-badge" id="petal-depth-ratio">50% / 50%</span>
-                            <span class="depth-seller-lbl">S: <strong id="petal-sell-qty" class="font-mono">--</strong></span>
-                        </div>
-                    </div>
-                    <div style="font-size: 0.65rem; color: var(--text-secondary); display: flex; justify-content: space-between; margin-top: 0.15rem;">
-                        <span>Total Volume:</span>
-                        <span id="petal-volume" class="font-mono" style="font-weight: 600;">--</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Card 2: Gold Mini -->
-            <div class="metric-card double-card" id="card-mini">
-                <div class="metric-header">
-                    <span class="symbol-name" id="mini-symbol-name">GOLD_MINI</span>
-                    <div class="tooltip-container">
-                        <span>ⓘ</span>
-                        <span class="tooltip-text">Gold Mini contract on MCX. Price is per 10 grams (Multiplier = 1x).</span>
-                    </div>
-                    <span class="asset-type">1x Mult</span>
-                </div>
-                <div class="metric-body">
-                    <span id="mini-ltp" class="price-value">0.00</span>
-                    <span class="currency">INR</span>
-                </div>
-                <!-- 5-Level Market Depth Table -->
-                <div class="orderbook-widget">
-                    <div class="ob-header">
-                        <span class="ob-hdr-item">Qty</span>
-                        <span class="ob-hdr-item">Ord</span>
-                        <span class="ob-hdr-item text-green">Bid</span>
-                        <span class="ob-hdr-item text-red">Ask</span>
-                        <span class="ob-hdr-item">Ord</span>
-                        <span class="ob-hdr-item">Qty</span>
-                    </div>
-                    <div class="ob-rows" id="mini-ob-rows">
-                        <!-- Dynamic rows (1 to 5) -->
-                        <div class="ob-row-placeholder">Loading depth data...</div>
-                    </div>
-                </div>
-                <div class="metric-footer" style="display: flex; flex-direction: column; gap: 0.4rem;">
-                    <span class="footer-label" id="mini-entry-info">Entry: --</span>
-                    <div class="depth-container">
-                        <div class="depth-bar-wrapper">
-                            <div id="mini-depth-bid" class="depth-bid" style="width: 50%;"></div>
-                            <div id="mini-depth-ask" class="depth-ask" style="width: 50%;"></div>
-                        </div>
-                        <div class="depth-details">
-                            <span class="depth-buyer-lbl">B: <strong id="mini-buy-qty" class="font-mono">--</strong></span>
-                            <span class="depth-pct-badge" id="mini-depth-ratio">50% / 50%</span>
-                            <span class="depth-seller-lbl">S: <strong id="mini-sell-qty" class="font-mono">--</strong></span>
-                        </div>
-                    </div>
-                    <div style="font-size: 0.65rem; color: var(--text-secondary); display: flex; justify-content: space-between; margin-top: 0.15rem;">
-                        <span>Total Volume:</span>
-                        <span id="mini-volume" class="font-mono" style="font-weight: 600;">--</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Card 3: Current Spread -->
-            <div class="metric-card" id="card-spread">
-                <div class="metric-header">
-                    <span class="symbol-name">LIVE SPREAD</span>
-                    <div class="tooltip-container">
-                        <span>ⓘ</span>
-                        <span class="tooltip-text">Difference between Gold Petal LTP and Gold Mini LTP. Spread = Petal Price - Mini Price.</span>
-                    </div>
-                    <span class="asset-type">Petal - Mini</span>
-                </div>
-                <div class="metric-body">
-                    <span id="current-spread" class="price-value">0.00</span>
-                    <span class="currency">Diff</span>
-                </div>
-                <div class="depth-spreads-subpanel" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.7rem; margin-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.5rem; width: 100%;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: var(--text-secondary);">Depth Buy Diff (Buy P / Sell M):</span>
-                        <strong id="depth-buy-spread" class="font-mono" style="color: var(--accent-green);">0.00</strong>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: var(--text-secondary);">Depth Sell Diff (Sell P / Buy M):</span>
-                        <strong id="depth-sell-spread" class="font-mono" style="color: var(--accent-red);">0.00</strong>
-                    </div>
-                </div>
-                <!-- Visual Spread Gauge -->
-                <div style="margin: 0.35rem 0; width: 100%;">
-                    <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-secondary); margin-bottom: 0.15rem;">
-                        <span>Entry (<span id="gauge-entry-label">850</span>)</span>
-                        <span id="gauge-percent">0%</span>
-                        <span>Target (<span id="gauge-target-label">1050</span>)</span>
-                    </div>
-                    <div style="width: 100%; height: 6px; background-color: #E2E8F0; border-radius: 3px; overflow: hidden; position: relative;">
-                        <div id="spread-gauge-bar" style="width: 0%; height: 100%; background-color: var(--accent-blue); transition: width 0.25s ease, background-color 0.25s ease;"></div>
-                    </div>
-                </div>
-                <div class="metric-footer">
-                    <span class="footer-label" id="spread-entry-info">Entry Spread: --</span>
-                </div>
-            </div>
-        </main>
-
-        <!-- Section 1: Active & Pending Manual Trades -->
-        <section class="manual-trades-section" data-tab="trades" style="margin-bottom: 1.25rem; width: 100%;">
-            <div class="data-card manual-trades-panel" style="width: 100%;">
-                <!-- Panel Header — tappable on mobile to collapse/expand -->
-                <div class="panel-header" id="manual-panel-hdr"
-                    onclick="(function(){
-                        var body = document.getElementById('manual-panel-body');
-                        var arrow = document.getElementById('manual-panel-arrow');
-                        var open = body.style.display !== 'none';
-                        body.style.display = open ? 'none' : 'block';
-                        arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
-                    })()"
-                    style="cursor: pointer; user-select: none;">
-                    <h2>📋 Active &amp; Pending Manual Trades</h2>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <button id="clear-manual-inactive-btn" class="csv-export-button" onclick="event.stopPropagation(); window.clearAllInactiveManualTrades();" style="border-color: rgba(239, 68, 68, 0.35); color: #f87171; background: rgba(239, 68, 68, 0.08);" title="Clear all Cancelled, Failed, and Closed orders">
-                            🗑️ Clear Inactive
-                        </button>
-                        <button id="export-manual-csv-btn" class="csv-export-button desktop-only" onclick="event.stopPropagation()">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                            Export CSV
-                        </button>
-                        <span id="manual-panel-arrow" class="mobile-only" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
-                    </div>
-                </div>
-                <!-- Collapsible body -->
-                <div id="manual-panel-body">
-                    <div id="manual-trades-summary" class="mobile-only trades-summary-banner"></div>
-                    <div class="table-container">
-                        <table class="history-table">
-                            <thead>
-                                <tr>
-                                    <th style="width: 45px;">ID</th>
-                                    <th style="width: 90px;">Time</th>
-                                    <th style="width: 170px;">Symbols (Leg 1 / Leg 2)</th>
-                                    <th style="width: 90px;">Direction</th>
-                                    <th style="width: 50px;">Qty</th>
-                                    <th style="width: 110px;">Trigger Diff</th>
-                                    <th style="width: 80px;">Status</th>
-                                    <th>Entry Prices (Petal / Mini)</th>
-                                    <th style="width: 130px;">Live P&amp;L</th>
-                                    <th style="text-align: right; padding-right: 1.5rem; width: 100px;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="manual-trades-body">
-                                <tr>
-                                    <td colspan="10" class="empty-table">No active or pending manual trades.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 2: Dynamic Workstation Controls (Collapsible) -->
-        <section class="control-board" data-tab="settings" style="margin-bottom: 1.25rem;">
-            <!-- Left Side: Order Execution -->
-            <div class="control-card execution-panel collapsible-card" id="card-execution">
-                <div class="card-header-toggle" onclick="toggleCard('card-execution')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">Manual Trade Entry & Exit</h2>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
-                </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
-                    <div class="direction-selector">
-                        <span class="rule-label">Choose Strategy Direction
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">Choose the trade setup direction. Expansion is buying spread; Contraction is selling spread.</span>
+                    <div class="card-content" style="display: flex; margin-top: 1rem; flex-direction: column; gap: 1rem;">
+                        <div class="direction-selector">
+                            <span class="rule-label">Choose Strategy Direction
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Choose trade setup direction. Expansion is buying spread; Contraction is selling spread.</span>
+                                </div>
+                            </span>
+                            <div class="toggle-buttons">
+                                <label class="dir-btn">
+                                    <input type="radio" name="trade-direction" value="Expansion" checked>
+                                    <span class="dir-btn-label">Spread Expansion<br><small>Buy Petal / Sell Mini</small></span>
+                                </label>
+                                <label class="dir-btn">
+                                    <input type="radio" name="trade-direction" value="Contraction">
+                                    <span class="dir-btn-label">Spread Contraction<br><small>Sell Petal / Buy Mini</small></span>
+                                </label>
                             </div>
-                        </span>
-                        <div class="toggle-buttons">
-                            <label class="dir-btn">
-                                <input type="radio" name="trade-direction" value="Expansion" checked>
-                                <span class="dir-btn-label">Spread Expansion<br><small>Buy Petal / Sell Mini</small></span>
+                        </div>
+
+                        <div class="config-item" style="margin-top: 0.2rem; margin-bottom: 0.2rem;">
+                            <label for="manual-trigger-diff" class="rule-label">Trigger Diff (Optional)
+                                <div class="tooltip-container">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text">Specify a target difference. E.g., for Expansion: buy if spread &le; diff. For Contraction: sell if spread &ge; diff. Leave empty to enter immediately.</span>
+                                </div>
                             </label>
-                            <label class="dir-btn">
-                                <input type="radio" name="trade-direction" value="Contraction">
-                                <span class="dir-btn-label">Spread Contraction<br><small>Sell Petal / Buy Mini</small></span>
-                            </label>
+                            <input type="number" id="manual-trigger-diff" class="rule-input font-mono" placeholder="Immediate (e.g. 1500)" style="width: 100%; box-sizing: border-box;" step="any">
+                        </div>
+
+                        <div class="execution-actions">
+                            <button id="entry-btn" class="action-btn entry-button">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg>
+                                Manual Entry
+                                <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly enter arbitrage positions based on the selected direction.</span>
+                                </div>
+                            </button>
+                        </div>
+
+                        <div class="emergency-section">
+                            <button id="kill-switch-btn" class="kill-switch-button">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                                EMERGENCY KILL SWITCH
+                                <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
+                                    <span>ⓘ</span>
+                                    <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly square off everything and halt bot executions completely.</span>
+                                </div>
+                            </button>
                         </div>
                     </div>
-
-                    <div class="config-item" style="margin-top: 0.8rem; margin-bottom: 0.8rem;">
-                        <label for="manual-trigger-diff" class="rule-label">Trigger Diff (Optional)
-                            <div class="tooltip-container">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text">Specify a target difference. E.g., for Expansion: buy if spread &le; diff. For Contraction: sell if spread &ge; diff. Leave empty to enter immediately.</span>
-                            </div>
-                        </label>
-                        <input type="number" id="manual-trigger-diff" class="rule-input font-mono" placeholder="Immediate (e.g. 1500)" style="width: 100%; box-sizing: border-box;" step="any">
-                    </div>
-
-                    <div class="execution-actions">
-                        <button id="entry-btn" class="action-btn entry-button">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg>
-                            Manual Entry
-                            <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly enter arbitrage positions based on the selected direction.</span>
-                            </div>
-                        </button>
-                    </div>
-
-                    <div class="emergency-section">
-                        <button id="kill-switch-btn" class="kill-switch-button">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
-                            EMERGENCY KILL SWITCH
-                            <div class="tooltip-container" style="color: #FFFFFF; background: rgba(255,255,255,0.25); margin-left: 0.4rem;">
-                                <span>ⓘ</span>
-                                <span class="tooltip-text" style="background-color: #1E293B; color: #FFFFFF;">Instantly square off everything and halt bot executions completely.</span>
-                            </div>
-                        </button>
-                    </div>
                 </div>
-            </div>
 
-            <!-- Right Side: Configs & Parameters -->
-            <div class="control-card configs-panel collapsible-card" id="card-configs">
-                <div class="card-header-toggle" onclick="toggleCard('card-configs')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">Broker & Account Details</h2>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
-                </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
-                    <div class="broker-configs-section">
-                        <div style="display: flex; gap: 0.75rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap;">
-                            <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                <span class="rule-label" style="font-weight: 700; color: #1e293b;">Select Active Broker:</span>
-                                <select id="select-broker" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; width: 140px; font-weight: 600; cursor: pointer; border-radius: 6px;">
-                                    <option value="AngelOne">Angel One API</option>
-                                    <option value="Dhan">Dhan API</option>
-                                    <option value="Groww">Groww API</option>
-                                    <option value="Upstox">Upstox API</option>
-                                    <option value="Simulation">Simulation Mode</option>
+                <!-- 2. Trade Automation with Lots (Custom Lots Per Order) Section -->
+                <div class="control-card month-master-panel collapsible-card" id="card-trade-automation-lots" data-tab="automation" style="width: 100%; border-top: 3px solid #f59e0b;">
+                    <div class="card-header-toggle" onclick="toggleCard('card-trade-automation-lots')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">🎯 Trade Automation with Lots</h2>
+                            <span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.62rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px; text-transform: uppercase;">LOTS</span>
+                        </div>
+                        <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s; transform: rotate(180deg);">▼</span>
+                    </div>
+                    <div class="card-content" style="display: flex; margin-top: 1rem; flex-direction: column; gap: 0.85rem;">
+                        <!-- Strategy Parameters Input Form -->
+                        <div class="configs-inputs-grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.6rem;">
+                            <div class="config-item">
+                                <label class="rule-label">Select Month Pair</label>
+                                <select id="ta-lots-select-month" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                    <option value="-1">-- Select Month --</option>
                                 </select>
                             </div>
-                            <div style="display: flex; gap: 0.5rem; align-items: flex-start; flex: 1; min-width: 200px;">
-                                <span class="rule-label" style="font-weight: 700; color: #1e293b; margin-top: 0.3rem;">Quick Select Pair:</span>
-                                <div style="display: flex; flex-direction: column; flex: 1; gap: 0.4rem;">
-                                    <select id="quick-select-category" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
-                                        <option value="ALL">All Types</option>
-                                        <option value="PETAL">Petal with Mini</option>
-                                        <option value="GUINEA">Guinea with Mini</option>
-                                        <option value="GOLD">GoldTen with Mini</option>
-                                    </select>
-                                    <select id="quick-select-month-pair" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
-                                        <option value="">-- Select Mapped Pair --</option>
-                                    </select>
+                            <div class="config-item">
+                                <label class="rule-label">Strategy Direction</label>
+                                <select id="ta-lots-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                    <option value="Expansion">Spread Expansion (Buy P / Sell M)</option>
+                                    <option value="Contraction">Spread Contraction (Sell P / Buy M)</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Base Entry Diff</label>
+                                <input type="number" id="ta-lots-input-entry-diff" class="rule-input font-mono" value="900" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Averaging Step Size</label>
+                                <input type="number" id="ta-lots-input-averaging-step" class="rule-input font-mono" value="50" style="width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Exit Profit Gap</label>
+                                <input type="number" id="ta-lots-input-exit-gap" class="rule-input font-mono" value="100" style="width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div class="config-item checkbox-input-group" style="display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem;">
+                                <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="rule-label" style="margin-bottom: 0;">Paper Mode</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="ta-lots-checkbox-paper-mode" checked>
+                                        <span class="slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="config-item" style="grid-column: 1 / -1;">
+                                <label class="rule-label">Lots Sequence (e.g. 2, 3, 1)
+                                    <div class="tooltip-container">
+                                        <span>ⓘ</span>
+                                        <span class="tooltip-text">Enter lots for each order level separated by commas (e.g. 2, 3, 1). Total orders will equal number of levels.</span>
+                                    </div>
+                                </label>
+                                <input type="text" id="ta-lots-input-lots" class="rule-input font-mono" value="2, 3, 1" placeholder="e.g. 2, 3, 1" style="width: 100%; box-sizing: border-box; font-weight: 700; color: #f59e0b;">
+                            </div>
+                        </div>
+
+                        <!-- Live Visual Grid Ladder Preview -->
+                        <div style="background: rgba(245, 158, 11, 0.04); border: 1px dashed rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 0.6rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+                                <span style="font-size: 0.72rem; font-weight: 700; color: #f59e0b; display: flex; align-items: center; gap: 0.3rem;">
+                                    <span>🪜</span> Order Ladder Preview
+                                </span>
+                                <span id="ta-lots-preview-total" style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">3 Orders | Total: 6 Lots</span>
+                            </div>
+                            <div id="ta-lots-preview-grid" style="display: flex; flex-wrap: wrap; gap: 0.4rem;">
+                                <!-- Dynamically generated badges -->
+                            </div>
+                        </div>
+
+                        <!-- Anti-Slippage Cooldown Notice -->
+                        <div style="font-size: 0.7rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; background: rgba(59,130,246,0.05); padding: 0.35rem 0.55rem; border-radius: 4px; border: 1px solid rgba(59,130,246,0.15);">
+                            <span>⏱️</span>
+                            <span><strong>Anti-Slippage:</strong> 20s cooldown between consecutive entries and exits.</span>
+                        </div>
+
+                        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            <button id="ta-lots-add-config-btn" class="update-button" style="width: 100%; padding: 0.4rem 1rem; display: flex; align-items: center; justify-content: center; gap: 0.25rem; background: #f59e0b; color: #000; font-weight: 700;">➕ Add Bot Instance (Lots)</button>
+                        </div>
+
+                        <!-- Active Lots Bot Instances Table -->
+                        <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem; margin-top: 0.25rem;">
+                            <div onclick="(function(){
+                                    var body = document.getElementById('bot-lots-instances-body');
+                                    var arrow = document.getElementById('bot-lots-instances-arrow');
+                                    var open = body.style.display !== 'none';
+                                    body.style.display = open ? 'none' : 'block';
+                                    arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                                })()"
+                                style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 0.4rem;">
+                                <h3 style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); margin: 0;">🎯 Active Lots Instances</h3>
+                                <span id="bot-lots-instances-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                            </div>
+                            <div id="bot-lots-instances-body">
+                                <div class="table-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                    <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
+                                        <thead>
+                                            <tr style="background-color: rgba(255,255,255,0.03);">
+                                                <th style="padding: 0.4rem; text-align: left;">Pair</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 70px;">Dir</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 60px;">Diff</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 50px;">Step</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 50px;">Gap</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 80px;">Lots</th>
+                                                <th style="padding: 0.4rem; text-align: center; width: 55px;">Status</th>
+                                                <th style="padding: 0.4rem; text-align: right; width: 55px;">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="ta-lots-configs-body">
+                                            <tr>
+                                                <td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No lots instances configured.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. Trade Automation (Grid Arbitrage Bot) Section -->
+                <div class="control-card month-master-panel collapsible-card" id="card-trade-automation" data-tab="automation" style="width: 100%;">
+                    <div class="card-header-toggle" onclick="toggleCard('card-trade-automation')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">🤖 Trade Automation (Grid Arbitrage)</h2>
+                        <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s; transform: rotate(180deg);">▼</span>
+                    </div>
+                    <div class="card-content" style="display: flex; margin-top: 1rem; flex-direction: column; gap: 0.85rem;">
+                        <!-- Strategy Parameters Input Form -->
+                        <div class="configs-inputs-grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.6rem;">
+                            <div class="config-item">
+                                <label class="rule-label">Select Month Pair</label>
+                                <select id="ta-select-month" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                    <option value="-1">-- Select Month --</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Strategy Direction</label>
+                                <select id="ta-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                    <option value="Expansion">Spread Expansion</option>
+                                    <option value="Contraction">Spread Contraction</option>
+                                </select>
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Entry Diff Threshold</label>
+                                <input type="number" id="ta-input-entry-diff" class="rule-input font-mono" value="500" style="width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Averaging Step Size</label>
+                                <input type="number" id="ta-input-averaging-step" class="rule-input font-mono" value="50" style="width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Exit Profit Gap</label>
+                                <input type="number" id="ta-input-exit-gap" class="rule-input font-mono" value="100" style="width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Trade Quantity (Lots)</label>
+                                <input type="number" id="ta-input-quantity" class="rule-input font-mono" value="1" min="1" style="width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Max Orders Limit</label>
+                                <input type="number" id="ta-input-max-orders" class="rule-input font-mono" value="5" min="1" max="50" style="width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div class="config-item checkbox-input-group" style="display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem;">
+                                <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span class="rule-label" style="margin-bottom: 0;">Paper Mode</span>
+                                    <label class="switch">
+                                        <input type="checkbox" id="ta-checkbox-paper-mode" checked>
+                                        <span class="slider"></span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
                         
-                        <!-- Angel One Config Fields -->
-                        <div id="angelone-fields" class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
-                            <div class="config-item">
-                                <label for="input-angelone-client-id" class="rule-label">Client ID</label>
-                                <input type="text" id="input-angelone-client-id" class="rule-input font-mono" placeholder="Client ID">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-angelone-password" class="rule-label">Password / PIN</label>
-                                <input type="password" id="input-angelone-password" class="rule-input font-mono" placeholder="Password">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-angelone-totp" class="rule-label">TOTP Secret</label>
-                                <input type="password" id="input-angelone-totp" class="rule-input font-mono" placeholder="TOTP Secret">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-angelone-api-key" class="rule-label">API Key</label>
-                                <input type="text" id="input-angelone-api-key" class="rule-input font-mono" value="e72eCDuy" placeholder="API Key">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-angelone-petal-symbol" class="rule-label">Leg 1 Symbol</label>
-                                <input type="text" id="input-angelone-petal-symbol" class="rule-input font-mono" value="GOLDPETAL26FEBFUT">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-angelone-petal-token" class="rule-label">Leg 1 Token</label>
-                                <input type="text" id="input-angelone-petal-token" class="rule-input font-mono" value="250000">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-angelone-mini-symbol" class="rule-label">Leg 2 Symbol</label>
-                                <input type="text" id="input-angelone-mini-symbol" class="rule-input font-mono" value="GOLDMINI26FEBFUT">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-angelone-mini-token" class="rule-label">Leg 2 Token</label>
-                                <input type="text" id="input-angelone-mini-token" class="rule-input font-mono" value="250001">
-                            </div>
+                        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                            <button id="ta-add-config-btn" class="update-button" style="width: 100%; padding: 0.4rem 1rem; display: flex; align-items: center; justify-content: center; gap: 0.25rem;">➕ Add Bot Instance</button>
                         </div>
 
-                        <!-- Dhan Config Fields -->
-                        <div id="dhan-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
-                            <div class="config-item">
-                                <label for="input-dhan-client-id" class="rule-label">Client ID / User ID</label>
-                                <input type="text" id="input-dhan-client-id" class="rule-input font-mono" placeholder="Dhan Client ID">
+                        <!-- Active Bot Instances Table -->
+                        <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem; margin-top: 0.25rem;">
+                            <div onclick="(function(){
+                                    var body = document.getElementById('bot-instances-body');
+                                    var arrow = document.getElementById('bot-instances-arrow');
+                                    var open = body.style.display !== 'none';
+                                    body.style.display = open ? 'none' : 'block';
+                                    arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                                })()"
+                                style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 0.4rem;">
+                                <h3 style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); margin: 0;">🤖 Active Grid Instances</h3>
+                                <span id="bot-instances-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
                             </div>
-                            <div class="config-item">
-                                <label for="input-dhan-access-token" class="rule-label">Access Token</label>
-                                <input type="password" id="input-dhan-access-token" class="rule-input font-mono" placeholder="Dhan Access Token">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-dhan-petal-symbol" class="rule-label">Leg 1 Symbol</label>
-                                <input type="text" id="input-dhan-petal-symbol" class="rule-input font-mono" value="GOLDPETAL31AUG26FUT">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-dhan-petal-token" class="rule-label">Leg 1 Token</label>
-                                <input type="text" id="input-dhan-petal-token" class="rule-input font-mono" placeholder="Dhan Leg 1 Token">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-dhan-mini-symbol" class="rule-label">Leg 2 Symbol</label>
-                                <input type="text" id="input-dhan-mini-symbol" class="rule-input font-mono" value="GOLDM04SEP26FUT">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-dhan-mini-token" class="rule-label">Leg 2 Token</label>
-                                <input type="text" id="input-dhan-mini-token" class="rule-input font-mono" placeholder="Dhan Leg 2 Token">
-                            </div>
-                        </div>
-
-                        <!-- Groww Config Fields -->
-                        <div id="groww-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
-                            <div class="config-item">
-                                <label for="input-groww-client-id" class="rule-label">Client ID / User ID</label>
-                                <input type="text" id="input-groww-client-id" class="rule-input font-mono" placeholder="Groww Client ID">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-groww-api-key" class="rule-label">API Key / App ID</label>
-                                <input type="text" id="input-groww-api-key" class="rule-input font-mono" placeholder="Groww API Key">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-groww-secret" class="rule-label">API Secret / Auth Token</label>
-                                <input type="password" id="input-groww-secret" class="rule-input font-mono" placeholder="Secret Key / Token">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-groww-petal-symbol" class="rule-label">Leg 1 Symbol</label>
-                                <div style="display: flex; gap: 0.25rem; align-items: center;">
-                                    <input type="text" id="input-groww-petal-symbol" class="rule-input font-mono" style="flex: 1; min-width: 0;" value="GOLDPETAL31JUL26FUT">
-                                    <select id="select-groww-petal-dropdown" class="rule-input font-mono" style="width: 100px; padding: 0.25rem; font-size: 0.75rem; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
-                                        <option value="">-- Quick --</option>
-                                        <option value="GOLDPETAL31JUL26FUT">31JUL26</option>
-                                        <option value="GOLDPETAL31AUG26FUT">31AUG26</option>
-                                        <option value="GOLDPETAL30NOV26FUT">30NOV26</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="config-item">
-                                <label for="input-groww-mini-symbol" class="rule-label">Leg 2 Symbol</label>
-                                <div style="display: flex; gap: 0.25rem; align-items: center;">
-                                    <input type="text" id="input-groww-mini-symbol" class="rule-input font-mono" style="flex: 1; min-width: 0;" value="GOLDM05AUG26FUT">
-                                    <select id="select-groww-mini-dropdown" class="rule-input font-mono" style="width: 100px; padding: 0.25rem; font-size: 0.75rem; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
-                                        <option value="">-- Quick --</option>
-                                        <option value="GOLDM05AUG26FUT">05AUG26</option>
-                                        <option value="GOLDM04SEP26FUT">04SEP26</option>
-                                        <option value="GOLDM04DEC26FUT">04DEC26</option>
-                                    </select>
+                            <div id="bot-instances-body">
+                                <div class="table-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                    <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
+                                        <thead>
+                                            <tr style="background-color: rgba(255,255,255,0.03);">
+                                                <th style="padding: 0.4rem; text-align: left;">Pair</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 65px;">Dir</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 55px;">Diff</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 45px;">Step</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 45px;">Gap</th>
+                                                <th style="padding: 0.4rem; text-align: left; width: 40px;">Qty</th>
+                                                <th style="padding: 0.4rem; text-align: center; width: 55px;">Status</th>
+                                                <th style="padding: 0.4rem; text-align: right; width: 55px;">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="ta-configs-body">
+                                            <tr>
+                                                <td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot instances configured.</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Upstox Config Fields -->
-                        <div id="upstox-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(4, 1fr); margin-bottom: 0.5rem;">
+                    </div>
+                </div>
+
+                <!-- 4. Manual BOT (Auto-Slicer with 30s Cooldown) -->
+                <div class="control-card collapsible-card" id="card-manual-bot" data-tab="automation" style="width: 100%;">
+                    <div class="card-header-toggle" onclick="toggleCard('card-manual-bot')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">🤖 Manual BOT (Auto-Slicer)</h2>
+                            <span id="manual-bot-active-badge" style="font-size: 0.65rem; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(148,163,184,0.15); color: #94a3b8; font-weight: 700;">IDLE</span>
+                        </div>
+                        <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
+                    </div>
+                    <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 0.85rem;">
+                        <!-- Live Status Banner -->
+                        <input type="hidden" id="mbot-edit-id" value="">
+                        <div id="manual-bot-status-banner" style="padding: 0.5rem 0.75rem; border-radius: 6px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); font-size: 0.74rem; color: var(--text-primary); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.4rem;">
+                            <div><strong>Status:</strong> <span id="manual-bot-status-text" class="font-mono">Idle - Bot not running.</span></div>
+                            <div style="flex: 1 1 100%; max-width: 100%; margin-top: 0.15rem; font-size: 0.7rem; color: #fbbf24;">
+                                <strong>Reason:</strong> <span id="manual-bot-why-waiting" class="font-mono" style="color: #fde68a;">Bot not started</span>
+                            </div>
+                            <div><strong>Progress:</strong> <span id="manual-bot-progress-text" class="font-mono" style="color: #60a5fa; font-weight: 700;">0 / 5 Orders</span></div>
+                        </div>
+
+                        <!-- Config Grid -->
+                        <div class="configs-inputs-grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.6rem;">
                             <div class="config-item">
-                                <label for="input-upstox-client-id" class="rule-label">Client ID / App Key</label>
-                                <input type="text" id="input-upstox-client-id" class="rule-input font-mono" placeholder="Upstox API Key">
+                                <label class="rule-label">Select Month Pair</label>
+                                <select id="mbot-select-pair" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                    <option value="">-- Active Primary Pair --</option>
+                                </select>
                             </div>
                             <div class="config-item">
-                                <label for="input-upstox-secret" class="rule-label">Client Secret Key</label>
-                                <input type="password" id="input-upstox-secret" class="rule-input font-mono" placeholder="Upstox Secret Key">
-                            </div>
-                            <div class="config-item" style="grid-column: span 2;">
-                                <label for="input-upstox-access-token" class="rule-label">Access Token</label>
-                                <input type="password" id="input-upstox-access-token" class="rule-input font-mono" placeholder="Upstox Access Token">
-                            </div>
-                            <div class="config-item">
-                                <label for="input-upstox-petal-symbol" class="rule-label">Leg 1 key (Instrument Key)</label>
-                                <input type="text" id="input-upstox-petal-symbol" class="rule-input font-mono" value="MCX_FO|41223" placeholder="e.g. MCX_FO|41223">
+                                <label class="rule-label">Strategy Direction</label>
+                                <select id="mbot-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
+                                    <option value="Expansion">Spread Expansion</option>
+                                    <option value="Contraction">Spread Contraction</option>
+                                </select>
                             </div>
                             <div class="config-item">
-                                <label for="input-upstox-mini-symbol" class="rule-label">Leg 2 key (Instrument Key)</label>
-                                <input type="text" id="input-upstox-mini-symbol" class="rule-input font-mono" value="MCX_FO|41224" placeholder="e.g. MCX_FO|41224">
+                                <label for="mbot-trigger-diff" class="rule-label">Trigger Target</label>
+                                <input type="number" id="mbot-trigger-diff" class="rule-input font-mono" value="1400" step="any" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                            </div>
+                            <div class="config-item">
+                                <label for="mbot-diff-gap" class="rule-label">Diff Gap Window</label>
+                                <input type="number" id="mbot-diff-gap" class="rule-input font-mono" value="20" step="any" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                            </div>
+                            <div class="config-item">
+                                <label for="mbot-total-orders" class="rule-label">Total Orders</label>
+                                <input type="number" id="mbot-total-orders" class="rule-input font-mono" value="5" min="1" max="50" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                            </div>
+                            <div class="config-item">
+                                <label for="mbot-lots-per-order" class="rule-label">Lots Per Order</label>
+                                <input type="number" id="mbot-lots-per-order" class="rule-input font-mono" value="1" min="1" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                            </div>
+                        </div>
+
+                        <!-- Actions -->
+                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.6rem;">
+                            <button id="mbot-cancel-edit-btn" class="metallic-button" style="padding: 0.35rem 0.8rem; font-size: 0.74rem; background: rgba(148,163,184,0.15); color: #94a3b8; display: none;">✖ Cancel</button>
+                            <button id="mbot-stop-all-btn" class="metallic-button" style="padding: 0.35rem 1rem; font-size: 0.74rem; font-weight: 700; background: rgba(239, 68, 68, 0.15); color: #f87171;">🛑 Stop All</button>
+                            <button id="mbot-start-btn" class="update-button" style="width: auto; padding: 0.35rem 1.25rem; font-size: 0.74rem; font-weight: 700; background: #10b981;">🚀 Start Task</button>
+                        </div>
+
+                        <!-- Multi-Pair Bot Tasks Section -->
+                        <div style="margin-top: 0.3rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.6rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.3rem;">
+                                    <span>⚡</span> Configured Bot Tasks
+                                </span>
+                                <span id="mbot-tasks-badge" style="font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(16,185,129,0.15); color: #34d399; font-weight: 600;">0 Tasks</span>
+                            </div>
+                            <div class="table-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
+                                    <thead>
+                                        <tr style="background: rgba(255,255,255,0.03);">
+                                            <th style="padding: 0.35rem; text-align: left; width: 60px;">ID</th>
+                                            <th style="padding: 0.35rem; text-align: left;">Pair</th>
+                                            <th style="padding: 0.35rem; text-align: left; width: 65px;">Dir</th>
+                                            <th style="padding: 0.35rem; text-align: left;">Target</th>
+                                            <th style="padding: 0.35rem; text-align: left; width: 60px;">Prog</th>
+                                            <th style="padding: 0.35rem; text-align: center; width: 90px;">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mbot-tasks-body">
+                                        <tr>
+                                            <td colspan="6" class="empty-table" style="text-align: center; padding: 0.6rem; color: var(--text-muted); font-size: 0.72rem;">No bot tasks added.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <!-- Manual BOT Executed Trades Window -->
+                        <div style="margin-top: 0.3rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.6rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.3rem;">
+                                    <span>📋</span> Bot Executed Orders
+                                </span>
+                                <span id="mbot-orders-badge" style="font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60a5fa; font-weight: 600;">0 Orders</span>
+                            </div>
+                            <div class="table-container" style="max-height: 150px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
+                                    <thead>
+                                        <tr style="background: rgba(255,255,255,0.03);">
+                                            <th style="padding: 0.35rem; text-align: left; width: 35px;">#</th>
+                                            <th style="padding: 0.35rem; text-align: left; width: 65px;">Time</th>
+                                            <th style="padding: 0.35rem; text-align: left;">Pair</th>
+                                            <th style="padding: 0.35rem; text-align: left; width: 60px;">Dir</th>
+                                            <th style="padding: 0.35rem; text-align: left;">Target</th>
+                                            <th style="padding: 0.35rem; text-align: left;">Spread</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mbot-trades-body">
+                                        <tr>
+                                            <td colspan="6" class="empty-table" style="text-align: center; padding: 0.6rem; color: var(--text-muted); font-size: 0.72rem;">No bot orders executed yet.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- =========================================================================
+                 MIDDLE COLUMN: Live Market Rates & All Trades (Alag-Alag)
+                 ========================================================================= -->
+            <main class="workstation-col workstation-col-middle">
+                <div class="workstation-col-header col-trades">
+                    <span class="col-title">📊 <span>Live Market &amp; Trades</span></span>
+                    <span class="col-badge">Positions &amp; Spreads</span>
+                </div>
+
+                <!-- Top Workflow Flow Tracker banner -->
+                <div id="top-workflow-banner" class="workflow-banner" data-tab="spreads">
+                    <div class="workflow-flow-top">
+                        <div class="wf-step active" id="wf-step-scan">
+                            <span class="wf-dot"></span>
+                            <span class="wf-label">1. Scanning Spread</span>
+                        </div>
+                        <div class="wf-arrow">➔</div>
+                        <div class="wf-step" id="wf-step-liquidity">
+                            <span class="wf-dot"></span>
+                            <span class="wf-label">2. Depth Check</span>
+                        </div>
+                        <div class="wf-arrow">➔</div>
+                        <div class="wf-step" id="wf-step-order1">
+                            <span class="wf-dot"></span>
+                            <span class="wf-label">3. Order Leg 1</span>
+                        </div>
+                        <div class="wf-arrow">➔</div>
+                        <div class="wf-step" id="wf-step-order2">
+                            <span class="wf-dot"></span>
+                            <span class="wf-label">4. Order Leg 2</span>
+                        </div>
+                        <div class="wf-arrow">➔</div>
+                        <div class="wf-step" id="wf-step-position">
+                            <span class="wf-dot"></span>
+                            <span class="wf-label">5. Holding Position</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Market Rates & Spread Grid -->
+                <section class="stats-grid" data-tab="spreads">
+                    <!-- Hero Card: Current Live Spread -->
+                    <div class="metric-card" id="card-spread">
+                        <div class="metric-header">
+                            <span class="symbol-name">LIVE SPREAD</span>
+                            <div class="tooltip-container">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text">Difference between Gold Petal LTP and Gold Mini LTP. Spread = Petal Price - Mini Price.</span>
+                            </div>
+                            <span class="asset-type">Petal - Mini</span>
+                        </div>
+                        <div class="metric-body">
+                            <span id="current-spread" class="price-value">0.00</span>
+                            <span class="currency">Diff</span>
+                        </div>
+                        <div class="depth-spreads-subpanel" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.72rem; margin-top: 0.4rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.45rem; width: 100%;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: var(--text-secondary);">Depth Buy Diff (Buy P / Sell M):</span>
+                                <strong id="depth-buy-spread" class="font-mono" style="color: var(--accent-green);">0.00</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: var(--text-secondary);">Depth Sell Diff (Sell P / Buy M):</span>
+                                <strong id="depth-sell-spread" class="font-mono" style="color: var(--accent-red);">0.00</strong>
+                            </div>
+                        </div>
+                        <!-- Visual Spread Gauge -->
+                        <div style="margin: 0.35rem 0; width: 100%;">
+                            <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-secondary); margin-bottom: 0.15rem;">
+                                <span>Entry (<span id="gauge-entry-label">850</span>)</span>
+                                <span id="gauge-percent">0%</span>
+                                <span>Target (<span id="gauge-target-label">1050</span>)</span>
+                            </div>
+                            <div style="width: 100%; height: 6px; background-color: #E2E8F0; border-radius: 3px; overflow: hidden; position: relative;">
+                                <div id="spread-gauge-bar" style="width: 0%; height: 100%; background-color: var(--accent-blue); transition: width 0.25s ease, background-color 0.25s ease;"></div>
+                            </div>
+                        </div>
+                        <div class="metric-footer">
+                            <span class="footer-label" id="spread-entry-info">Entry Spread: --</span>
+                        </div>
+                    </div>
+
+                    <!-- Card 1: Gold Petal -->
+                    <div class="metric-card double-card" id="card-petal">
+                        <div class="metric-header">
+                            <span class="symbol-name" id="petal-symbol-name">GOLD_PETAL</span>
+                            <div class="tooltip-container">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text">Gold Petal contract on MCX. Price is per 10 grams (Multiplier = 10x).</span>
+                            </div>
+                            <span class="asset-type">10x Mult</span>
+                        </div>
+                        <div class="metric-body">
+                            <span id="petal-ltp" class="price-value">0.00</span>
+                            <span class="currency">INR</span>
+                        </div>
+                        <!-- 5-Level Market Depth Table -->
+                        <div class="orderbook-widget">
+                            <div class="ob-header">
+                                <span class="ob-hdr-item">Qty</span>
+                                <span class="ob-hdr-item">Ord</span>
+                                <span class="ob-hdr-item text-green">Bid</span>
+                                <span class="ob-hdr-item text-red">Ask</span>
+                                <span class="ob-hdr-item">Ord</span>
+                                <span class="ob-hdr-item">Qty</span>
+                            </div>
+                            <div class="ob-rows" id="petal-ob-rows">
+                                <div class="ob-row-placeholder">Loading depth data...</div>
+                            </div>
+                        </div>
+                        <div class="metric-footer" style="display: flex; flex-direction: column; gap: 0.4rem;">
+                            <span class="footer-label" id="petal-entry-info">Entry: --</span>
+                            <div class="depth-container">
+                                <div class="depth-bar-wrapper">
+                                    <div id="petal-depth-bid" class="depth-bid" style="width: 50%;"></div>
+                                    <div id="petal-depth-ask" class="depth-ask" style="width: 50%;"></div>
+                                </div>
+                                <div class="depth-details">
+                                    <span class="depth-buyer-lbl">B: <strong id="petal-buy-qty" class="font-mono">--</strong></span>
+                                    <span class="depth-pct-badge" id="petal-depth-ratio">50% / 50%</span>
+                                    <span class="depth-seller-lbl">S: <strong id="petal-sell-qty" class="font-mono">--</strong></span>
+                                </div>
+                            </div>
+                            <div style="font-size: 0.65rem; color: var(--text-secondary); display: flex; justify-content: space-between; margin-top: 0.15rem;">
+                                <span>Total Volume:</span>
+                                <span id="petal-volume" class="font-mono" style="font-weight: 600;">--</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="safety-bottom-row">
-                        <div class="toggles-container" style="display: flex; gap: 1.5rem;">
-                            <div class="toggle-group">
-                                <span class="rule-label">Paper Trading Mode</span>
+                    <!-- Card 2: Gold Mini -->
+                    <div class="metric-card double-card" id="card-mini">
+                        <div class="metric-header">
+                            <span class="symbol-name" id="mini-symbol-name">GOLD_MINI</span>
+                            <div class="tooltip-container">
+                                <span>ⓘ</span>
+                                <span class="tooltip-text">Gold Mini contract on MCX. Price is per 10 grams (Multiplier = 1x).</span>
+                            </div>
+                            <span class="asset-type">1x Mult</span>
+                        </div>
+                        <div class="metric-body">
+                            <span id="mini-ltp" class="price-value">0.00</span>
+                            <span class="currency">INR</span>
+                        </div>
+                        <!-- 5-Level Market Depth Table -->
+                        <div class="orderbook-widget">
+                            <div class="ob-header">
+                                <span class="ob-hdr-item">Qty</span>
+                                <span class="ob-hdr-item">Ord</span>
+                                <span class="ob-hdr-item text-green">Bid</span>
+                                <span class="ob-hdr-item text-red">Ask</span>
+                                <span class="ob-hdr-item">Ord</span>
+                                <span class="ob-hdr-item">Qty</span>
+                            </div>
+                            <div class="ob-rows" id="mini-ob-rows">
+                                <div class="ob-row-placeholder">Loading depth data...</div>
+                            </div>
+                        </div>
+                        <div class="metric-footer" style="display: flex; flex-direction: column; gap: 0.4rem;">
+                            <span class="footer-label" id="mini-entry-info">Entry: --</span>
+                            <div class="depth-container">
+                                <div class="depth-bar-wrapper">
+                                    <div id="mini-depth-bid" class="depth-bid" style="width: 50%;"></div>
+                                    <div id="mini-depth-ask" class="depth-ask" style="width: 50%;"></div>
+                                </div>
+                                <div class="depth-details">
+                                    <span class="depth-buyer-lbl">B: <strong id="mini-buy-qty" class="font-mono">--</strong></span>
+                                    <span class="depth-pct-badge" id="mini-depth-ratio">50% / 50%</span>
+                                    <span class="depth-seller-lbl">S: <strong id="mini-sell-qty" class="font-mono">--</strong></span>
+                                </div>
+                            </div>
+                            <div style="font-size: 0.65rem; color: var(--text-secondary); display: flex; justify-content: space-between; margin-top: 0.15rem;">
+                                <span>Total Volume:</span>
+                                <span id="mini-volume" class="font-mono" style="font-weight: 600;">--</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Month Master Live Spread Section -->
+                <section id="month-master-live-section" data-tab="spreads" style="display: none; margin-bottom: 0.75rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0; display: flex; align-items: center; gap: 0.4rem;">
+                            📊 Month Master Live Spreads
+                        </h3>
+                        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                            <select id="live-spread-category" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 6px; border: 1px solid var(--border-color); cursor: pointer; background: white; font-weight: 600;">
+                                <option value="ALL">All Spreads</option>
+                                <option value="PETAL">Petal with Mini</option>
+                                <option value="GUINEA">Guinea with Mini</option>
+                                <option value="GOLD">GoldTen with Mini</option>
+                            </select>
+                            <button id="export-month-master-csv-btn" class="csv-export-button" style="padding: 0.25rem 0.65rem; font-size: 0.72rem; min-height: unset; margin: 0; background: var(--accent-light, #3b82f6); color: white; display: flex; align-items: center; gap: 0.35rem; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                Export Daily Spreads (CSV)
+                            </button>
+                        </div>
+                    </div>
+                    <div id="month-master-live-cards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem;">
+                        <!-- Dynamic cards will be generated here -->
+                    </div>
+                </section>
+
+                <!-- ==========================================
+                     TRADE TABLE 1: Active & Pending Manual Trades
+                     ========================================== -->
+                <section class="manual-trades-section" data-tab="trades" style="width: 100%;">
+                    <div class="data-card manual-trades-panel" id="card-manual-trades" style="width: 100%;">
+                        <div class="panel-header" id="manual-panel-hdr"
+                            onclick="(function(){
+                                var body = document.getElementById('manual-panel-body');
+                                var arrow = document.getElementById('manual-panel-arrow');
+                                var open = body.style.display !== 'none';
+                                body.style.display = open ? 'none' : 'block';
+                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                            })()"
+                            style="cursor: pointer; user-select: none;">
+                            <h2>📋 Active &amp; Pending Manual Trades</h2>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <button id="clear-manual-inactive-btn" class="csv-export-button" onclick="event.stopPropagation(); window.clearAllInactiveManualTrades();" style="border-color: rgba(239, 68, 68, 0.35); color: #f87171; background: rgba(239, 68, 68, 0.08);" title="Clear all Cancelled, Failed, and Closed orders">
+                                    🗑️ Clear Inactive
+                                </button>
+                                <button id="export-manual-csv-btn" class="csv-export-button desktop-only" onclick="event.stopPropagation()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                    Export CSV
+                                </button>
+                                <span id="manual-panel-arrow" class="mobile-only" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                            </div>
+                        </div>
+                        <div id="manual-panel-body">
+                            <div id="manual-trades-summary" class="mobile-only trades-summary-banner"></div>
+                            <div class="table-container">
+                                <table class="history-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width: 45px;">ID</th>
+                                            <th style="width: 85px;">Time</th>
+                                            <th style="width: 170px;">Symbols (Leg 1 / Leg 2)</th>
+                                            <th style="width: 85px;">Direction</th>
+                                            <th style="width: 45px;">Qty</th>
+                                            <th style="width: 100px;">Trigger Diff</th>
+                                            <th style="width: 75px;">Status</th>
+                                            <th>Entry Prices (Petal / Mini)</th>
+                                            <th style="width: 120px;">Live P&amp;L</th>
+                                            <th style="text-align: right; padding-right: 1.5rem; width: 90px;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="manual-trades-body">
+                                        <tr>
+                                            <td colspan="10" class="empty-table">No active or pending manual trades.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ==========================================
+                     TRADE TABLE 2: Active & Closed Automation Trades (Grid)
+                     ========================================== -->
+                <section class="automation-trades-section" data-tab="trades" style="width: 100%;">
+                    <div class="data-card automation-trades-panel" id="card-automation-trades" style="width: 100%;">
+                        <div class="panel-header" id="ta-panel-hdr"
+                            onclick="(function(){
+                                var body = document.getElementById('ta-panel-body');
+                                var arrow = document.getElementById('ta-panel-arrow');
+                                var open = body.style.display !== 'none';
+                                body.style.display = open ? 'none' : 'block';
+                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                            })()"
+                            style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
+                            <h2>⚡ Active &amp; Closed Automation Trades (Grid)</h2>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <div class="desktop-only" style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <button id="ta-clear-all-trades-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Orders</button>
+                                    <button id="ta-export-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Export Trade Log (CSV)</button>
+                                </div>
+                                <div class="mobile-only" style="display: flex; gap: 0.4rem; align-items: center;">
+                                    <button id="ta-clear-all-trades-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-clear-all-trades-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️</button>
+                                    <button id="ta-export-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-export-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">📥</button>
+                                    <span id="ta-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="ta-panel-body">
+                            <div id="ta-trades-summary" class="mobile-only trades-summary-banner"></div>
+                            <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead>
+                                        <tr style="background-color: rgba(255,255,255,0.03);">
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
+                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ta-trades-body">
+                                        <tr>
+                                            <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ==========================================
+                     TRADE TABLE 3: Active & Closed Trades (Automation with Lots)
+                     ========================================== -->
+                <section class="automation-trades-section" data-tab="trades" style="width: 100%;">
+                    <div class="data-card automation-trades-panel" id="card-automation-lots-trades" style="width: 100%; border-top: 3px solid #f59e0b;">
+                        <div class="panel-header" id="ta-lots-panel-hdr"
+                            onclick="(function(){
+                                var body = document.getElementById('ta-lots-panel-body');
+                                var arrow = document.getElementById('ta-lots-panel-arrow');
+                                var open = body.style.display !== 'none';
+                                body.style.display = open ? 'none' : 'block';
+                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                            })()"
+                            style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <h2>🎯 Active &amp; Closed Trades (Automation with Lots)</h2>
+                                <span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px;">LOTS</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <div class="desktop-only" style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <button id="ta-lots-clear-all-trades-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Lots Orders</button>
+                                </div>
+                                <div class="mobile-only" style="display: flex; gap: 0.4rem; align-items: center;">
+                                    <button id="ta-lots-clear-all-trades-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-lots-clear-all-trades-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️</button>
+                                    <span id="ta-lots-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="ta-lots-panel-body">
+                            <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead>
+                                        <tr style="background-color: rgba(255,255,255,0.03);">
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Order / Lot</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
+                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="ta-lots-trades-body">
+                                        <tr>
+                                            <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated lots trades recorded. Configure a lots bot instance.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+
+            <!-- =========================================================================
+                 RIGHT COLUMN: Settings, Broker Credentials, Master & Terminal Logs
+                 ========================================================================= -->
+            <aside class="workstation-col workstation-col-right">
+                <div class="workstation-col-header col-settings">
+                    <span class="col-title">⚙️ <span>Settings &amp; Tools</span></span>
+                    <span class="col-badge">Configuration</span>
+                </div>
+
+                <!-- 1. Broker & Account Details -->
+                <div class="control-card configs-panel collapsible-card" id="card-configs" data-tab="settings">
+                    <div class="card-header-toggle" onclick="toggleCard('card-configs')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">Broker &amp; Account Details</h2>
+                        <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s; transform: rotate(180deg);">▼</span>
+                    </div>
+                    <div class="card-content" style="display: flex; margin-top: 1rem; flex-direction: column; gap: 0.85rem;">
+                        <div class="broker-configs-section">
+                            <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.65rem;">
+                                <div style="display: flex; gap: 0.5rem; align-items: center; justify-content: space-between;">
+                                    <span class="rule-label" style="font-weight: 700; color: #1e293b; margin: 0;">Active Broker:</span>
+                                    <select id="select-broker" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; width: 140px; font-weight: 600; cursor: pointer; border-radius: 6px;">
+                                        <option value="AngelOne">Angel One API</option>
+                                        <option value="Dhan">Dhan API</option>
+                                        <option value="Groww">Groww API</option>
+                                        <option value="Upstox">Upstox API</option>
+                                        <option value="Simulation">Simulation Mode</option>
+                                    </select>
+                                </div>
+                                <div style="display: flex; flex-direction: column; gap: 0.35rem;">
+                                    <span class="rule-label" style="font-weight: 700; color: #1e293b; margin: 0;">Quick Select Pair:</span>
+                                    <div style="display: flex; gap: 0.4rem;">
+                                        <select id="quick-select-category" class="rule-input font-mono" style="padding: 0.25rem 0.4rem; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white; width: 110px;">
+                                            <option value="ALL">All Types</option>
+                                            <option value="PETAL">Petal / Mini</option>
+                                            <option value="GUINEA">Guinea / Mini</option>
+                                            <option value="GOLD">Ten / Mini</option>
+                                        </select>
+                                        <select id="quick-select-month-pair" class="rule-input font-mono" style="flex: 1; padding: 0.25rem 0.4rem; font-weight: 600; cursor: pointer; border-radius: 6px; border: 1px solid var(--border-color); background: white;">
+                                            <option value="">-- Select Mapped Pair --</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Angel One Config Fields -->
+                            <div id="angelone-fields" class="configs-inputs-grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.55rem; margin-bottom: 0.5rem;">
+                                <div class="config-item">
+                                    <label for="input-angelone-client-id" class="rule-label">Client ID</label>
+                                    <input type="text" id="input-angelone-client-id" class="rule-input font-mono" placeholder="Client ID">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-angelone-password" class="rule-label">Password / PIN</label>
+                                    <input type="password" id="input-angelone-password" class="rule-input font-mono" placeholder="Password">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-angelone-totp" class="rule-label">TOTP Secret</label>
+                                    <input type="password" id="input-angelone-totp" class="rule-input font-mono" placeholder="TOTP Secret">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-angelone-api-key" class="rule-label">API Key</label>
+                                    <input type="text" id="input-angelone-api-key" class="rule-input font-mono" value="e72eCDuy" placeholder="API Key">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-angelone-petal-symbol" class="rule-label">Leg 1 Symbol</label>
+                                    <input type="text" id="input-angelone-petal-symbol" class="rule-input font-mono" value="GOLDPETAL26FEBFUT">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-angelone-petal-token" class="rule-label">Leg 1 Token</label>
+                                    <input type="text" id="input-angelone-petal-token" class="rule-input font-mono" value="250000">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-angelone-mini-symbol" class="rule-label">Leg 2 Symbol</label>
+                                    <input type="text" id="input-angelone-mini-symbol" class="rule-input font-mono" value="GOLDMINI26FEBFUT">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-angelone-mini-token" class="rule-label">Leg 2 Token</label>
+                                    <input type="text" id="input-angelone-mini-token" class="rule-input font-mono" value="250001">
+                                </div>
+                            </div>
+
+                            <!-- Dhan Config Fields -->
+                            <div id="dhan-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 0.55rem; margin-bottom: 0.5rem;">
+                                <div class="config-item">
+                                    <label for="input-dhan-client-id" class="rule-label">Client ID</label>
+                                    <input type="text" id="input-dhan-client-id" class="rule-input font-mono" placeholder="Dhan Client ID">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-dhan-access-token" class="rule-label">Access Token</label>
+                                    <input type="password" id="input-dhan-access-token" class="rule-input font-mono" placeholder="Access Token">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-dhan-petal-symbol" class="rule-label">Leg 1 Symbol</label>
+                                    <input type="text" id="input-dhan-petal-symbol" class="rule-input font-mono" value="GOLDPETAL31AUG26FUT">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-dhan-petal-token" class="rule-label">Leg 1 Token</label>
+                                    <input type="text" id="input-dhan-petal-token" class="rule-input font-mono" placeholder="Leg 1 Token">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-dhan-mini-symbol" class="rule-label">Leg 2 Symbol</label>
+                                    <input type="text" id="input-dhan-mini-symbol" class="rule-input font-mono" value="GOLDM04SEP26FUT">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-dhan-mini-token" class="rule-label">Leg 2 Token</label>
+                                    <input type="text" id="input-dhan-mini-token" class="rule-input font-mono" placeholder="Leg 2 Token">
+                                </div>
+                            </div>
+
+                            <!-- Groww Config Fields -->
+                            <div id="groww-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 0.55rem; margin-bottom: 0.5rem;">
+                                <div class="config-item">
+                                    <label for="input-groww-client-id" class="rule-label">Client ID</label>
+                                    <input type="text" id="input-groww-client-id" class="rule-input font-mono" placeholder="Groww Client ID">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-groww-api-key" class="rule-label">API Key</label>
+                                    <input type="text" id="input-groww-api-key" class="rule-input font-mono" placeholder="Groww API Key">
+                                </div>
+                                <div class="config-item" style="grid-column: 1 / -1;">
+                                    <label for="input-groww-secret" class="rule-label">API Secret / Token</label>
+                                    <input type="password" id="input-groww-secret" class="rule-input font-mono" placeholder="Secret Key / Token">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-groww-petal-symbol" class="rule-label">Leg 1 Symbol</label>
+                                    <input type="text" id="input-groww-petal-symbol" class="rule-input font-mono" value="GOLDPETAL31JUL26FUT">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-groww-mini-symbol" class="rule-label">Leg 2 Symbol</label>
+                                    <input type="text" id="input-groww-mini-symbol" class="rule-input font-mono" value="GOLDM05AUG26FUT">
+                                </div>
+                            </div>
+                            
+                            <!-- Upstox Config Fields -->
+                            <div id="upstox-fields" class="configs-inputs-grid" style="display: none; grid-template-columns: repeat(2, 1fr); gap: 0.55rem; margin-bottom: 0.5rem;">
+                                <div class="config-item">
+                                    <label for="input-upstox-client-id" class="rule-label">Client ID</label>
+                                    <input type="text" id="input-upstox-client-id" class="rule-input font-mono" placeholder="Upstox API Key">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-upstox-secret" class="rule-label">Client Secret</label>
+                                    <input type="password" id="input-upstox-secret" class="rule-input font-mono" placeholder="Secret Key">
+                                </div>
+                                <div class="config-item" style="grid-column: 1 / -1;">
+                                    <label for="input-upstox-access-token" class="rule-label">Access Token</label>
+                                    <input type="password" id="input-upstox-access-token" class="rule-input font-mono" placeholder="Access Token">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-upstox-petal-symbol" class="rule-label">Leg 1 Key</label>
+                                    <input type="text" id="input-upstox-petal-symbol" class="rule-input font-mono" value="MCX_FO|41223">
+                                </div>
+                                <div class="config-item">
+                                    <label for="input-upstox-mini-symbol" class="rule-label">Leg 2 Key</label>
+                                    <input type="text" id="input-upstox-mini-symbol" class="rule-input font-mono" value="MCX_FO|41224">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="safety-bottom-row" style="display: flex; flex-direction: column; gap: 0.65rem;">
+                            <div class="toggle-group" style="display: flex; align-items: center; justify-content: space-between;">
+                                <span class="rule-label" style="margin: 0;">Paper Trading Mode</span>
                                 <label class="switch">
                                     <input type="checkbox" id="input-paper-mode" checked>
                                     <span class="slider"></span>
                                 </label>
                             </div>
-                        </div>
-                        <div class="action-buttons-group">
-                            <button id="update-params-btn" class="update-button">Save Parameters</button>
-                            <button id="download-btn" class="metallic-button">Download Logic</button>
+                            <div class="action-buttons-group" style="display: flex; gap: 0.5rem;">
+                                <button id="update-params-btn" class="update-button" style="flex: 1; padding: 0.4rem 0.75rem;">Save Parameters</button>
+                                <button id="download-btn" class="metallic-button" style="padding: 0.4rem 0.75rem;">Download Logic</button>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            <!-- Manual BOT Panel (Semi-Automated Slicer with 30s Cooldown) -->
-            <div class="control-card collapsible-card" id="card-manual-bot" style="margin-top: 1rem; width: 100%; grid-column: 1 / -1;">
-                <div class="card-header-toggle" onclick="toggleCard('card-manual-bot')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary);">🤖 Manual BOT (Auto-Slicer with 30s Cooldown)</h2>
-                        <span id="manual-bot-active-badge" style="font-size: 0.65rem; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(148,163,184,0.15); color: #94a3b8; font-weight: 700;">IDLE</span>
+                <!-- 2. Month Master Mapping Manager -->
+                <div class="control-card month-master-panel collapsible-card" id="card-month-master" data-tab="settings" style="width: 100%;">
+                    <div class="card-header-toggle" onclick="toggleCard('card-month-master')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">📅 Month Master Mapping Manager</h2>
+                        <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
                     </div>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
-                </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1rem;">
-                    
-                    <!-- Live Status Banner -->
-                    <input type="hidden" id="mbot-edit-id" value="">
-                    <div id="manual-bot-status-banner" style="padding: 0.6rem 0.85rem; border-radius: 6px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.2); font-size: 0.76rem; color: var(--text-primary); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
-                        <div><strong>Status:</strong> <span id="manual-bot-status-text" class="font-mono">Idle - Bot not running.</span></div>
-                        <div style="flex: 1 1 100%; max-width: 100%; margin-top: 0.2rem; font-size: 0.72rem; color: #fbbf24;">
-                            <strong>Current Activity / Reason:</strong> <span id="manual-bot-why-waiting" class="font-mono" style="color: #fde68a;">Bot not started</span>
+                    <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 0.75rem;">
+                        <!-- Form to Add Mapping -->
+                        <div class="configs-inputs-grid" style="grid-template-columns: repeat(2, 1fr); gap: 0.55rem;">
+                            <div class="config-item">
+                                <label class="rule-label">Leg 1 Symbol</label>
+                                <input type="text" id="mm-petal-symbol" class="rule-input font-mono" placeholder="e.g. GOLDPETAL...">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Leg 1 Token</label>
+                                <input type="text" id="mm-petal-token" class="rule-input font-mono" placeholder="e.g. 571306">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Leg 2 Symbol</label>
+                                <input type="text" id="mm-mini-symbol" class="rule-input font-mono" placeholder="e.g. GOLDM...">
+                            </div>
+                            <div class="config-item">
+                                <label class="rule-label">Leg 2 Token</label>
+                                <input type="text" id="mm-mini-token" class="rule-input font-mono" placeholder="e.g. 571445">
+                            </div>
                         </div>
-                        <div><strong>Progress:</strong> <span id="manual-bot-progress-text" class="font-mono" style="color: #60a5fa; font-weight: 700;">0 / 5 Orders</span></div>
-                    </div>
-
-                    <!-- Config Grid -->
-                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem;">
-                        <div class="config-item">
-                            <label class="rule-label">Select Month Pair</label>
-                            <select id="mbot-select-pair" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
-                                <option value="">-- Active Primary Pair --</option>
-                            </select>
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Strategy Direction</label>
-                            <select id="mbot-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
-                                <option value="Expansion">Spread Expansion (Buy P / Sell M)</option>
-                                <option value="Contraction">Spread Contraction (Sell P / Buy M)</option>
-                            </select>
-                        </div>
-                        <div class="config-item">
-                            <label for="mbot-trigger-diff" class="rule-label">Trigger Diff Target
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Base target spread (e.g. 1400).</span>
-                                </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;">
+                            <label style="font-size: 0.72rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
+                                <input type="checkbox" id="mm-capture-data" checked style="cursor: pointer;"> Capture Daily Stats
                             </label>
-                            <input type="number" id="mbot-trigger-diff" class="rule-input font-mono" value="1400" step="any" style="width: 100%; box-sizing: border-box; font-weight: 700;">
+                            <button id="add-mm-mapping-btn" class="update-button" style="width: auto; padding: 0.35rem 1rem;">Add Mapping</button>
                         </div>
-                        <div class="config-item">
-                            <label for="mbot-diff-gap" class="rule-label">Diff Gap Window
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Difference window (e.g. 20). If target is 1400 and gap is 20, orders trigger at 1400, 1390, 1385, 1380.</span>
-                                </div>
-                            </label>
-                            <input type="number" id="mbot-diff-gap" class="rule-input font-mono" value="20" step="any" style="width: 100%; box-sizing: border-box; font-weight: 700;">
-                        </div>
-                        <div class="config-item">
-                            <label for="mbot-total-orders" class="rule-label">Total Orders Count (Qty)
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Number of staggered orders to execute (e.g. 5 orders).</span>
-                                </div>
-                            </label>
-                            <input type="number" id="mbot-total-orders" class="rule-input font-mono" value="5" min="1" max="50" style="width: 100%; box-sizing: border-box; font-weight: 700;">
-                        </div>
-                        <div class="config-item">
-                            <label for="mbot-lots-per-order" class="rule-label">Lots Per Order</label>
-                            <input type="number" id="mbot-lots-per-order" class="rule-input font-mono" value="1" min="1" style="width: 100%; box-sizing: border-box; font-weight: 700;">
-                        </div>
-                    </div>
-
-                    <!-- Cooldown Note -->
-                    <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
-                        <span>⏱️</span>
-                        <span><strong>Anti-Slippage Cooldown:</strong> 30 seconds delay is strictly enforced between every order execution to avoid book impact.</span>
-                    </div>
-
-                    <!-- Actions -->
-                    <div style="display: flex; gap: 0.75rem; justify-content: flex-end; align-items: center; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem;">
-                        <button id="mbot-cancel-edit-btn" class="metallic-button" style="padding: 0.4rem 1rem; font-size: 0.78rem; font-weight: 600; background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.25); border-radius: 6px; cursor: pointer; display: none;">✖ Cancel Edit</button>
-                        <button id="mbot-stop-all-btn" class="metallic-button" style="padding: 0.4rem 1.25rem; font-size: 0.78rem; font-weight: 700; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 6px; cursor: pointer;">🛑 Stop All Bots</button>
-                        <button id="mbot-start-btn" class="update-button" style="width: auto; padding: 0.4rem 1.5rem; font-size: 0.78rem; font-weight: 700; background: #10b981;">🚀 Start / Add Bot Task</button>
-                    </div>
-
-                    <!-- Multi-Pair Bot Tasks Section (Point 5) -->
-                    <div style="margin-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
-                            <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
-                                <span>⚡</span> Configured Bot Tasks (Multiple Pairs)
-                            </span>
-                            <span id="mbot-tasks-badge" style="font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(16,185,129,0.15); color: #34d399; font-weight: 600;">0 Tasks</span>
-                        </div>
-                        <div class="table-container" style="max-height: 220px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                        <!-- Table of current mappings -->
+                        <div class="table-container" style="max-height: 180px; overflow-y: auto; margin-top: 0.25rem; border: 1px solid var(--border-color); border-radius: 6px;">
                             <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
                                 <thead>
-                                    <tr style="background: rgba(255,255,255,0.03);">
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 65px;">Task ID</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Pair</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 80px;">Direction</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Target (Window)</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 75px;">Progress</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 75px;">Live Spread</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Status &amp; Current Reason</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: center; width: 110px;">Actions</th>
+                                    <tr style="background-color: rgba(255,255,255,0.03);">
+                                        <th style="padding: 0.4rem; text-align: left;">Leg 1</th>
+                                        <th style="padding: 0.4rem; text-align: left;">Leg 2</th>
+                                        <th style="padding: 0.4rem; text-align: right; width: 60px;">Action</th>
                                     </tr>
                                 </thead>
-                                <tbody id="mbot-tasks-body">
+                                <tbody id="month-master-table-body">
                                     <tr>
-                                        <td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot tasks added yet. Configure above and click "Start / Add Bot Task".</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Manual BOT Executed Trades Window (Point 2) -->
-                    <div style="margin-top: 0.5rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                            <span style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
-                                <span>📋</span> Bot Executed Orders
-                            </span>
-                            <span id="mbot-orders-badge" style="font-size: 0.68rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60a5fa; font-weight: 600;">0 Orders</span>
-                        </div>
-                        <div class="table-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                            <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
-                                <thead>
-                                    <tr style="background: rgba(255,255,255,0.03);">
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 45px;">#</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 80px;">Time (IST)</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Pair</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left; width: 80px;">Direction</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Target Diff</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Filled Spread</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: left;">Prices (P / M)</th>
-                                        <th style="padding: 0.4rem 0.5rem; text-align: center; width: 70px;">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="mbot-trades-body">
-                                    <tr>
-                                        <td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot orders executed yet.</td>
+                                        <td colspan="3" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.72rem;">No month mappings configured.</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
                     </div>
                 </div>
-            </div>
-        </section>
 
-        <!-- Trade Automation (Grid Arbitrage) Section -->
-        <section class="month-master-section" data-tab="automation" style="margin-bottom: 1.25rem; width: 100%;">
-            <div class="control-card month-master-panel collapsible-card" id="card-trade-automation" style="width: 100%;">
-                <div class="card-header-toggle" onclick="toggleCard('card-trade-automation')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">🤖 Trade Automation (Grid Arbitrage Bot)</h2>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
-                </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
-                    
-                    <!-- Strategy Parameters Input Form -->
-                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-                        <div class="config-item">
-                            <label class="rule-label">Select Month Pair</label>
-                            <select id="ta-select-month" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
-                                <option value="-1">-- Select Month --</option>
-                            </select>
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Entry Diff Threshold</label>
-                            <input type="number" id="ta-input-entry-diff" class="rule-input font-mono" value="500" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Averaging Step Size</label>
-                            <input type="number" id="ta-input-averaging-step" class="rule-input font-mono" value="50" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Exit Profit Gap</label>
-                            <input type="number" id="ta-input-exit-gap" class="rule-input font-mono" value="100" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Trade Quantity (Lots)</label>
-                            <input type="number" id="ta-input-quantity" class="rule-input font-mono" value="1" min="1" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Max Orders Limit</label>
-                            <input type="number" id="ta-input-max-orders" class="rule-input font-mono" value="5" min="1" max="50" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Strategy Direction</label>
-                            <select id="ta-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
-                                <option value="Expansion">Spread Expansion</option>
-                                <option value="Contraction">Spread Contraction</option>
-                            </select>
-                        </div>
-                        
-                        <div class="config-item checkbox-input-group" style="display: flex; gap: 1.5rem; align-items: center; grid-column: span 2; margin-top: 1.25rem;">
-                            <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span class="rule-label" style="margin-bottom: 0;">Paper Mode</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="ta-checkbox-paper-mode" checked>
-                                    <span class="slider"></span>
-                                </label>
+                <!-- 3. Execution Terminal Logs Console -->
+                <div class="data-card logs-panel collapsible-card" id="card-logs" data-tab="settings" style="height: fit-content;">
+                    <div class="panel-header-toggle" onclick="toggleCard('card-logs')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; padding: 0.65rem 1rem; background-color: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-color);">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <h2 style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary); margin: 0;">Execution Terminal</h2>
+                            <div class="terminal-dots">
+                                <span class="dot-red"></span>
+                                <span class="dot-yellow"></span>
+                                <span class="dot-green"></span>
                             </div>
                         </div>
+                        <span class="toggle-arrow" style="display: inline-block; font-size: 0.75rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s; transform: rotate(180deg);">▼</span>
                     </div>
-                    
-                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.5rem;">
-                        <button id="ta-add-config-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem; display: flex; align-items: center; gap: 0.25rem;">➕ Add Bot Instance</button>
-                    </div>
-
-                    <!-- Active Bot Instances -->
-                    <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
-                        <div onclick="(function(){
-                                var body = document.getElementById('bot-instances-body');
-                                var arrow = document.getElementById('bot-instances-arrow');
-                                var open = body.style.display !== 'none';
-                                body.style.display = open ? 'none' : 'block';
-                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
-                            })()"
-                            style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 0.5rem;">
-                            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🤖 Active Bot Instances (Multi-Month Grid)</h3>
-                            <span id="bot-instances-arrow" class="mobile-only" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
-                        </div>
-                        <div id="bot-instances-body">
-                            <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
-                                    <thead>
-                                        <tr style="background-color: rgba(255,255,255,0.03);">
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Month Pair</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 100px;">Direction</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Entry Diff</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Step</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Gap</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Max Orders</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Mode</th>
-                                            <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
-                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 75px; padding-right: 1.5rem;">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="ta-configs-body">
-                                        <tr>
-                                            <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
+                    <div class="card-content" style="display: block;">
+                        <div id="logs-container" class="console-body" style="border-top: none; border-radius: 0; max-height: 220px; overflow-y: auto;">
+                            <div class="log-line system-msg">[SYSTEM] Initializing Quant Station...</div>
                         </div>
                     </div>
                 </div>
-            </div>
-        </section>
 
-        <!-- Trade Automation with Lots (Custom Lots Per Order) Section -->
-        <section class="month-master-section" data-tab="automation" style="margin-bottom: 1.25rem; width: 100%;">
-            <div class="control-card month-master-panel collapsible-card" id="card-trade-automation-lots" style="width: 100%; border-top: 3px solid #f59e0b;">
-                <div class="card-header-toggle" onclick="toggleCard('card-trade-automation-lots')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">🎯 Trade Automation with Lots (Custom Lots Per Order)</h2>
-                        <span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px; text-transform: uppercase;">NEW</span>
+                <!-- 4. Trade History Export Tools -->
+                <div class="data-card trade-history-panel" data-tab="settings" style="height: fit-content; padding-bottom: 0.5rem;">
+                    <div class="panel-header" style="border-bottom: none; padding-bottom: 0.35rem;">
+                        <h2 style="font-size: 0.85rem; font-weight: 600; color: var(--text-primary);">Trade Reports &amp; Exports</h2>
                     </div>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
-                </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1.1rem;">
-                    
-                    <!-- Strategy Parameters Input Form -->
-                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-                        <div class="config-item">
-                            <label class="rule-label">Select Month Pair</label>
-                            <select id="ta-lots-select-month" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
-                                <option value="-1">-- Select Month --</option>
-                            </select>
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Strategy Direction</label>
-                            <select id="ta-lots-select-direction" class="rule-input font-mono" style="padding: 0.25rem 0.5rem; cursor: pointer; border-radius: 6px; background: white; border: 1px solid var(--border-color); color: #1e293b; font-weight: 600; width: 100%; box-sizing: border-box;">
-                                <option value="Expansion">Spread Expansion (Buy P / Sell M)</option>
-                                <option value="Contraction">Spread Contraction (Sell P / Buy M)</option>
-                            </select>
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Base Entry Diff (1st Order)</label>
-                            <input type="number" id="ta-lots-input-entry-diff" class="rule-input font-mono" value="900" style="width: 100%; box-sizing: border-box; font-weight: 700;">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Averaging Step Size</label>
-                            <input type="number" id="ta-lots-input-averaging-step" class="rule-input font-mono" value="50" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Exit Profit Gap</label>
-                            <input type="number" id="ta-lots-input-exit-gap" class="rule-input font-mono" value="100" style="width: 100%; box-sizing: border-box;">
-                        </div>
-                        <div class="config-item" style="grid-column: span 2;">
-                            <label class="rule-label">Lots Sequence (Comma-separated, e.g. 2, 3, 1)
-                                <div class="tooltip-container">
-                                    <span>ⓘ</span>
-                                    <span class="tooltip-text">Enter lots for each order level separated by commas (e.g. 2, 3, 1). Total orders will be equal to the number of levels (3 orders).</span>
-                                </div>
-                            </label>
-                            <input type="text" id="ta-lots-input-lots" class="rule-input font-mono" value="2, 3, 1" placeholder="e.g. 2, 3, 1" style="width: 100%; box-sizing: border-box; font-weight: 700; color: #f59e0b;">
-                        </div>
-                        <div class="config-item checkbox-input-group" style="display: flex; gap: 1.5rem; align-items: center; margin-top: 1.25rem;">
-                            <div class="toggle-group" style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span class="rule-label" style="margin-bottom: 0;">Paper Mode</span>
-                                <label class="switch">
-                                    <input type="checkbox" id="ta-lots-checkbox-paper-mode" checked>
-                                    <span class="slider"></span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Live Visual Grid Ladder Preview -->
-                    <div style="background: rgba(245, 158, 11, 0.04); border: 1px dashed rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 0.75rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
-                            <span style="font-size: 0.72rem; font-weight: 700; color: #f59e0b; display: flex; align-items: center; gap: 0.3rem;">
-                                <span>🪜</span> Order Ladder Preview (Custom Lots per Level)
-                            </span>
-                            <span id="ta-lots-preview-total" style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">3 Orders | Total: 6 Lots</span>
-                        </div>
-                        <div id="ta-lots-preview-grid" style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
-                            <!-- Dynamically generated badges -->
-                        </div>
-                    </div>
-
-                    <!-- Anti-Slippage Cooldown Notice -->
-                    <div style="font-size: 0.72rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; background: rgba(59,130,246,0.05); padding: 0.4rem 0.6rem; border-radius: 4px; border: 1px solid rgba(59,130,246,0.15);">
-                        <span>⏱️</span>
-                        <span><strong>Anti-Slippage Cooldown:</strong> 20 seconds delay is strictly enforced between consecutive order entries and consecutive exits. Leg 1 &amp; Leg 2 fire simultaneously without delay.</span>
-                    </div>
-
-                    <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 0.25rem;">
-                        <button id="ta-lots-add-config-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem; display: flex; align-items: center; gap: 0.25rem; background: #f59e0b; color: #000; font-weight: 700;">➕ Add Bot Instance (Lots)</button>
-                    </div>
-
-                    <!-- Active Lots Bot Instances Table -->
-                    <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 1rem; margin-top: 0.5rem;">
-                        <div onclick="(function(){
-                                var body = document.getElementById('bot-lots-instances-body');
-                                var arrow = document.getElementById('bot-lots-instances-arrow');
-                                var open = body.style.display !== 'none';
-                                body.style.display = open ? 'none' : 'block';
-                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
-                            })()"
-                            style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; margin-bottom: 0.5rem;">
-                            <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🎯 Active Lots Bot Instances</h3>
-                            <span id="bot-lots-instances-arrow" class="mobile-only" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
-                        </div>
-                        <div id="bot-lots-instances-body">
-                            <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
-                                    <thead>
-                                        <tr style="background-color: rgba(255,255,255,0.03);">
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Month Pair</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 100px;">Direction</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Entry Diff</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Step</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Gap</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Lots Sequence</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 70px;">Mode</th>
-                                            <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
-                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 75px; padding-right: 1.5rem;">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="ta-lots-configs-body">
-                                        <tr>
-                                            <td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No lots bot instances configured. Set parameters above and click "Add Bot Instance (Lots)".</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Trade Automation Trades Table Section -->
-        <section class="automation-trades-section" data-tab="trades" style="margin-bottom: 1.25rem; width: 100%;">
-            <div class="data-card automation-trades-panel" id="card-automation-trades" style="width: 100%;">
-                <!-- Panel Header — tappable on mobile to collapse/expand -->
-                <div class="panel-header" id="ta-panel-hdr"
-                    onclick="(function(){
-                        var body = document.getElementById('ta-panel-body');
-                        var arrow = document.getElementById('ta-panel-arrow');
-                        var open = body.style.display !== 'none';
-                        body.style.display = open ? 'none' : 'block';
-                        arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
-                    })()"
-                    style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
-                    <h2>⚡ Active &amp; Closed Automation Trades</h2>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <div class="desktop-only" style="display: flex; gap: 0.5rem; align-items: center;">
-                            <button id="ta-clear-all-trades-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Orders</button>
-                            <button id="ta-export-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Export Trade Log (CSV)</button>
-                        </div>
-                        <!-- Mobile: compact buttons + arrow -->
-                        <div class="mobile-only" style="display: flex; gap: 0.4rem; align-items: center;">
-                            <button id="ta-clear-all-trades-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-clear-all-trades-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️</button>
-                            <button id="ta-export-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-export-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-secondary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">📥</button>
-                            <span id="ta-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
-                        </div>
-                    </div>
-                </div>
-                <!-- Collapsible body -->
-                <div id="ta-panel-body">
-                    <div id="ta-trades-summary" class="mobile-only trades-summary-banner"></div>
-                    <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                        <table class="history-table" style="width: 100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="background-color: rgba(255,255,255,0.03);">
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
-                                    <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ta-trades-body">
-                                <tr>
-                                    <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated trades recorded. Select a month and enable automation.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Trade Automation with Lots Trades Table Section -->
-        <section class="automation-trades-section" data-tab="trades" style="margin-bottom: 1.25rem; width: 100%;">
-            <div class="data-card automation-trades-panel" id="card-automation-lots-trades" style="width: 100%; border-top: 3px solid #f59e0b;">
-                <!-- Panel Header -->
-                <div class="panel-header" id="ta-lots-panel-hdr"
-                    onclick="(function(){
-                        var body = document.getElementById('ta-lots-panel-body');
-                        var arrow = document.getElementById('ta-lots-panel-arrow');
-                        var open = body.style.display !== 'none';
-                        body.style.display = open ? 'none' : 'block';
-                        arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
-                    })()"
-                    style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <h2>🎯 Active &amp; Closed Trades (Automation with Lots)</h2>
-                        <span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px;">LOTS</span>
-                    </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <div class="desktop-only" style="display: flex; gap: 0.5rem; align-items: center;">
-                            <button id="ta-lots-clear-all-trades-btn" class="metallic-button" onclick="event.stopPropagation()" style="padding: 0.25rem 0.75rem; font-size: 0.72rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️ Clear All TA Lots Orders</button>
-                        </div>
-                        <div class="mobile-only" style="display: flex; gap: 0.4rem; align-items: center;">
-                            <button id="ta-lots-clear-all-trades-btn-m" class="metallic-button" onclick="event.stopPropagation(); document.getElementById('ta-lots-clear-all-trades-btn').click()" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; cursor: pointer; font-weight: 600;">🗑️</button>
-                            <span id="ta-lots-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
-                        </div>
-                    </div>
-                </div>
-                <!-- Collapsible body -->
-                <div id="ta-lots-panel-body">
-                    <div class="table-container" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                        <table class="history-table" style="width: 100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="background-color: rgba(255,255,255,0.03);">
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Order / Lot</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
-                                    <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ta-lots-trades-body">
-                                <tr>
-                                    <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated lots trades recorded. Configure a lots bot instance above.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Month Master Section -->
-        <section class="month-master-section" data-tab="settings" style="margin-bottom: 1.25rem; width: 100%;">
-            <div class="control-card month-master-panel collapsible-card" id="card-month-master" style="width: 100%;">
-                <div class="card-header-toggle" onclick="toggleCard('card-month-master')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
-                    <h2 style="margin: 0; font-size: 0.88rem; font-weight: 600; color: var(--text-primary); border-bottom: none; padding-bottom: 0;">📅 Month Master Mapping Manager</h2>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.85rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
-                </div>
-                <div class="card-content" style="display: none; margin-top: 1rem; flex-direction: column; gap: 1rem;">
-                    <!-- Form to Add Mapping -->
-                    <div class="configs-inputs-grid" style="grid-template-columns: repeat(4, 1fr); gap: 0.75rem;">
-                        <div class="config-item">
-                            <label class="rule-label">Leg 1 (Petal / Ten / Guinea) Symbol</label>
-                            <input type="text" id="mm-petal-symbol" class="rule-input font-mono" placeholder="e.g. GOLDTEN... / GOLDPETAL... / GOLDGUINEA...">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Leg 1 Token</label>
-                            <input type="text" id="mm-petal-token" class="rule-input font-mono" placeholder="e.g. 571306">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Leg 2 (Mini) Symbol</label>
-                            <input type="text" id="mm-mini-symbol" class="rule-input font-mono" placeholder="e.g. GOLDM05NOV26FUT">
-                        </div>
-                        <div class="config-item">
-                            <label class="rule-label">Leg 2 Token</label>
-                            <input type="text" id="mm-mini-token" class="rule-input font-mono" placeholder="e.g. 571445">
-                        </div>
-                    </div>
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 1rem;">
-                        <label style="font-size: 0.75rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.35rem; cursor: pointer;">
-                            <input type="checkbox" id="mm-capture-data" checked style="cursor: pointer;"> Capture Daily Stats
-                        </label>
-                        <button id="add-mm-mapping-btn" class="update-button" style="width: auto; padding: 0.4rem 1.25rem;">Add Mapping</button>
-                    </div>
-                    <!-- Table of current mappings -->
-                    <div class="table-container" style="max-height: 200px; overflow-y: auto; margin-top: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px;">
-                        <table class="history-table" style="width: 100%; border-collapse: collapse;">
-                            <thead>
-                                <tr style="background-color: rgba(255,255,255,0.03);">
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 1 Symbol</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 1 Token</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 2 Symbol</th>
-                                    <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Leg 2 Token</th>
-                                    <th style="padding: 0.5rem; text-align: center; font-size: 0.72rem; color: var(--text-secondary); width: 90px;">Daily Capture</th>
-                                    <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="month-master-table-body">
-                                <tr>
-                                    <td colspan="6" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No month mappings configured. Add one above.</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Section 3: Bottom Data Board (History only Export, Terminal collapsible) -->
-        <section class="data-board" data-tab="settings">
-            <!-- Left Side: Trade History (Only Export, hidden table) -->
-            <div class="data-card trade-history-panel" style="height: fit-content; padding-bottom: 0.25rem;">
-                <div class="panel-header" style="border-bottom: none;">
-                    <h2>Trade History</h2>
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                        <button id="export-all-trades-btn" class="csv-export-button" style="background-color: #10b981; color: white;">
+                    <div style="display: flex; flex-direction: column; gap: 0.45rem; padding: 0 0.5rem 0.5rem 0.5rem;">
+                        <button id="export-all-trades-btn" class="csv-export-button" style="background-color: #10b981; color: white; width: 100%; justify-content: center;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                             Export All Trades (CSV)
                         </button>
-                        <button id="export-depth-spread-btn" class="csv-export-button" style="background-color: var(--accent-light, #3b82f6); color: white;">
+                        <button id="export-depth-spread-btn" class="csv-export-button" style="background-color: var(--accent-light, #3b82f6); color: white; width: 100%; justify-content: center;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                             Depth Spread History
                         </button>
-                        <button id="export-csv-btn" class="csv-export-button">
+                        <button id="export-csv-btn" class="csv-export-button" style="width: 100%; justify-content: center;">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                             Export Auto CSV
                         </button>
                     </div>
+                    <div class="table-container" style="display: none;">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 50px;">ID</th>
+                                    <th style="width: 130px;">Date & Time</th>
+                                    <th style="width: 110px;">Setup & Status</th>
+                                    <th>Execution Prices (Petal / Mini)</th>
+                                    <th>Spreads & Slippage</th>
+                                    <th style="text-align: right; padding-right: 1.5rem; width: 150px;">Net P&L</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body">
+                                <tr>
+                                    <td colspan="10" class="empty-table">No completed or cancelled trades yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="table-container" style="display: none;">
-                    <table class="history-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 50px;">ID</th>
-                                <th style="width: 130px;">Date & Time</th>
-                                <th style="width: 110px;">Setup & Status</th>
-                                <th>Execution Prices (Petal / Mini)</th>
-                                <th>Spreads & Slippage</th>
-                                <th style="text-align: right; padding-right: 1.5rem; width: 150px;">Net P&L</th>
-                                <th>Details</th>
-                            </tr>
-                        </thead>
-                        <tbody id="history-body">
-                            <tr>
-                                <td colspan="10" class="empty-table">No completed or cancelled trades yet.</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
 
-            <!-- Right Side: Log Console Terminal (Collapsible) -->
-            <div class="data-card logs-panel collapsible-card" id="card-logs" style="height: fit-content;">
-                <div class="panel-header-toggle" onclick="toggleCard('card-logs')" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; padding: 0.65rem 1rem; background-color: rgba(255,255,255,0.02); border-bottom: 1px solid var(--border-color);">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <h2>Execution Terminal</h2>
-                        <div class="terminal-dots">
-                            <span class="dot-red"></span>
-                            <span class="dot-yellow"></span>
-                            <span class="dot-green"></span>
-                        </div>
+                <!-- 5. Quick Help Guide -->
+                <section class="help-section" data-tab="settings" style="background-color: rgba(59,130,246,0.05); border: 1px solid rgba(59,130,246,0.15); border-radius: 10px; padding: 0.65rem 0.85rem;">
+                    <div id="toggle-help-btn" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;">
+                        <h3 style="font-size: 0.78rem; color: #60A5FA; display: flex; align-items: center; gap: 0.35rem; font-weight: 700; margin: 0;">
+                            💡 Understanding Arbitrage
+                        </h3>
+                        <span id="help-arrow" style="font-size: 0.75rem; color: #60A5FA; font-weight: 700;">▼</span>
                     </div>
-                    <span class="toggle-arrow" style="display: inline-block; font-size: 0.75rem; color: var(--text-muted); font-weight: 700; transition: transform 0.2s;">▼</span>
-                </div>
-                <div class="card-content" style="display: none;">
-                    <div id="logs-container" class="console-body" style="border-top: none; border-radius: 0;">
-                        <div class="log-line system-msg">[SYSTEM] Initializing Quant Station...</div>
+                    <div id="help-content" style="display: none; margin-top: 0.65rem; border-top: 1px dashed rgba(59,130,246,0.2); padding-top: 0.55rem; font-size: 0.72rem; color: #94A3B8; line-height: 1.45;">
+                        <strong style="color: #60A5FA; display: block; margin-bottom: 0.2rem;">🔹 Expansion (Spread Low):</strong>
+                        Buy Petal &amp; Sell Mini. Expect spread to expand to target.
+                        <br><br>
+                        <strong style="color: #60A5FA; display: block; margin-bottom: 0.2rem;">🔹 Contraction (Spread High):</strong>
+                        Sell Petal &amp; Buy Mini. Expect spread to contract down to entry.
+                        <br><br>
+                        <strong style="color: #60A5FA; display: block; margin-bottom: 0.2rem;">🔹 Multipliers:</strong>
+                        Petal (100x), Mini (10x). P&amp;L calculated automatically.
                     </div>
-                </div>
-            </div>
-        </section>
+                </section>
+            </aside>
+        </div>
     </div>
     
     <!-- Mobile Bottom Tab Navigation Bar -->
@@ -1285,6 +1241,6 @@
         </div>
     </div>
     
-    <script src="script.js?v=2.1"></script>
+    <script src="script.js?v=2.2"></script>
 </body>
 </html>
