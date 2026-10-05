@@ -2778,6 +2778,28 @@ async def run_trade_automation_lots_checks():
         if num_open == 0:
             config["level_index"] = 0
             config["lot_index"] = 0
+        else:
+            # Smart sync: prevent re-placing orders if trades are already open (e.g. after file update or restart)
+            total_open_lots = sum(int(t.get("quantity", 1)) for t in pair_open_trades)
+            accum = 0
+            calc_lvl = 0
+            calc_sub = 0
+            for l_idx, l_count in enumerate(lots_list):
+                if accum + l_count <= total_open_lots:
+                    accum += l_count
+                    calc_lvl = l_idx + 1
+                    calc_sub = 0
+                else:
+                    calc_lvl = l_idx
+                    calc_sub = total_open_lots - accum
+                    break
+
+            curr_lvl = config.get("level_index", 0)
+            curr_sub = config.get("lot_index", 0)
+            # Advance progress if open trades show we are already further ahead
+            if (calc_lvl > curr_lvl) or (calc_lvl == curr_lvl and calc_sub > curr_sub):
+                config["level_index"] = calc_lvl
+                config["lot_index"] = calc_sub
 
         level_idx = config.get("level_index", 0)
         lot_idx = config.get("lot_index", 0)
