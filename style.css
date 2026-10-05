@@ -299,6 +299,54 @@ body {
     }
 }
 
+/* ==============================================================================
+   🌟 Zero-Scroll Order Cards & Slim Scrollbars
+   ============================================================================== */
+.mbot-order-card {
+    transition: all 0.2s ease;
+}
+
+.mbot-order-card:hover {
+    border-color: #38bdf8 !important;
+    box-shadow: 0 2px 8px rgba(56, 189, 248, 0.12) !important;
+}
+
+/* Custom Slim Scrollbars for tables & card feeds */
+.table-container::-webkit-scrollbar,
+#mbot-trades-body::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+}
+
+.table-container::-webkit-scrollbar-track,
+#mbot-trades-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.table-container::-webkit-scrollbar-thumb,
+#mbot-trades-body::-webkit-scrollbar-thumb {
+    background: #CBD5E1;
+    border-radius: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover,
+#mbot-trades-body::-webkit-scrollbar-thumb:hover {
+    background: #94A3B8;
+}
+
+/* Middle Column Trade Tables - Responsive Column Formatting */
+.workstation-col-middle .history-table {
+    width: 100%;
+    table-layout: auto;
+}
+
+.workstation-col-middle .history-table th,
+.workstation-col-middle .history-table td {
+    padding: 0.45rem 0.55rem;
+    font-size: 0.72rem;
+    white-space: normal;
+}
+
 /* Responsive Workstation Grid Breakpoints */
 @media (max-width: 1440px) and (min-width: 1080px) {
     .workstation-layout {

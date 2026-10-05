@@ -3276,39 +3276,96 @@ function updateManualBotUI(mb, mbs) {
         mbotOrdersBadge.innerText = `${allBotTrades.length} Orders`;
     }
 
+    // Render Executed Trades: Card Feed in Left Slicer Tab (Zero Horizontal Scroll)
     if (mbotTradesBody) {
         if (allBotTrades.length === 0) {
-            mbotTradesBody.innerHTML = `<tr><td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot orders executed yet.</td></tr>`;
+            mbotTradesBody.innerHTML = `<div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.73rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No bot orders executed yet.</div>`;
         } else {
             mbotTradesBody.innerHTML = "";
             const sortedBotTrades = [...allBotTrades].reverse();
             sortedBotTrades.forEach(bt => {
-                const tr = document.createElement("tr");
-                tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
-                
                 const timeStr = bt.time || "--";
                 const pSym = bt.petal_symbol || "--";
                 const mSym = bt.mini_symbol || "--";
                 const pairStr = `${pSym} / ${mSym}`;
                 const dirStr = bt.direction || "--";
-                const dirColor = dirStr === "Expansion" ? "#34d399" : "#60a5fa";
+                const dirColor = dirStr === "Expansion" ? "#059669" : "#2563eb";
+                const dirBg = dirStr === "Expansion" ? "rgba(16,185,129,0.12)" : "rgba(59,130,246,0.12)";
                 const targetDiff = (bt.target_diff !== undefined && bt.target_diff !== null) ? parseFloat(bt.target_diff).toFixed(1) : "--";
                 const filledSpread = (bt.filled_spread !== undefined && bt.filled_spread !== null) ? parseFloat(bt.filled_spread).toFixed(2) : "--";
                 const pPrice = bt.petal_fill_price ? parseFloat(bt.petal_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
                 const mPrice = bt.mini_fill_price ? parseFloat(bt.mini_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
-                const statusBadge = `<span style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">FILLED</span>`;
-                
-                tr.innerHTML = `
-                    <td class="font-mono" style="padding: 0.35rem 0.5rem; font-weight: 700; color: var(--text-primary);">#${bt.order_num || 1}</td>
-                    <td style="padding: 0.35rem 0.5rem; color: var(--text-secondary); font-size: 0.7rem;">${timeStr}</td>
-                    <td style="padding: 0.35rem 0.5rem; font-size: 0.7rem; font-weight: 600;" title="${pairStr}">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</td>
-                    <td style="padding: 0.35rem 0.5rem; font-weight: 700; color: ${dirColor};">${dirStr}</td>
-                    <td class="font-mono" style="padding: 0.35rem 0.5rem;">${targetDiff}</td>
-                    <td class="font-mono" style="padding: 0.35rem 0.5rem; font-weight: 700; color: #10b981;">${filledSpread}</td>
-                    <td class="font-mono" style="padding: 0.35rem 0.5rem; font-size: 0.68rem; color: var(--text-secondary);">P: ${pPrice} / M: ${mPrice}</td>
-                    <td style="padding: 0.35rem 0.5rem; text-align: center;">${statusBadge}</td>
+                const statusBadge = `<span style="background-color: rgba(52,211,153,0.15); color: #059669; padding: 2px 7px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.3);">FILLED</span>`;
+
+                const card = document.createElement("div");
+                card.className = "mbot-order-card";
+                card.style.cssText = "background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.38rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); width: 100%; box-sizing: border-box;";
+
+                card.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.45rem;">
+                            <span class="font-mono" style="font-weight: 800; color: var(--text-primary); font-size: 0.78rem;">#${bt.order_num || 1}</span>
+                            <span style="color: var(--text-muted); font-size: 0.7rem;">${timeStr}</span>
+                            <span style="font-weight: 700; font-size: 0.65rem; color: ${dirColor}; background: ${dirBg}; padding: 1px 6px; border-radius: 4px; text-transform: uppercase;">${dirStr}</span>
+                        </div>
+                        <div>${statusBadge}</div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; background: var(--bg-tertiary); padding: 0.35rem 0.55rem; border-radius: 5px; border: 1px solid var(--border-color);">
+                        <span style="font-weight: 700; color: var(--text-primary); font-family: var(--font-mono); font-size: 0.73rem;">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</span>
+                        <div style="display: flex; gap: 0.6rem; font-family: var(--font-mono); font-size: 0.73rem;">
+                            <span style="color: var(--text-secondary);">Tgt: <strong>${targetDiff}</strong></span>
+                            <span style="color: #059669; font-weight: 800;">Spread: ${filledSpread}</span>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); font-family: var(--font-mono); padding: 0 0.15rem;">
+                        <span>Petal: <strong style="color: var(--text-primary);">₹${pPrice}</strong></span>
+                        <span>Mini: <strong style="color: var(--text-primary);">₹${mPrice}</strong></span>
+                    </div>
                 `;
-                mbotTradesBody.appendChild(tr);
+                mbotTradesBody.appendChild(card);
+            });
+        }
+    }
+
+    // Render Executed Trades: Full Wide Table in Middle Column
+    const mbotMiddleBody = document.getElementById("mbot-trades-middle-body");
+    const mbotAllBadge = document.getElementById("mbot-all-trades-badge");
+    if (mbotAllBadge) {
+        mbotAllBadge.innerText = `${allBotTrades.length} ORDERS`;
+    }
+    if (mbotMiddleBody) {
+        if (allBotTrades.length === 0) {
+            mbotMiddleBody.innerHTML = `<tr><td colspan="8" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot orders executed yet.</td></tr>`;
+        } else {
+            mbotMiddleBody.innerHTML = "";
+            const sortedBotTrades = [...allBotTrades].reverse();
+            sortedBotTrades.forEach(bt => {
+                const tr = document.createElement("tr");
+                tr.style.borderBottom = "1px solid var(--border-color)";
+
+                const timeStr = bt.time || "--";
+                const pSym = bt.petal_symbol || "--";
+                const mSym = bt.mini_symbol || "--";
+                const pairStr = `${pSym} / ${mSym}`;
+                const dirStr = bt.direction || "--";
+                const dirColor = dirStr === "Expansion" ? "#059669" : "#2563eb";
+                const targetDiff = (bt.target_diff !== undefined && bt.target_diff !== null) ? parseFloat(bt.target_diff).toFixed(1) : "--";
+                const filledSpread = (bt.filled_spread !== undefined && bt.filled_spread !== null) ? parseFloat(bt.filled_spread).toFixed(2) : "--";
+                const pPrice = bt.petal_fill_price ? parseFloat(bt.petal_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
+                const mPrice = bt.mini_fill_price ? parseFloat(bt.mini_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
+                const statusBadge = `<span style="background-color: rgba(52,211,153,0.15); color: #059669; padding: 2px 7px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.3);">FILLED</span>`;
+
+                tr.innerHTML = `
+                    <td class="font-mono" style="padding: 0.5rem; font-weight: 700; color: var(--text-primary);">#${bt.order_num || 1}</td>
+                    <td style="padding: 0.5rem; color: var(--text-secondary); font-size: 0.72rem;">${timeStr}</td>
+                    <td style="padding: 0.5rem; font-size: 0.73rem; font-weight: 600;">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</td>
+                    <td style="padding: 0.5rem; font-weight: 700; color: ${dirColor};">${dirStr}</td>
+                    <td class="font-mono" style="padding: 0.5rem;">${targetDiff}</td>
+                    <td class="font-mono" style="padding: 0.5rem; font-weight: 700; color: #059669;">${filledSpread}</td>
+                    <td class="font-mono" style="padding: 0.5rem; font-size: 0.72rem; color: var(--text-secondary);">P: ${pPrice} / M: ${mPrice}</td>
+                    <td style="padding: 0.5rem; text-align: center;">${statusBadge}</td>
+                `;
+                mbotMiddleBody.appendChild(tr);
             });
         }
     }

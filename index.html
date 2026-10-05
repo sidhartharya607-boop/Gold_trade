@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.5">
+    <link rel="stylesheet" href="style.css?v=2.6">
 </head>
 <body>
     <div class="dashboard-container">
@@ -442,7 +442,7 @@
                                 </div>
                             </div>
 
-                            <!-- Manual BOT Executed Trades Window -->
+                            <!-- Manual BOT Executed Trades Window (Zero-Scroll Card Feed) -->
                             <div style="margin-top: 0.35rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.65rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
                                     <span style="font-size: 0.76rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
@@ -450,24 +450,8 @@
                                     </span>
                                     <span id="mbot-orders-badge" style="font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(59,130,246,0.1); color: #60a5fa; font-weight: 600;">0 Orders</span>
                                 </div>
-                                <div class="table-container" style="max-height: 160px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                                    <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
-                                        <thead>
-                                            <tr style="background: rgba(255,255,255,0.03);">
-                                                <th style="padding: 0.4rem; text-align: left; width: 35px;">#</th>
-                                                <th style="padding: 0.4rem; text-align: left; width: 65px;">Time</th>
-                                                <th style="padding: 0.4rem; text-align: left;">Pair</th>
-                                                <th style="padding: 0.4rem; text-align: left; width: 65px;">Dir</th>
-                                                <th style="padding: 0.4rem; text-align: left;">Target</th>
-                                                <th style="padding: 0.4rem; text-align: left;">Spread</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="mbot-trades-body">
-                                            <tr>
-                                                <td colspan="6" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot orders executed yet.</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                <div id="mbot-trades-body" style="max-height: 220px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 0.45rem; padding: 0.25rem 0;">
+                                    <div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.73rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No bot orders executed yet.</div>
                                 </div>
                             </div>
                         </div>
@@ -709,16 +693,16 @@
                                 <table class="history-table">
                                     <thead>
                                         <tr>
-                                            <th style="width: 45px;">ID</th>
-                                            <th style="width: 85px;">Time</th>
-                                            <th style="width: 170px;">Symbols (Leg 1 / Leg 2)</th>
-                                            <th style="width: 85px;">Direction</th>
-                                            <th style="width: 45px;">Qty</th>
-                                            <th style="width: 100px;">Trigger Diff</th>
-                                            <th style="width: 75px;">Status</th>
-                                            <th>Entry Prices (Petal / Mini)</th>
-                                            <th style="width: 120px;">Live P&amp;L</th>
-                                            <th style="text-align: right; padding-right: 1.5rem; width: 90px;">Action</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 45px;">ID</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 75px;">Time</th>
+                                            <th style="padding: 0.5rem; text-align: left;">Symbols (Leg 1 / Leg 2)</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 80px;">Direction</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 45px;">Qty</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 95px;">Trigger Diff</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 75px;">Status</th>
+                                            <th style="padding: 0.5rem; text-align: left;">Entry Prices (P / M)</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 105px;">Live P&amp;L</th>
+                                            <th style="text-align: right; padding-right: 1rem; width: 75px;">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="manual-trades-body">
@@ -766,15 +750,15 @@
                                     <thead>
                                         <tr style="background-color: rgba(255,255,255,0.03);">
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Time</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Symbols</th>
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 50px;">Qty</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
-                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">Qty</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Entry / Exit Spread</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Execution Prices</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">P&amp;L (Net)</th>
+                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px; padding-right: 1rem;">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="ta-trades-body">
@@ -822,20 +806,68 @@
                                     <thead>
                                         <tr style="background-color: rgba(255,255,255,0.03);">
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 45px;">ID</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 85px;">Time</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 170px;">Symbols</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Time</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Symbols</th>
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Direction</th>
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Order / Lot</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 140px;">Entry / Exit Spread</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 80px;">Status</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 280px;">Execution Prices</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 130px;">P&amp;L (Net)</th>
-                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 90px; padding-right: 1.5rem;">Action</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Entry / Exit Spread</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Execution Prices</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">P&amp;L (Net)</th>
+                                            <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px; padding-right: 1rem;">Action</th>
                                         </tr>
                                     </thead>
                                     <tbody id="ta-lots-trades-body">
                                         <tr>
                                             <td colspan="10" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No automated lots trades recorded. Configure a lots bot instance above.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ==========================================
+                     TRADE TABLE 4: Executed Slicer Bot Orders (Multi-Pair)
+                     ========================================== -->
+                <section class="automation-trades-section" data-tab="trades" style="width: 100%;">
+                    <div class="data-card automation-trades-panel" id="card-mbot-all-trades" style="width: 100%; border-top: 3px solid #0284c7;">
+                        <div class="panel-header" id="mbot-all-panel-hdr"
+                            onclick="(function(){
+                                var body = document.getElementById('mbot-all-panel-body');
+                                var arrow = document.getElementById('mbot-all-panel-arrow');
+                                var open = body.style.display !== 'none';
+                                body.style.display = open ? 'none' : 'block';
+                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                            })()"
+                            style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <h2>⏱️ Executed Slicer Bot Orders (Multi-Pair)</h2>
+                                <span id="mbot-all-trades-badge" style="background: rgba(2, 132, 199, 0.15); color: #0284c7; border: 1px solid rgba(2, 132, 199, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px;">0 ORDERS</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span id="mbot-all-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                            </div>
+                        </div>
+                        <div id="mbot-all-panel-body">
+                            <div class="table-container" style="max-height: 240px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead>
+                                        <tr style="background-color: rgba(255,255,255,0.03);">
+                                            <th style="padding: 0.5rem; text-align: left; width: 45px;">#</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 85px;">Time</th>
+                                            <th style="padding: 0.5rem; text-align: left;">Pair</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 85px;">Direction</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 90px;">Target Diff</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 100px;">Filled Spread</th>
+                                            <th style="padding: 0.5rem; text-align: left;">Execution Prices (P / M)</th>
+                                            <th style="padding: 0.5rem; text-align: center; width: 90px;">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mbot-trades-middle-body">
+                                        <tr>
+                                            <td colspan="8" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot orders executed yet.</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -1271,6 +1303,6 @@
         </div>
     </div>
     
-    <script src="script.js?v=2.5"></script>
+    <script src="script.js?v=2.6"></script>
 </body>
 </html>
