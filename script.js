@@ -668,6 +668,20 @@ window.toggleTaAccordion = function(tacardId) {
     }
 };
 
+window.taLotsAccordionState = window.taLotsAccordionState || {};
+window.toggleTaLotsAccordion = function(talotscardId) {
+    const el = document.getElementById(talotscardId);
+    const arr = document.getElementById('arr-' + talotscardId);
+    if (!el) return;
+    const isCurrentlyOpen = el.style.display === 'block';
+    const newState = !isCurrentlyOpen;
+    window.taLotsAccordionState[talotscardId] = newState;
+    el.style.display = newState ? 'block' : 'none';
+    if (arr) {
+        arr.style.transform = newState ? 'rotate(180deg)' : 'rotate(0deg)';
+    }
+};
+
     if (!manualTradesBody) {
         // Guard if element is missing
     } else {
@@ -852,20 +866,16 @@ window.toggleTaAccordion = function(tacardId) {
         }
     }
 
-    // Render Active Bot Instances table
+    // Render Active Grid Bot Instances Cards (Zero Horizontal Scroll)
     const taConfigs = data.ta_configs || [];
     window.taConfigs = taConfigs; // Store globally
     if (!taConfigsBody) {
         // Guard
     } else if (taConfigs.length === 0) {
-        taConfigsBody.innerHTML = `<tr><td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td></tr>`;
+        taConfigsBody.innerHTML = `<div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.74rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No bot instances configured. Set parameters above and click "Add Bot Instance".</div>`;
     } else {
         taConfigsBody.innerHTML = "";
         taConfigs.forEach((config, index) => {
-            const tr = document.createElement("tr");
-            tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
-            
-            // Resolve Month Pair Name
             let monthPairName = "Unknown Pair";
             if (data.month_master && data.month_master[config.month_idx]) {
                 const m = data.month_master[config.month_idx];
@@ -880,38 +890,46 @@ window.toggleTaAccordion = function(tacardId) {
                 </label>
             `;
             
-            tr.innerHTML = `
-                <td style="padding: 0.5rem; font-size: 0.75rem; font-weight: 600;">${monthPairName}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${config.direction}</strong></td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.entry_diff}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.averaging_step}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.exit_gap}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.quantity}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.max_orders || 5}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${config.paper_mode ? "Paper" : "Real"}</td>
-                <td style="padding: 0.5rem; text-align: center;">${statusToggle}</td>
-                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">
-                    <button class="action-btn exit-button" onclick="removeTaConfig(${index})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444;">Remove</button>
-                </td>
+            const card = document.createElement("div");
+            card.className = "bot-instance-card";
+            card.style.cssText = "background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.38rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); width: 100%; box-sizing: border-box;";
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.45rem;">
+                        <strong style="font-size: 0.76rem; color: var(--text-primary); font-family: var(--font-mono);">${monthPairName}</strong>
+                        <span style="font-size: 0.62rem; padding: 1px 5px; border-radius: 3px; font-weight: 700; background: ${config.paper_mode ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)'}; color: ${config.paper_mode ? '#3b82f6' : '#ef4444'};">${config.paper_mode ? "PAPER" : "REAL"}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        ${statusToggle}
+                        <button class="action-btn exit-button" onclick="removeTaConfig(${index})" style="padding: 0.18rem 0.45rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444; border-radius: 4px; border: none; cursor: pointer; color: white;" title="Remove this bot">🗑️</button>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; background: var(--bg-tertiary); padding: 0.35rem 0.5rem; border-radius: 5px; border: 1px solid var(--border-color); font-family: var(--font-mono);">
+                    <div><span style="color: var(--text-muted);">Dir:</span> <strong style="color: ${config.direction === 'Expansion' ? '#059669' : '#2563eb'};">${config.direction}</strong></div>
+                    <div><span style="color: var(--text-muted);">Entry:</span> <strong>${config.entry_diff}</strong></div>
+                    <div><span style="color: var(--text-muted);">Step:</span> <strong>${config.averaging_step}</strong></div>
+                    <div><span style="color: var(--text-muted);">Gap:</span> <strong>${config.exit_gap}</strong></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; font-family: var(--font-mono); padding: 0 0.1rem;">
+                    <span>Qty: <strong style="color: #2563eb;">${config.quantity} Lots</strong></span>
+                    <span>Max Orders: <strong>${config.max_orders || 5}</strong></span>
+                </div>
             `;
-            taConfigsBody.appendChild(tr);
+            taConfigsBody.appendChild(card);
         });
     }
 
-    // Render Active Trade Automation with Lots instances
+    // Render Active Trade Automation with Lots instances Cards (Zero Horizontal Scroll)
     const taLotsConfigs = data.ta_lots_configs || [];
     window.taLotsConfigs = taLotsConfigs; // Store globally
     if (!taLotsConfigsBody) {
         // Guard
     } else if (taLotsConfigs.length === 0) {
-        taLotsConfigsBody.innerHTML = `<tr><td colspan="9" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No lots bot instances configured. Set parameters above and click "Add Bot Instance (Lots)".</td></tr>`;
+        taLotsConfigsBody.innerHTML = `<div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.74rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No lots bot instances configured. Set parameters above and click "Add Bot Instance (Lots)".</div>`;
     } else {
         taLotsConfigsBody.innerHTML = "";
         taLotsConfigs.forEach((config, index) => {
-            const tr = document.createElement("tr");
-            tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
-            
-            // Resolve Month Pair Name
             let monthPairName = "Unknown Pair";
             if (data.month_master && data.month_master[config.month_idx]) {
                 const m = data.month_master[config.month_idx];
@@ -927,21 +945,35 @@ window.toggleTaAccordion = function(tacardId) {
             `;
             
             const lotsStr = Array.isArray(config.lots_list) ? config.lots_list.join(", ") : (config.lots_str || "--");
-            
-            tr.innerHTML = `
-                <td style="padding: 0.5rem; font-size: 0.75rem; font-weight: 600;">${monthPairName}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${config.direction}</strong></td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.entry_diff}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.averaging_step}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${config.exit_gap}</td>
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem; color: #f59e0b; font-weight: 700;">${lotsStr}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${config.paper_mode ? "Paper" : "Real"}</td>
-                <td style="padding: 0.5rem; text-align: center;">${statusToggle}</td>
-                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">
-                    <button class="action-btn exit-button" onclick="removeTaLotsConfig(${index})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444;">Remove</button>
-                </td>
+            const levelsCount = Array.isArray(config.lots_list) ? config.lots_list.length : "Multi";
+
+            const card = document.createElement("div");
+            card.className = "bot-instance-card";
+            card.style.cssText = "background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.38rem; box-shadow: 0 1px 3px rgba(0,0,0,0.03); width: 100%; box-sizing: border-box;";
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.45rem;">
+                        <strong style="font-size: 0.76rem; color: var(--text-primary); font-family: var(--font-mono);">${monthPairName}</strong>
+                        <span style="font-size: 0.62rem; padding: 1px 5px; border-radius: 3px; font-weight: 700; background: ${config.paper_mode ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)'}; color: ${config.paper_mode ? '#3b82f6' : '#ef4444'};">${config.paper_mode ? "PAPER" : "REAL"}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        ${statusToggle}
+                        <button class="action-btn exit-button" onclick="removeTaLotsConfig(${index})" style="padding: 0.18rem 0.45rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444; border-radius: 4px; border: none; cursor: pointer; color: white;" title="Remove this bot">🗑️</button>
+                    </div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; background: var(--bg-tertiary); padding: 0.35rem 0.5rem; border-radius: 5px; border: 1px solid var(--border-color); font-family: var(--font-mono);">
+                    <div><span style="color: var(--text-muted);">Dir:</span> <strong style="color: ${config.direction === 'Expansion' ? '#059669' : '#2563eb'};">${config.direction}</strong></div>
+                    <div><span style="color: var(--text-muted);">Entry:</span> <strong>${config.entry_diff}</strong></div>
+                    <div><span style="color: var(--text-muted);">Step:</span> <strong>${config.averaging_step}</strong></div>
+                    <div><span style="color: var(--text-muted);">Gap:</span> <strong>${config.exit_gap}</strong></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.7rem; font-family: var(--font-mono); padding: 0 0.1rem;">
+                    <span>Lots Ladder: <strong style="color: #d97706;">${lotsStr}</strong></span>
+                    <span style="color: var(--text-muted); font-size: 0.66rem;">(${levelsCount} Levels)</span>
+                </div>
             `;
-            taLotsConfigsBody.appendChild(tr);
+            taLotsConfigsBody.appendChild(card);
         });
     }
 
@@ -1260,17 +1292,68 @@ window.toggleTaAccordion = function(tacardId) {
                 </div>
             `;
 
+            // Responsive Mobile Accordion Card for Lots Trade
+            const talotscardId = `ta-lots-card-${trade.id}`;
+            const userTaLotsState = (window.taLotsAccordionState && window.taLotsAccordionState[talotscardId] !== undefined)
+                ? window.taLotsAccordionState[talotscardId]
+                : undefined;
+            const taLotsIsOpen = (userTaLotsState !== undefined) ? userTaLotsState : (status === 'Open');
+            const mobileCardHTML = `
+                <td class="mobile-only" colspan="10">
+                    <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 10px; overflow: hidden; background: var(--bg-card); box-shadow: var(--shadow-sm); margin-bottom: 0;">
+                        <!-- Accordion Header -->
+                        <div onclick="window.toggleTaLotsAccordion('${talotscardId}')" style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; cursor:pointer; background:${status==='Open' ? 'rgba(245,158,11,0.05)' : 'var(--bg-tertiary)'}; border-bottom:1px solid var(--border-color); user-select:none;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
+                                <span style="font-size:0.75rem; font-weight:700; color:var(--text-primary); white-space:nowrap;">#${trade.id}</span>
+                                ${statusBadge}
+                                <span style="font-size:0.68rem; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:110px;" title="${trade.petal_symbol}">${trade.petal_symbol.replace('GOLDPETAL','PETAL')}</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+                                <span style="font-size:0.72rem;">${pnlContent}</span>
+                                <span id="arr-${talotscardId}" class="tacc-arr" style="font-size:0.65rem; color:var(--text-muted); transition:transform 0.2s; display:inline-block; transform:${taLotsIsOpen ? 'rotate(180deg)' : 'rotate(0deg)'};">▼</span>
+                            </div>
+                        </div>
+                        <!-- Accordion Body -->
+                        <div id="${talotscardId}" style="display:${taLotsIsOpen ? 'block' : 'none'}; padding:0.65rem 0.75rem;">
+                            <div style="margin-bottom:0.6rem; font-size:0.78rem; color:var(--text-secondary); line-height:1.6;">
+                                <div><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 1</strong> &nbsp;<span style="color:var(--text-primary);">${trade.petal_symbol}</span></div>
+                                <div><strong style="color:var(--text-muted); font-size:0.65rem;">LEG 2</strong> &nbsp;<span style="color:var(--text-primary);">${trade.mini_symbol}</span></div>
+                            </div>
+                            <div style="border:1px solid var(--border-color); border-radius:6px; overflow:hidden; margin-bottom:0.6rem;">
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
+                                    <span style="color:var(--text-muted);">ORDER / LOTS</span>
+                                    <strong style="color:#f59e0b;">Order #${trade.order_index || 1} (${trade.quantity || 1} Lots)</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color);">
+                                    <span style="color:var(--text-muted);">SPREAD</span>
+                                    <span style="color:var(--text-primary); text-align:right;">${spreadDisplay}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; background:var(--bg-tertiary);">
+                                    <span style="color:var(--text-muted);">PRICES</span>
+                                    <span style="color:var(--text-primary); text-align:right;">${pricesContent}</span>
+                                </div>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; align-items:center; font-size:0.73rem;">
+                                <div style="color:var(--text-muted);">↕ <strong style="color:var(--text-primary); text-transform:uppercase;">${trade.direction}</strong> &nbsp;·&nbsp; ${trade.entry_time}</div>
+                                ${actionBtn}
+                            </div>
+                        </div>
+                    </div>
+                </td>
+            `;
+
             tr.innerHTML = `
-                <td class="font-mono" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
-                <td style="padding: 0.5rem;">${symbolsContent}</td>
-                <td style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
-                <td style="padding: 0.5rem;">${orderLotsBadge}</td>
-                <td style="padding: 0.5rem;">${spreadDisplay}</td>
-                <td style="padding: 0.5rem;">${statusBadge}</td>
-                <td class="font-mono" style="padding: 0.5rem;">${pricesContent}</td>
-                <td style="padding: 0.5rem;">${pnlContent}</td>
-                <td style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                <td data-label="ID" class="font-mono desktop-only" style="padding: 0.5rem; font-size: 0.75rem;">${trade.id}</td>
+                <td data-label="Time" class="desktop-only" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-secondary);">${trade.entry_time}</td>
+                <td data-label="Symbols" class="desktop-only" style="padding: 0.5rem;">${symbolsContent}</td>
+                <td data-label="Direction" class="desktop-only" style="padding: 0.5rem; font-size: 0.75rem;"><strong>${trade.direction}</strong></td>
+                <td data-label="Order/Lot" class="desktop-only" style="padding: 0.5rem;">${orderLotsBadge}</td>
+                <td data-label="Spread" class="desktop-only" style="padding: 0.5rem;">${spreadDisplay}</td>
+                <td data-label="Status" class="desktop-only" style="padding: 0.5rem;">${statusBadge}</td>
+                <td data-label="Prices" class="font-mono desktop-only" style="padding: 0.5rem;">${pricesContent}</td>
+                <td data-label="P&L" class="desktop-only" style="padding: 0.5rem;">${pnlContent}</td>
+                <td data-label="Action" class="desktop-only" style="padding: 0.5rem; text-align: right; padding-right: 1.5rem;">${actionBtn}</td>
+                ${mobileCardHTML}
             `;
             
             taLotsTradesBody.appendChild(tr);
@@ -3179,25 +3262,24 @@ function updateManualBotUI(mb, mbs) {
         }
     }
 
-    // Render Multi-Pair Bot Tasks Table
+    // Render Multi-Pair Bot Tasks (Zero Horizontal Scroll Card Feed)
     if (mbotTasksBody) {
         if (tasks.length === 0) {
-            mbotTasksBody.innerHTML = `<tr><td colspan="8" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot tasks added yet. Configure above and click "Start / Add Bot Task".</td></tr>`;
+            mbotTasksBody.innerHTML = `<div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.73rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No bot tasks added yet. Configure above and click "Start / Add Bot Task".</div>`;
         } else {
             mbotTasksBody.innerHTML = "";
             tasks.forEach(t => {
-                const tr = document.createElement("tr");
-                tr.style.borderBottom = "1px solid rgba(255,255,255,0.02)";
-                if (t.active) {
-                    tr.style.background = "rgba(16, 185, 129, 0.03)";
-                }
+                const card = document.createElement("div");
+                card.className = "mbot-task-card";
+                card.style.cssText = `background: var(--bg-card); border: 1px solid ${t.active ? 'rgba(16,185,129,0.35)' : 'var(--border-color)'}; border-radius: 8px; padding: 0.6rem 0.75rem; display: flex; flex-direction: column; gap: 0.38rem; box-shadow: 0 1px 3px rgba(0,0,0,0.04); width: 100%; box-sizing: border-box;`;
 
                 const tId = t.id || "1";
                 const pSym = (t.petal_symbol || "--").replace("GOLDPETAL", "PETAL");
                 const mSym = (t.mini_symbol || "--").replace("GOLDM", "M");
                 const pairStr = `${pSym} / ${mSym}`;
                 const dir = t.direction || "Expansion";
-                const dirColor = dir === "Expansion" ? "#34d399" : "#60a5fa";
+                const dirColor = dir === "Expansion" ? "#059669" : "#2563eb";
+                const dirBg = dir === "Expansion" ? "rgba(16,185,129,0.12)" : "rgba(59,130,246,0.12)";
                 
                 const minP = dir === "Expansion" ? (t.trigger_diff - t.diff_gap).toFixed(1) : t.trigger_diff.toFixed(1);
                 const maxP = dir === "Expansion" ? t.trigger_diff.toFixed(1) : (t.trigger_diff + t.diff_gap).toFixed(1);
@@ -3209,46 +3291,55 @@ function updateManualBotUI(mb, mbs) {
 
                 const liveSpread = (t.live_spread !== undefined && t.live_spread !== null) ? parseFloat(t.live_spread).toFixed(2) : "--";
 
-                // Status Badge & Reason
+                // Status Badge
                 let statusBadge = "";
                 if (t.active) {
                     if (t.why_waiting && t.why_waiting.includes("Cooldown")) {
-                        statusBadge = `<span style="background: rgba(245,158,11,0.15); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">COOLDOWN</span>`;
+                        statusBadge = `<span style="background: rgba(245,158,11,0.15); color: #d97706; border: 1px solid rgba(245,158,11,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">COOLDOWN</span>`;
                     } else {
-                        statusBadge = `<span style="background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">SCANNING</span>`;
+                        statusBadge = `<span style="background: rgba(16,185,129,0.15); color: #059669; border: 1px solid rgba(16,185,129,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">SCANNING</span>`;
                     }
                 } else if (filled >= total) {
-                    statusBadge = `<span style="background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">COMPLETED</span>`;
+                    statusBadge = `<span style="background: rgba(59,130,246,0.15); color: #2563eb; border: 1px solid rgba(59,130,246,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">COMPLETED</span>`;
                 } else {
-                    statusBadge = `<span style="background: rgba(148,163,184,0.15); color: #94a3b8; border: 1px solid rgba(148,163,184,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">STOPPED</span>`;
+                    statusBadge = `<span style="background: rgba(148,163,184,0.15); color: #64748b; border: 1px solid rgba(148,163,184,0.3); padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 0.65rem;">STOPPED</span>`;
                 }
 
-                const reasonText = t.why_waiting || t.status_message || "--";
+                const reasonText = t.why_waiting || t.status_message || "";
 
                 // Actions buttons
                 let actionBtns = `
-                    <button onclick="window.editManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; margin-right: 4px; cursor: pointer; color: #60a5fa; border-color: rgba(96,165,250,0.3);" title="Edit parameters">✏️</button>
+                    <button onclick="window.editManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #2563eb; border-color: rgba(37,99,235,0.3);" title="Edit parameters">✏️</button>
                 `;
                 if (t.active) {
-                    actionBtns += `<button onclick="window.stopManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #f87171; border-color: rgba(239,68,68,0.3);" title="Cancel / Stop Task">🛑 Stop</button>`;
+                    actionBtns += `<button onclick="window.stopManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #dc2626; border-color: rgba(220,38,38,0.3); font-weight: 700;" title="Cancel / Stop Task">🛑 Stop</button>`;
                 } else {
-                    actionBtns += `<button onclick="window.deleteManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #94a3b8; border-color: rgba(148,163,184,0.3);" title="Delete Task">🗑️</button>`;
+                    actionBtns += `<button onclick="window.deleteManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #64748b; border-color: rgba(100,116,139,0.3);" title="Delete Task">🗑️</button>`;
                 }
 
-                tr.innerHTML = `
-                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-weight: 700; color: var(--text-primary); font-size: 0.72rem;">#${tId}</td>
-                    <td style="padding: 0.4rem 0.5rem; font-size: 0.7rem; font-weight: 600;" title="${t.petal_symbol} / ${t.mini_symbol}">${pairStr}</td>
-                    <td style="padding: 0.4rem 0.5rem; font-weight: 700; color: ${dirColor}; font-size: 0.7rem;">${dir}</td>
-                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-size: 0.7rem;">${targetWindow}</td>
-                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-weight: 700; color: #60a5fa; font-size: 0.7rem;">${progressStr}</td>
-                    <td class="font-mono" style="padding: 0.4rem 0.5rem; font-weight: 700; color: #34d399; font-size: 0.7rem;">${liveSpread}</td>
-                    <td style="padding: 0.4rem 0.5rem;">
-                        <div>${statusBadge}</div>
-                        <div class="font-mono" style="font-size: 0.68rem; color: #fde68a; margin-top: 2px;">${reasonText}</div>
-                    </td>
-                    <td style="padding: 0.4rem 0.5rem; text-align: center; white-space: nowrap;">${actionBtns}</td>
+                card.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.45rem;">
+                            <span class="font-mono" style="font-weight: 800; color: var(--text-primary); font-size: 0.78rem;">#${tId}</span>
+                            <strong style="font-size: 0.75rem; color: var(--text-primary); font-family: var(--font-mono);">${pairStr}</strong>
+                            <span style="font-weight: 700; font-size: 0.65rem; color: ${dirColor}; background: ${dirBg}; padding: 1px 6px; border-radius: 4px; text-transform: uppercase;">${dir}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            ${statusBadge}
+                            <div style="display: flex; gap: 0.25rem;">${actionBtns}</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; background: var(--bg-tertiary); padding: 0.35rem 0.55rem; border-radius: 5px; border: 1px solid var(--border-color); font-family: var(--font-mono);">
+                        <div><span style="color: var(--text-muted);">Target:</span> <strong>${targetWindow}</strong></div>
+                        <div><span style="color: var(--text-muted);">Progress:</span> <strong style="color: #2563eb;">${progressStr}</strong></div>
+                        <div><span style="color: var(--text-muted);">Spread:</span> <strong style="color: #059669;">${liveSpread}</strong></div>
+                    </div>
+                    ${reasonText ? `
+                    <div style="font-size: 0.68rem; color: var(--text-secondary); font-family: var(--font-mono); background: rgba(0,0,0,0.02); padding: 0.25rem 0.45rem; border-radius: 4px; border-left: 2px solid ${t.active ? '#10b981' : 'var(--border-color)'};">
+                        <span>ℹ️ ${reasonText}</span>
+                    </div>` : ''}
                 `;
-                mbotTasksBody.appendChild(tr);
+                mbotTasksBody.appendChild(card);
             });
         }
     }
@@ -3355,15 +3446,39 @@ function updateManualBotUI(mb, mbs) {
                 const mPrice = bt.mini_fill_price ? parseFloat(bt.mini_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
                 const statusBadge = `<span style="background-color: rgba(52,211,153,0.15); color: #059669; padding: 2px 7px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.3);">FILLED</span>`;
 
+                const mobileCardHTML = `
+                    <td class="mobile-only" colspan="8">
+                        <div style="font-family: var(--font-mono); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.6rem 0.75rem; background: var(--bg-card); display: flex; flex-direction: column; gap: 0.35rem; box-shadow: var(--shadow-sm);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 0.45rem;">
+                                    <strong style="color: var(--text-primary); font-size: 0.78rem;">#${bt.order_num || 1}</strong>
+                                    <span style="font-size: 0.7rem; color: var(--text-muted);">${timeStr}</span>
+                                    <span style="font-weight: 700; font-size: 0.65rem; color: ${dirColor};">${dirStr}</span>
+                                </div>
+                                ${statusBadge}
+                            </div>
+                            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.73rem; background: var(--bg-tertiary); padding: 0.3rem 0.5rem; border-radius: 5px;">
+                                <span>${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</span>
+                                <div>Tgt: <strong>${targetDiff}</strong> | Spread: <strong style="color: #059669;">${filledSpread}</strong></div>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary);">
+                                <span>P: ₹${pPrice}</span>
+                                <span>M: ₹${mPrice}</span>
+                            </div>
+                        </div>
+                    </td>
+                `;
+
                 tr.innerHTML = `
-                    <td class="font-mono" style="padding: 0.5rem; font-weight: 700; color: var(--text-primary);">#${bt.order_num || 1}</td>
-                    <td style="padding: 0.5rem; color: var(--text-secondary); font-size: 0.72rem;">${timeStr}</td>
-                    <td style="padding: 0.5rem; font-size: 0.73rem; font-weight: 600;">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</td>
-                    <td style="padding: 0.5rem; font-weight: 700; color: ${dirColor};">${dirStr}</td>
-                    <td class="font-mono" style="padding: 0.5rem;">${targetDiff}</td>
-                    <td class="font-mono" style="padding: 0.5rem; font-weight: 700; color: #059669;">${filledSpread}</td>
-                    <td class="font-mono" style="padding: 0.5rem; font-size: 0.72rem; color: var(--text-secondary);">P: ${pPrice} / M: ${mPrice}</td>
-                    <td style="padding: 0.5rem; text-align: center;">${statusBadge}</td>
+                    <td data-label="#" class="font-mono desktop-only" style="padding: 0.5rem; font-weight: 700; color: var(--text-primary);">#${bt.order_num || 1}</td>
+                    <td data-label="Time" class="desktop-only" style="padding: 0.5rem; color: var(--text-secondary); font-size: 0.72rem;">${timeStr}</td>
+                    <td data-label="Pair" class="desktop-only" style="padding: 0.5rem; font-size: 0.73rem; font-weight: 600;">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</td>
+                    <td data-label="Direction" class="desktop-only" style="padding: 0.5rem; font-weight: 700; color: ${dirColor};">${dirStr}</td>
+                    <td data-label="Target" class="font-mono desktop-only" style="padding: 0.5rem;">${targetDiff}</td>
+                    <td data-label="Spread" class="font-mono desktop-only" style="padding: 0.5rem; font-weight: 700; color: #059669;">${filledSpread}</td>
+                    <td data-label="Prices" class="font-mono desktop-only" style="padding: 0.5rem; font-size: 0.72rem; color: var(--text-secondary);">P: ${pPrice} / M: ${mPrice}</td>
+                    <td data-label="Status" class="desktop-only" style="padding: 0.5rem; text-align: center;">${statusBadge}</td>
+                    ${mobileCardHTML}
                 `;
                 mbotMiddleBody.appendChild(tr);
             });

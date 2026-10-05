@@ -302,35 +302,53 @@ body {
 /* ==============================================================================
    🌟 Zero-Scroll Order Cards & Slim Scrollbars
    ============================================================================== */
-.mbot-order-card {
+.mbot-order-card,
+.mbot-task-card,
+.bot-instance-card {
     transition: all 0.2s ease;
+    box-sizing: border-box;
+    width: 100%;
 }
 
-.mbot-order-card:hover {
+.mbot-order-card:hover,
+.mbot-task-card:hover,
+.bot-instance-card:hover {
     border-color: #38bdf8 !important;
     box-shadow: 0 2px 8px rgba(56, 189, 248, 0.12) !important;
 }
 
 /* Custom Slim Scrollbars for tables & card feeds */
 .table-container::-webkit-scrollbar,
-#mbot-trades-body::-webkit-scrollbar {
+#mbot-trades-body::-webkit-scrollbar,
+#mbot-tasks-body::-webkit-scrollbar,
+#ta-configs-body::-webkit-scrollbar,
+#ta-lots-configs-body::-webkit-scrollbar {
     width: 5px;
     height: 5px;
 }
 
 .table-container::-webkit-scrollbar-track,
-#mbot-trades-body::-webkit-scrollbar-track {
+#mbot-trades-body::-webkit-scrollbar-track,
+#mbot-tasks-body::-webkit-scrollbar-track,
+#ta-configs-body::-webkit-scrollbar-track,
+#ta-lots-configs-body::-webkit-scrollbar-track {
     background: transparent;
 }
 
 .table-container::-webkit-scrollbar-thumb,
-#mbot-trades-body::-webkit-scrollbar-thumb {
+#mbot-trades-body::-webkit-scrollbar-thumb,
+#mbot-tasks-body::-webkit-scrollbar-thumb,
+#ta-configs-body::-webkit-scrollbar-thumb,
+#ta-lots-configs-body::-webkit-scrollbar-thumb {
     background: #CBD5E1;
     border-radius: 4px;
 }
 
 .table-container::-webkit-scrollbar-thumb:hover,
-#mbot-trades-body::-webkit-scrollbar-thumb:hover {
+#mbot-trades-body::-webkit-scrollbar-thumb:hover,
+#mbot-tasks-body::-webkit-scrollbar-thumb:hover,
+#ta-configs-body::-webkit-scrollbar-thumb:hover,
+#ta-lots-configs-body::-webkit-scrollbar-thumb:hover {
     background: #94A3B8;
 }
 

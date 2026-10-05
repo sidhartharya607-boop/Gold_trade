@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.6">
+    <link rel="stylesheet" href="style.css?v=2.7">
 </head>
 <body>
     <div class="dashboard-container">
@@ -175,26 +175,8 @@
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
                                     <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🎯 Configured Lots Bot Instances</h3>
                                 </div>
-                                <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                                    <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
-                                        <thead>
-                                            <tr style="background-color: rgba(255,255,255,0.03);">
-                                                <th style="padding: 0.45rem; text-align: left;">Month Pair</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 70px;">Direction</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 60px;">Diff</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 50px;">Step</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 50px;">Gap</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 85px;">Lots</th>
-                                                <th style="padding: 0.45rem; text-align: center; width: 60px;">Status</th>
-                                                <th style="padding: 0.45rem; text-align: right; width: 60px;">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="ta-lots-configs-body">
-                                            <tr>
-                                                <td colspan="8" class="empty-table" style="text-align: center; padding: 0.85rem; color: var(--text-muted); font-size: 0.74rem;">No lots bot instances configured. Set parameters above and click "Add Bot Instance (Lots)".</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                <div id="ta-lots-configs-body" style="max-height: 220px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 0.45rem; padding: 0.25rem 0;">
+                                    <div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.74rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No lots bot instances configured. Set parameters above and click "Add Bot Instance (Lots)".</div>
                                 </div>
                             </div>
                         </div>
@@ -326,26 +308,8 @@
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
                                     <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🤖 Configured Grid Instances</h3>
                                 </div>
-                                <div class="table-container" style="max-height: 200px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                                    <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
-                                        <thead>
-                                            <tr style="background-color: rgba(255,255,255,0.03);">
-                                                <th style="padding: 0.45rem; text-align: left;">Pair</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 65px;">Dir</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 55px;">Diff</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 45px;">Step</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 45px;">Gap</th>
-                                                <th style="padding: 0.45rem; text-align: left; width: 40px;">Qty</th>
-                                                <th style="padding: 0.45rem; text-align: center; width: 55px;">Status</th>
-                                                <th style="padding: 0.45rem; text-align: right; width: 55px;">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="ta-configs-body">
-                                            <tr>
-                                                <td colspan="8" class="empty-table" style="text-align: center; padding: 0.85rem; color: var(--text-muted); font-size: 0.74rem;">No bot instances configured. Set parameters above and click "Add Bot Instance".</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                <div id="ta-configs-body" style="max-height: 220px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 0.45rem; padding: 0.25rem 0;">
+                                    <div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.74rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No bot instances configured. Set parameters above and click "Add Bot Instance".</div>
                                 </div>
                             </div>
                         </div>
@@ -421,24 +385,8 @@
                                     </span>
                                     <span id="mbot-tasks-badge" style="font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(16,185,129,0.15); color: #34d399; font-weight: 600;">0 Tasks</span>
                                 </div>
-                                <div class="table-container" style="max-height: 180px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
-                                    <table class="history-table" style="width: 100%; border-collapse: collapse; font-size: 0.72rem;">
-                                        <thead>
-                                            <tr style="background: rgba(255,255,255,0.03);">
-                                                <th style="padding: 0.4rem; text-align: left; width: 60px;">ID</th>
-                                                <th style="padding: 0.4rem; text-align: left;">Pair</th>
-                                                <th style="padding: 0.4rem; text-align: left; width: 65px;">Dir</th>
-                                                <th style="padding: 0.4rem; text-align: left;">Target</th>
-                                                <th style="padding: 0.4rem; text-align: left; width: 60px;">Prog</th>
-                                                <th style="padding: 0.4rem; text-align: center; width: 90px;">Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="mbot-tasks-body">
-                                            <tr>
-                                                <td colspan="6" class="empty-table" style="text-align: center; padding: 0.75rem; color: var(--text-muted); font-size: 0.73rem;">No bot tasks added yet. Configure above and click "Start / Add Bot Task".</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
+                                <div id="mbot-tasks-body" style="max-height: 200px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 0.45rem; padding: 0.25rem 0;">
+                                    <div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.73rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No bot tasks added yet. Configure above and click "Start / Add Bot Task".</div>
                                 </div>
                             </div>
 
@@ -1303,6 +1251,6 @@
         </div>
     </div>
     
-    <script src="script.js?v=2.6"></script>
+    <script src="script.js?v=2.7"></script>
 </body>
 </html>
