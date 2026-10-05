@@ -408,8 +408,10 @@ function updateDashboard(data) {
     winRatioBadge.innerText = `${data.win_ratio.toFixed(2)}%`;
     
     const realizedPnl = data.realized_pnl;
-    realizedPnlBadge.innerText = (realizedPnl >= 0 ? "+" : "") + realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 });
-    realizedPnlBadge.className = "badge-value " + (realizedPnl > 0 ? "pnl-profit" : realizedPnl < 0 ? "pnl-loss" : "");
+    if (realizedPnlBadge) {
+        realizedPnlBadge.innerText = (realizedPnl >= 0 ? "+" : "") + realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 });
+        realizedPnlBadge.className = "badge-value " + (realizedPnl > 0 ? "pnl-profit" : realizedPnl < 0 ? "pnl-loss" : "");
+    }
 
     // 4. Groww Holdings Wealth Summary Update
     const currentValEl = document.getElementById("groww-current-value");
@@ -482,6 +484,17 @@ function updateDashboard(data) {
         entryBtn.disabled = true;
         if (exitBtn) exitBtn.disabled = true;
         entryBtn.innerHTML = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M12 5v14M5 12h14"/></svg> Suspended`;
+    }
+
+    // Sync Hold button visual state from server
+    const holdBtn = document.getElementById("btn-system-hold");
+    if (holdBtn) {
+        const isHold = (status === "Hold");
+        holdBtn.dataset.state = isHold ? "hold" : "active";
+        holdBtn.innerHTML = isHold ? "▶️ Resume Trades" : "⏸️ Hold All Trades";
+        holdBtn.style.background = isHold ? "rgba(239,68,68,0.18)" : "rgba(245,158,11,0.12)";
+        holdBtn.style.color = isHold ? "#ef4444" : "#f59e0b";
+        holdBtn.style.borderColor = isHold ? "rgba(239,68,68,0.35)" : "rgba(245,158,11,0.3)";
     }
 
     if (positionDirBadge) {
@@ -754,12 +767,16 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                     `;
                 }
                 
-                // Format Col: Live P&L
+                // Entry/Exit Timing (replaces P&L column)
                 let pnlContent = "--";
-                if (status === "Closed") {
-                    const realizedPnl = trade.pnl || 0.0;
-                    const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
-                    pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
+                const mEntryDate = trade.entry_date ? trade.entry_date.replace(/^\d{4}-/, '').replace('-', '/') : "";
+                const mEntryTime = trade.entry_time || "--";
+                if (status === "Pending") {
+                    pnlContent = `<div style="font-size:0.7rem;line-height:1.45;"><div style="color:var(--text-muted);font-size:0.62rem;">CREATED</div><div style="color:#f59e0b;font-family:var(--font-mono);">${mEntryDate} ${mEntryTime}</div><div style="color:var(--text-muted);font-size:0.62rem;margin-top:0.15rem;">FILLED</div><div style="color:var(--text-muted);">Waiting…</div></div>`;
+                } else {
+                    const mExitDate = trade.exit_date ? trade.exit_date.replace(/^\d{4}-/, '').replace('-', '/') : "";
+                    const mExitTime = trade.exit_time || "--";
+                    pnlContent = `<div style="font-size:0.7rem;line-height:1.45;"><div style="color:var(--text-muted);font-size:0.62rem;">ENTRY</div><div style="color:var(--text-secondary);font-family:var(--font-mono);">${mEntryDate} ${mEntryTime}</div><div style="color:var(--text-muted);font-size:0.62rem;margin-top:0.15rem;">EXIT</div><div style="color:#94a3b8;font-family:var(--font-mono);">${mExitDate} ${mExitTime}</div></div>`;
                 }
                 
                 // Action button: Cancel for Pending, Dismiss for Closed (STRICTLY NO EXIT BUTTON)
@@ -1075,15 +1092,16 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                 `;
             }
             
+            // Entry/Exit Timing (replaces P&L column)
             let pnlContent = "--";
+            const taEntryDate = trade.entry_date ? trade.entry_date.replace(/^\d{4}-/, '').replace('-', '/') : "";
+            const taEntryTime = trade.entry_time || "--";
             if (status === "Open") {
-                const unrealizedPnl = trade.unrealized_pnl || 0.0;
-                const pnlClass = unrealizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
-                pnlContent = `<strong class="${pnlClass}" style="font-family: var(--font-mono);">${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>`;
+                pnlContent = `<div style="font-size:0.7rem;line-height:1.45;"><div style="color:var(--text-muted);font-size:0.62rem;">ENTRY</div><div style="color:#34d399;font-family:var(--font-mono);">${taEntryDate} ${taEntryTime}</div><div style="color:var(--text-muted);font-size:0.62rem;margin-top:0.15rem;">EXIT</div><div style="color:#f59e0b;">Active ⬆</div></div>`;
             } else {
-                const realizedPnl = trade.pnl || 0.0;
-                const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
-                pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
+                const taExitDate = trade.exit_date ? trade.exit_date.replace(/^\d{4}-/, '').replace('-', '/') : "";
+                const taExitTime = trade.exit_time || "--";
+                pnlContent = `<div style="font-size:0.7rem;line-height:1.45;"><div style="color:var(--text-muted);font-size:0.62rem;">ENTRY</div><div style="color:var(--text-secondary);font-family:var(--font-mono);">${taEntryDate} ${taEntryTime}</div><div style="color:var(--text-muted);font-size:0.62rem;margin-top:0.15rem;">EXIT</div><div style="color:#94a3b8;font-family:var(--font-mono);">${taExitDate} ${taExitTime}</div></div>`;
             }
             
             // Point 1: Remove accidental exit button on Open trades; preserve Target Editing
@@ -1259,20 +1277,26 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                 `;
             }
             
+            // Entry/Exit Timing (replaces P&L column)
             let pnlContent = "--";
+            const lotsEntryDate = trade.entry_date ? trade.entry_date.replace(/^\d{4}-/, '').replace('-', '/') : "";
+            const lotsEntryTime = trade.entry_time || "--";
             if (status === "Open") {
-                const unrealizedPnl = trade.unrealized_pnl || 0.0;
-                const pnlClass = unrealizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
-                pnlContent = `<strong class="${pnlClass}" style="font-family: var(--font-mono);">${unrealizedPnl >= 0 ? "+" : ""}${unrealizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</strong>`;
+                pnlContent = `<div style="font-size:0.7rem;line-height:1.45;"><div style="color:var(--text-muted);font-size:0.62rem;">ENTRY</div><div style="color:#34d399;font-family:var(--font-mono);">${lotsEntryDate} ${lotsEntryTime}</div><div style="color:var(--text-muted);font-size:0.62rem;margin-top:0.15rem;">EXIT</div><div style="color:#f59e0b;">Active ⬆</div></div>`;
             } else {
-                const realizedPnl = trade.pnl || 0.0;
-                const pnlClass = realizedPnl >= 0 ? "pnl-profit" : "pnl-loss";
-                pnlContent = `<span class="${pnlClass}" style="font-family: var(--font-mono);">${realizedPnl >= 0 ? "+" : ""}${realizedPnl.toLocaleString('en-IN', { minimumFractionDigits: 2 })} (Net)</span>`;
+                const lotsExitDate = trade.exit_date ? trade.exit_date.replace(/^\d{4}-/, '').replace('-', '/') : "";
+                const lotsExitTime = trade.exit_time || "--";
+                pnlContent = `<div style="font-size:0.7rem;line-height:1.45;"><div style="color:var(--text-muted);font-size:0.62rem;">ENTRY</div><div style="color:var(--text-secondary);font-family:var(--font-mono);">${lotsEntryDate} ${lotsEntryTime}</div><div style="color:var(--text-muted);font-size:0.62rem;margin-top:0.15rem;">EXIT</div><div style="color:#94a3b8;font-family:var(--font-mono);">${lotsExitDate} ${lotsExitTime}</div></div>`;
             }
             
             let actionBtn = "";
             if (status === "Open") {
-                actionBtn = `<button class="action-btn exit-button" onclick="exitTaLotsTrade(${trade.id})" style="padding: 0.25rem 0.6rem; font-size: 0.68rem; min-height: unset; margin: 0; background: #ef4444; color: white; border-radius: 4px; cursor: pointer; font-weight: 600;">Exit</button>`;
+                const lotsExitGapVal = trade.exit_gap !== undefined ? parseFloat(trade.exit_gap) : 100.0;
+                actionBtn = `
+                    <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
+                        <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${lotsExitGapVal}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap for this Lots trade">✏️ Edit Tgt</button>
+                    </div>
+                `;
             } else {
                 actionBtn = `<button class="metallic-button" onclick="dismissTaLotsTrade(${trade.id})" style="padding: 0.2rem 0.5rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(255,255,255,0.03); color: var(--text-muted);">Dismiss</button>`;
             }
@@ -1288,7 +1312,7 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                 <div style="font-size: 0.72rem; line-height: 1.3;">
                     <span style="font-weight: 700; color: #f59e0b;">Order #${trade.order_index || 1}</span>
                     <span style="color: var(--text-muted);">/ ${trade.total_orders || 1}</span>
-                    <div><strong style="color: #38bdf8;">${trade.quantity || 1} Lots</strong></div>
+                    <div><strong style="color: #38bdf8;">${trade.quantity || 1} ${(trade.quantity || 1) === 1 ? 'Lot' : 'Lots'}</strong></div>
                 </div>
             `;
 
@@ -1322,7 +1346,7 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                             <div style="border:1px solid var(--border-color); border-radius:6px; overflow:hidden; margin-bottom:0.6rem;">
                                 <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color); background:var(--bg-tertiary);">
                                     <span style="color:var(--text-muted);">ORDER / LOTS</span>
-                                    <strong style="color:#f59e0b;">Order #${trade.order_index || 1} (${trade.quantity || 1} Lots)</strong>
+                                    <strong style="color:#f59e0b;">Order #${trade.order_index || 1} (${trade.quantity || 1} ${(trade.quantity || 1) === 1 ? 'Lot' : 'Lots'})</strong>
                                 </div>
                                 <div style="display:flex; justify-content:space-between; font-size:0.73rem; padding:0.3rem 0.5rem; border-bottom:1px solid var(--border-color);">
                                     <span style="color:var(--text-muted);">SPREAD</span>
@@ -3185,6 +3209,33 @@ function initWorkstationCollapse() {
         if (rightCollapsed) setRightColCollapsed(true);
     } catch(e) {}
 }
+
+// =========================================================================
+// Master Hold / Resume Toggle — pauses ALL trade triggers safely
+// =========================================================================
+window.toggleHoldSystem = function() {
+    const btn = document.getElementById("btn-system-hold");
+    const isCurrentlyHold = btn && btn.dataset.state === "hold";
+    const action = isCurrentlyHold ? "resume" : "hold";
+    const label = isCurrentlyHold ? "▶️ Resume Trades" : "⏸️ Hold All Trades";
+    const confirmMsg = isCurrentlyHold
+        ? "Resume trading? All bots and pending triggers will activate again from the current saved state."
+        : "HOLD all trades? All bot triggers, pending entries, and automations will be PAUSED. You can safely delete or add orders before resuming.";
+    if (!confirm(confirmMsg)) return;
+    postAction("toggle-hold-system", { action })
+        .then(res => {
+            if (res && res.status === "SUCCESS") {
+                logLocalMessage(`[SYSTEM] ${res.message}`);
+                if (btn) {
+                    btn.dataset.state = isCurrentlyHold ? "active" : "hold";
+                    btn.innerHTML = isCurrentlyHold ? "▶️ Resume Trades" : "⏸️ Hold All Trades";
+                    btn.style.background = isCurrentlyHold ? "rgba(16,185,129,0.15)" : "rgba(239,68,68,0.18)";
+                    btn.style.color = isCurrentlyHold ? "#10b981" : "#ef4444";
+                    btn.style.borderColor = isCurrentlyHold ? "rgba(16,185,129,0.3)" : "rgba(239,68,68,0.35)";
+                }
+            }
+        });
+};
 
 // Initialize default/persisted mobile tab & workstation collapse state
 document.addEventListener("DOMContentLoaded", () => {

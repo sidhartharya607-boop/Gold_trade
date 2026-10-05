@@ -2338,7 +2338,7 @@ async def run_ta_exit(trade: dict, mapping: dict, paper_mode: bool = True):
         await broadcast_system_state()
 
 async def run_trade_automation_checks():
-    if system_state.ta_execution_in_progress:
+    if system_state.ta_execution_in_progress or system_state.system_status in ["Halted", "Hold"]:
         return
         
     # 1. Autonomous Exit Monitoring for ALL Open Trade Automation trades (Instance-Independent)
@@ -2489,7 +2489,7 @@ async def run_trade_automation_checks():
 # ==============================================================================
 # 🌟 NEW MODULE: Trade Automation with Lots (Tiered / Custom Lots Grid)
 # ==============================================================================
-async def run_ta_lots_entry(mapping: dict, direction: str, qty: int, expected_spread: float, paper_mode: bool = True, exit_gap: float = 100.0, order_index: int = 1):
+async def run_ta_lots_entry(mapping: dict, direction: str, qty: int, expected_spread: float, paper_mode: bool = True, exit_gap: float = 100.0, order_index: any = 1, total_orders: int = 1):
     if system_state.ta_lots_execution_in_progress:
         return
     system_state.ta_lots_execution_in_progress = True
@@ -2515,6 +2515,7 @@ async def run_ta_lots_entry(mapping: dict, direction: str, qty: int, expected_sp
             new_trade = {
                 "id": trade_id,
                 "order_index": order_index,
+                "total_orders": total_orders,
                 "direction": direction,
                 "quantity": qty,
                 "status": "Open",
@@ -2543,7 +2544,7 @@ async def run_ta_lots_entry(mapping: dict, direction: str, qty: int, expected_sp
             }
             system_state.ta_lots_trades.append(new_trade)
             system_state.save_ta_lots_trades()
-            system_state.log(f"[TA LOTS ENTRY] Filled Order #{order_index} ({qty} lots) {direction} entry. Expected: {expected_spread:.2f}, Filled: {new_trade['entry_spread']:.2f}. Petal: {new_trade['petal_entry_price']:.2f}, Mini: {new_trade['mini_entry_price']:.2f}")
+            system_state.log(f"[TA LOTS ENTRY] Filled Order #{order_index} ({qty} lot{'s' if qty > 1 else ''}) {direction} entry. Expected: {expected_spread:.2f}, Filled: {new_trade['entry_spread']:.2f}. Petal: {new_trade['petal_entry_price']:.2f}, Mini: {new_trade['mini_entry_price']:.2f}")
     except Exception as e:
         system_state.log(f"[TA LOTS ENTRY ERROR] {e}")
     finally:
@@ -2663,7 +2664,7 @@ async def run_ta_lots_exit(trade: dict, mapping: dict, paper_mode: bool = True):
         await broadcast_system_state()
 
 async def run_trade_automation_lots_checks():
-    if getattr(system_state, "ta_lots_execution_in_progress", False):
+    if getattr(system_state, "ta_lots_execution_in_progress", False) or system_state.system_status in ["Halted", "Hold"]:
         return
         
     # 1. Autonomous Exit Monitoring for Trade Automation with Lots
@@ -2773,29 +2774,44 @@ async def run_trade_automation_lots_checks():
         if not lots_list:
             lots_list = [config.get("quantity", 1)]
             
-        max_orders = len(lots_list)
-        if num_open >= max_orders:
+        # Reset ladder progress if there are no open trades for this pair (fresh cycle)
+        if num_open == 0:
+            config["level_index"] = 0
+            config["lot_index"] = 0
+
+        level_idx = config.get("level_index", 0)
+        lot_idx = config.get("lot_index", 0)
+
+        # Check if all levels in the sequence are exhausted
+        if level_idx >= len(lots_list):
             continue
-            
-        # Enforce minimum 20-second time gap between consecutive orders for this bot instance
+
+        lots_in_this_level = lots_list[level_idx]
+        if lot_idx >= lots_in_this_level:
+            level_idx += 1
+            lot_idx = 0
+            config["level_index"] = level_idx
+            config["lot_index"] = lot_idx
+            if level_idx >= len(lots_list):
+                continue
+            lots_in_this_level = lots_list[level_idx]
+
+        # Enforce minimum 20-second time gap between consecutive orders/lots for this bot instance
         last_order_time = config.get("last_order_time", 0.0)
         if time.time() - last_order_time < 20.0:
             continue
-            
+
         direction = config.get("direction", "Expansion")
         entry_diff = config.get("entry_diff", 500.0)
         averaging_step = config.get("averaging_step", 50.0)
         exit_gap = config.get("exit_gap", 100.0)
         paper_mode = config.get("paper_mode", True)
-        
-        current_qty = lots_list[num_open]
-        order_index = num_open + 1
-        
+
         if direction == "Expansion":
-            target_spread = entry_diff - (num_open * averaging_step)
+            target_spread = entry_diff - (level_idx * averaging_step)
         else:
-            target_spread = entry_diff + (num_open * averaging_step)
-            
+            target_spread = entry_diff + (level_idx * averaging_step)
+
         entry_triggered = False
         if direction == "Expansion":
             if buy_spread <= target_spread:
@@ -2803,12 +2819,25 @@ async def run_trade_automation_lots_checks():
         elif direction == "Contraction":
             if sell_spread >= target_spread:
                 entry_triggered = True
-                
+
         if entry_triggered:
             config["last_order_time"] = time.time()
-            trigger_label = "First" if num_open == 0 else f"Averaging #{num_open+1}"
-            system_state.log(f"[TA LOTS TRIGGER] {trigger_label} (Order #{order_index}, {current_qty} lots) entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {target_spread:.2f}, Base: {entry_diff:.2f}, Step: {averaging_step:.2f})")
-            await run_ta_lots_entry(mapping, direction, current_qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap, order_index)
+            current_qty = 1  # Always execute 1 lot per order to preserve market depth and prevent slippage
+            order_index_str = f"{level_idx + 1}.{lot_idx + 1}"
+
+            next_lot_idx = lot_idx + 1
+            next_level_idx = level_idx
+            if next_lot_idx >= lots_in_this_level:
+                next_level_idx = level_idx + 1
+                next_lot_idx = 0
+
+            config["level_index"] = next_level_idx
+            config["lot_index"] = next_lot_idx
+            system_state.save_ta_lots_configs()
+
+            trigger_label = f"Order #{level_idx + 1} (Lot {lot_idx + 1}/{lots_in_this_level})"
+            system_state.log(f"[TA LOTS TRIGGER] {trigger_label} ({current_qty} lot) entry met for {p_sym}/{m_sym}. Spread: {buy_spread if direction == 'Expansion' else sell_spread:.2f} (Target: {target_spread:.2f}, Level #{level_idx + 1}, Base: {entry_diff:.2f}, Step: {averaging_step:.2f})")
+            await run_ta_lots_entry(mapping, direction, current_qty, buy_spread if direction == "Expansion" else sell_spread, paper_mode, exit_gap, order_index_str, len(lots_list))
             return
 
 async def execute_netting_manual_trades(new_direction: str, qty: int, expected_entry_spread: float, pending_trade: dict = None,
@@ -3156,7 +3185,9 @@ async def trigger_manual_trade_execution(trade: dict, expected_entry_spread: flo
 
 async def run_manual_bot_check():
     global system_state
-    
+    if getattr(system_state, "mbot_execution_in_progress", False) or system_state.system_status in ["Halted", "Hold"]:
+        return
+        
     # Collect all active bot tasks
     active_bots = []
     if hasattr(system_state, "manual_bots") and isinstance(system_state.manual_bots, list):
@@ -3239,9 +3270,9 @@ async def run_manual_bot_check():
                 bot["why_waiting"] = f"Spread {live_spread:.2f} is above target range [{min_p:.1f} - {max_p:.1f}]"
             continue
 
-        # Check execution lock or halted state
-        if system_state.execution_in_progress or system_state.system_status == "Halted":
-            bot["why_waiting"] = "Execution lock in progress or system Halted"
+        # Check execution lock or halted / hold state
+        if system_state.execution_in_progress or system_state.system_status in ["Halted", "Hold"]:
+            bot["why_waiting"] = "Execution lock in progress or system Halted/Hold"
             continue
 
         # Double check disk persistence to guard against any process desync or duplicate processes
@@ -3530,48 +3561,49 @@ async def process_market_data(data: dict):
         await broadcast_system_state()
         return
 
-    # Process pending manual trade triggers across ALL month pairs independently
-    for trade in system_state.manual_trades:
-        if trade.get("status") == "Pending":
-            t_petal_symbol = trade.get("petal_symbol") or system_state.petal_symbol
-            t_mini_symbol = trade.get("mini_symbol") or system_state.mini_symbol
-            
-            # Resolve live depth spreads for this specific pair
-            live_stat = None
-            if t_petal_symbol == system_state.petal_symbol and t_mini_symbol == system_state.mini_symbol:
-                live_stat = {
-                    "depth_buy_spread": system_state.depth_buy_spread,
-                    "depth_sell_spread": system_state.depth_sell_spread
-                }
-            else:
-                for stat in system_state.month_master_live:
-                    if stat.get("petal_symbol") == t_petal_symbol and stat.get("mini_symbol") == t_mini_symbol:
-                        live_stat = stat
-                        break
-            
-            if not live_stat:
-                continue
+    # Process pending manual trade triggers across ALL month pairs independently (skip if Hold or Halted)
+    if system_state.system_status not in ["Halted", "Hold"]:
+        for trade in system_state.manual_trades:
+            if trade.get("status") == "Pending":
+                t_petal_symbol = trade.get("petal_symbol") or system_state.petal_symbol
+                t_mini_symbol = trade.get("mini_symbol") or system_state.mini_symbol
                 
-            buy_spread = live_stat["depth_buy_spread"]
-            sell_spread = live_stat["depth_sell_spread"]
-            
-            triggered = False
-            expected_spread = 0.0
-            if trade.get("direction") == "Expansion":
-                if buy_spread <= trade.get("trigger_diff", 0.0):
-                    triggered = True
-                    expected_spread = buy_spread
-            elif trade.get("direction") == "Contraction":
-                if sell_spread >= trade.get("trigger_diff", 0.0):
-                    triggered = True
-                    expected_spread = sell_spread
-            
-            if triggered:
-                trade["status"] = "Executing"
-                asyncio.create_task(trigger_manual_trade_execution(trade, expected_spread))
+                # Resolve live depth spreads for this specific pair
+                live_stat = None
+                if t_petal_symbol == system_state.petal_symbol and t_mini_symbol == system_state.mini_symbol:
+                    live_stat = {
+                        "depth_buy_spread": system_state.depth_buy_spread,
+                        "depth_sell_spread": system_state.depth_sell_spread
+                    }
+                else:
+                    for stat in system_state.month_master_live:
+                        if stat.get("petal_symbol") == t_petal_symbol and stat.get("mini_symbol") == t_mini_symbol:
+                            live_stat = stat
+                            break
+                
+                if not live_stat:
+                    continue
+                    
+                buy_spread = live_stat["depth_buy_spread"]
+                sell_spread = live_stat["depth_sell_spread"]
+                
+                triggered = False
+                expected_spread = 0.0
+                if trade.get("direction") == "Expansion":
+                    if buy_spread <= trade.get("trigger_diff", 0.0):
+                        triggered = True
+                        expected_spread = buy_spread
+                elif trade.get("direction") == "Contraction":
+                    if sell_spread >= trade.get("trigger_diff", 0.0):
+                        triggered = True
+                        expected_spread = sell_spread
+                
+                if triggered:
+                    trade["status"] = "Executing"
+                    asyncio.create_task(trigger_manual_trade_execution(trade, expected_spread))
         
-    # Check execution lock or halted state: skip automations to prevent overlaps
-    if system_state.execution_in_progress or system_state.system_status == "Halted":
+    # Check execution lock or halted / hold state: skip automations to prevent overlaps
+    if system_state.execution_in_progress or system_state.system_status in ["Halted", "Hold"]:
         await broadcast_system_state()
         return
  
@@ -4596,8 +4628,10 @@ async def api_cancel_manual(payload: ExitManualPayload, token: str = None, autho
     verify_token(token, authorization)
     
     trade = None
-    for t in system_state.manual_trades:
-        if str(t.get("id")) == str(payload.trade_id):
+    target_id = str(payload.trade_id).strip()
+    for i, t in enumerate(system_state.manual_trades):
+        t_id = str(t.get("id", "")).strip()
+        if t_id == target_id or str(i + 1) == target_id:
             trade = t
             break
             
@@ -4622,8 +4656,10 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
     verify_token(token, authorization)
     
     trade = None
-    for t in system_state.manual_trades:
-        if str(t.get("id")) == str(payload.trade_id):
+    target_id = str(payload.trade_id).strip()
+    for i, t in enumerate(system_state.manual_trades):
+        t_id = str(t.get("id", "")).strip()
+        if t_id == target_id or str(i + 1) == target_id:
             trade = t
             break
             
@@ -4934,6 +4970,41 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
     system_state.system_status = "Halted"
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Positions cleared and system halted."}
+
+class ToggleHoldPayload(BaseModel):
+    action: Optional[str] = None
+
+@app.post("/api/toggle-hold-system")
+async def api_toggle_hold_system(payload: Optional[ToggleHoldPayload] = None, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    
+    current_status = getattr(system_state, "system_status", "Active")
+    desired = payload.action.strip().lower() if (payload and payload.action) else None
+    
+    if desired == "hold" or (desired is None and current_status != "Hold"):
+        system_state.system_status = "Hold"
+        system_state.log("[SYSTEM HOLD] ALL TRADE TRIGGERS ARE NOW ON HOLD. You can safely add, modify, or delete orders.")
+    else:
+        # Before resuming, reload all configs and manual trades from disk to guarantee deleted orders NEVER re-execute
+        system_state.load_manual_trades()
+        system_state.load_ta_configs()
+        system_state.load_ta_trades()
+        if hasattr(system_state, "load_ta_lots_configs"):
+            system_state.load_ta_lots_configs()
+        if hasattr(system_state, "load_ta_lots_trades"):
+            system_state.load_ta_lots_trades()
+        if hasattr(system_state, "load_manual_bot"):
+            system_state.load_manual_bot()
+            
+        system_state.system_status = "Active"
+        system_state.log("[SYSTEM RESUME] System resumed to ACTIVE. Fresh state reloaded from disk; all deleted orders purged.")
+        
+    await broadcast_system_state()
+    return {
+        "status": "SUCCESS", 
+        "system_status": system_state.system_status,
+        "message": f"System status set to {system_state.system_status}."
+    }
 
 # REST Strategy parameters update form submission endpoint
 class UpdateParamsPayload(BaseModel):
@@ -5257,15 +5328,25 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
     verify_token(token, authorization)
     
     trade = None
+    is_lots = False
+    target_id_str = str(payload.trade_id).strip()
+    
     for t in system_state.ta_trades:
-        if t.get("id") == payload.trade_id:
+        if str(t.get("id", "")).strip() == target_id_str:
             trade = t
             break
             
     if not trade:
+        for t in getattr(system_state, "ta_lots_trades", []):
+            if str(t.get("id", "")).strip() == target_id_str:
+                trade = t
+                is_lots = True
+                break
+                
+    if not trade:
         raise HTTPException(status_code=404, detail="Trade Automation trade not found.")
         
-    if trade.get("status") != "Open":
+    if str(trade.get("status", "")).strip() != "Open":
         raise HTTPException(status_code=400, detail="Only OPEN trades can have their target edited.")
         
     direction = trade.get("direction", "Expansion")
@@ -5287,10 +5368,13 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
         raise HTTPException(status_code=400, detail="Target gap must be greater than 0.")
         
     trade["exit_gap"] = round(new_gap, 2)
-    system_state.save_ta_trades()
+    if is_lots:
+        system_state.save_ta_lots_trades()
+    else:
+        system_state.save_ta_trades()
     
     target_val = (entry_spread + new_gap) if direction == "Expansion" else (entry_spread - new_gap)
-    system_state.log(f"[TA EDIT] Trade ID {trade['id']} target updated: Gap {old_gap:.2f} -> {new_gap:.2f} (Target Spread: {target_val:.2f})")
+    system_state.log(f"[TA EDIT] {'[LOTS] ' if is_lots else ''}Trade ID {trade['id']} target updated: Gap {old_gap:.2f} -> {new_gap:.2f} (Target Spread: {target_val:.2f})")
     
     await broadcast_system_state()
     return {
@@ -5348,7 +5432,11 @@ async def api_clear_ta_lots_trades(token: str = None, authorization: str = Heade
     count = len(getattr(system_state, "ta_lots_trades", []))
     system_state.ta_lots_trades = []
     system_state.save_ta_lots_trades()
-    system_state.log(f"[TA LOTS] Cleared all {count} Trade Automation with Lots trades.")
+    for cfg in getattr(system_state, "ta_lots_configs", []):
+        cfg["level_index"] = 0
+        cfg["lot_index"] = 0
+    system_state.save_ta_lots_configs()
+    system_state.log(f"[TA LOTS] Cleared all {count} Trade Automation with Lots trades and reset ladders.")
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": f"Cleared all {count} Trade Automation with Lots trades successfully."}
 

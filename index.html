@@ -15,7 +15,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2.8">
+    <link rel="stylesheet" href="style.css?v=2.9">
 </head>
 <body>
     <div class="dashboard-container">
@@ -32,10 +32,8 @@
                         <span class="badge-label">Win Ratio:</span>
                         <span id="win-ratio-badge" class="badge-value font-mono">0.00%</span>
                     </div>
-                    <div class="stat-badge">
-                        <span class="badge-label">Realized:</span>
-                        <span id="realized-pnl-badge" class="badge-value font-mono">0.00</span>
-                    </div>
+                    <!-- Hold All Trades Master Button -->
+                    <button id="btn-system-hold" data-state="active" onclick="toggleHoldSystem()" title="Pause / Resume all bot triggers and pending trade executions" style="font-size: 0.68rem; font-weight: 700; padding: 0.25rem 0.65rem; border-radius: 6px; border: 1px solid rgba(245,158,11,0.3); background: rgba(245,158,11,0.12); color: #f59e0b; cursor: pointer; letter-spacing: 0.02em; white-space: nowrap;">⏸️ Hold All Trades</button>
                 </div>
                 <!-- Mode Badge -->
                 <div id="trading-mode-badge" style="font-size: 0.65rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 6px; letter-spacing: 0.05em; text-transform: uppercase; background-color: rgba(59, 130, 246, 0.15); color: #3b82f6;">
@@ -676,7 +674,7 @@
                                             <th style="padding: 0.5rem; text-align: left; width: 95px;">Trigger Diff</th>
                                             <th style="padding: 0.5rem; text-align: left; width: 75px;">Status</th>
                                             <th style="padding: 0.5rem; text-align: left;">Entry Prices (P / M)</th>
-                                            <th style="padding: 0.5rem; text-align: left; width: 105px;">Live P&amp;L</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 105px;">Entry / Exit Time</th>
                                             <th style="text-align: right; padding-right: 1rem; width: 75px;">Action</th>
                                         </tr>
                                     </thead>
@@ -732,7 +730,7 @@
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Entry / Exit Spread</th>
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Execution Prices</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">P&amp;L (Net)</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Entry / Exit Time</th>
                                             <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px; padding-right: 1rem;">Action</th>
                                         </tr>
                                     </thead>
@@ -788,7 +786,7 @@
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Entry / Exit Spread</th>
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 75px;">Status</th>
                                             <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary);">Execution Prices</th>
-                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">P&amp;L (Net)</th>
+                                            <th style="padding: 0.5rem; text-align: left; font-size: 0.72rem; color: var(--text-secondary); width: 110px;">Entry / Exit Time</th>
                                             <th style="padding: 0.5rem; text-align: right; font-size: 0.72rem; color: var(--text-secondary); width: 80px; padding-right: 1rem;">Action</th>
                                         </tr>
                                     </thead>
@@ -1294,6 +1292,6 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
     </button>
     
-    <script src="script.js?v=2.8"></script>
+    <script src="script.js?v=3.0"></script>
 </body>
 </html>
