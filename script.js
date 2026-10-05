@@ -1454,6 +1454,29 @@ window.toggleTaAccordion = function(tacardId) {
     // Update Bot Execution Timeline Pipeline
     updatePipelineTimeline(data);
 
+    // Update Studio Workstation Tab Badges (Left Panel)
+    const badgeLots = document.getElementById("left-badge-lots");
+    if (badgeLots) {
+        const lotsCount = (data.ta_lots_configs || []).filter(c => c.enabled).length;
+        if (lotsCount > 0) {
+            badgeLots.innerText = lotsCount;
+            badgeLots.style.display = "inline-flex";
+        } else {
+            badgeLots.style.display = "none";
+        }
+    }
+
+    const badgeGrid = document.getElementById("left-badge-grid");
+    if (badgeGrid) {
+        const gridCount = (data.ta_configs || []).filter(c => c.enabled).length;
+        if (gridCount > 0) {
+            badgeGrid.innerText = gridCount;
+            badgeGrid.style.display = "inline-flex";
+        } else {
+            badgeGrid.style.display = "none";
+        }
+    }
+
     // Update Manual BOT UI
     if (data.manual_bot !== undefined || data.manual_bots !== undefined) {
         updateManualBotUI(data.manual_bot, data.manual_bots);
@@ -3030,6 +3053,65 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 })();
 
+// =========================================================================
+// Studio Workstation 3-Column: Segmented Tab Switchers (Left & Right Docks)
+// =========================================================================
+window.switchLeftTab = function(tabName) {
+    const tabs = ['lots', 'manual', 'grid', 'slicer'];
+    tabs.forEach(t => {
+        const btn = document.getElementById(`left-btn-${t}`);
+        const pane = document.getElementById(`left-pane-${t}`);
+        if (btn) {
+            if (t === tabName) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+        if (pane) {
+            pane.style.display = (t === tabName) ? 'block' : 'none';
+        }
+    });
+    try {
+        localStorage.setItem("activeLeftTab", tabName);
+    } catch(e) {}
+};
+
+window.switchRightTab = function(tabName) {
+    const tabs = ['broker', 'master', 'terminal', 'reports'];
+    tabs.forEach(t => {
+        const btn = document.getElementById(`right-btn-${t}`);
+        const pane = document.getElementById(`right-pane-${t}`);
+        if (btn) {
+            if (t === tabName) {
+                btn.classList.add('active');
+            } else {
+                btn.classList.remove('active');
+            }
+        }
+        if (pane) {
+            pane.style.display = (t === tabName) ? (t === 'reports' ? 'flex' : 'block') : 'none';
+        }
+    });
+    try {
+        localStorage.setItem("activeRightTab", tabName);
+    } catch(e) {}
+};
+
+// Auto-restore saved workstation tabs
+(function() {
+    try {
+        const savedLeft = localStorage.getItem("activeLeftTab") || "lots";
+        if (['lots', 'manual', 'grid', 'slicer'].includes(savedLeft)) {
+            window.switchLeftTab(savedLeft);
+        }
+        const savedRight = localStorage.getItem("activeRightTab") || "broker";
+        if (['broker', 'master', 'terminal', 'reports'].includes(savedRight)) {
+            window.switchRightTab(savedRight);
+        }
+    } catch(e) {}
+})();
+
 // ==========================================
 // Manual BOT (Multi-Pair Slicer with 30s Cooldown)
 // ==========================================
@@ -3084,6 +3166,17 @@ function updateManualBotUI(mb, mbs) {
 
     if (mbotTasksBadge) {
         mbotTasksBadge.innerText = `${tasks.length} Tasks (${runningTasks.length} Active)`;
+    }
+
+    // Update Tab Badge for Slicer in Left Panel
+    const badgeSlicer = document.getElementById("left-badge-slicer");
+    if (badgeSlicer) {
+        if (runningTasks.length > 0) {
+            badgeSlicer.innerText = runningTasks.length;
+            badgeSlicer.style.display = "inline-flex";
+        } else {
+            badgeSlicer.style.display = "none";
+        }
     }
 
     // Render Multi-Pair Bot Tasks Table
