@@ -5417,6 +5417,9 @@ class TALotsConfigItem(BaseModel):
     direction: str
     paper_mode: bool
     enabled: bool
+    level_index: Optional[int] = None
+    lot_index: Optional[int] = None
+    last_order_time: Optional[float] = None
 
 class TALotsConfigPayload(BaseModel):
     configs: List[TALotsConfigItem]
@@ -5432,7 +5435,8 @@ async def api_post_ta_lots_config(payload: TALotsConfigPayload, token: str = Non
             raise HTTPException(status_code=400, detail="Cannot enable Trade Automation with Lots configs after market close (23:27 - 09:00).")
 
     configs_list = []
-    for c in payload.configs:
+    old_configs = getattr(system_state, "ta_lots_configs", [])
+    for idx, c in enumerate(payload.configs):
         c_dict = c.dict()
         # Parse lots list if not already parsed
         if not c_dict.get("lots_list") and c_dict.get("lots_str"):
@@ -5440,6 +5444,29 @@ async def api_post_ta_lots_config(payload: TALotsConfigPayload, token: str = Non
                 c_dict["lots_list"] = [int(x.strip()) for x in str(c_dict["lots_str"]).split(",") if x.strip() and int(x.strip()) > 0]
             except Exception:
                 c_dict["lots_list"] = [1]
+
+        # Match with old config to preserve progress if not explicitly passed
+        matching_old = None
+        for old in old_configs:
+            if old.get("month_idx") == c_dict.get("month_idx") and old.get("direction") == c_dict.get("direction"):
+                matching_old = old
+                break
+
+        if matching_old:
+            if c_dict.get("level_index") is None:
+                c_dict["level_index"] = matching_old.get("level_index", 0)
+            if c_dict.get("lot_index") is None:
+                c_dict["lot_index"] = matching_old.get("lot_index", 0)
+            if c_dict.get("last_order_time") is None:
+                c_dict["last_order_time"] = matching_old.get("last_order_time", 0.0)
+        else:
+            if c_dict.get("level_index") is None:
+                c_dict["level_index"] = 0
+            if c_dict.get("lot_index") is None:
+                c_dict["lot_index"] = 0
+            if c_dict.get("last_order_time") is None:
+                c_dict["last_order_time"] = 0.0
+
         configs_list.append(c_dict)
 
     system_state.ta_lots_configs = configs_list

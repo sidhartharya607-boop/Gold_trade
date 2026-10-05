@@ -974,7 +974,8 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                         <strong style="font-size: 0.76rem; color: var(--text-primary); font-family: var(--font-mono);">${monthPairName}</strong>
                         <span style="font-size: 0.62rem; padding: 1px 5px; border-radius: 3px; font-weight: 700; background: ${config.paper_mode ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)'}; color: ${config.paper_mode ? '#3b82f6' : '#ef4444'};">${config.paper_mode ? "PAPER" : "REAL"}</span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.35rem;">
+                        <button class="metallic-button" onclick="openEditTaLotsConfigModal(${index})" style="padding: 0.18rem 0.45rem; font-size: 0.65rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit this lots bot instance">✏️ Edit</button>
                         ${statusToggle}
                         <button class="action-btn exit-button" onclick="removeTaLotsConfig(${index})" style="padding: 0.18rem 0.45rem; font-size: 0.65rem; min-height: unset; margin: 0; background: #ef4444; border-radius: 4px; border: none; cursor: pointer; color: white;" title="Remove this bot">🗑️</button>
                     </div>
@@ -2914,6 +2915,257 @@ window.removeTaLotsConfig = function(index) {
             currentConfigs.splice(index, 1);
             logLocalMessage("[SYSTEM] Removing Trade Automation with Lots instance...");
             postAction("ta-lots-config", { configs: currentConfigs });
+        }
+    }
+};
+
+// ==========================================
+// Trade Automation with Lots: Edit Instance Modal Handlers
+// ==========================================
+let editLotsAlreadyTradedList = [];
+let editLotsConfigIndex = -1;
+
+window.openEditTaLotsConfigModal = function(index) {
+    const modal = document.getElementById("ta-lots-edit-config-modal");
+    if (!modal) return;
+
+    const configs = window.taLotsConfigs || [];
+    if (index < 0 || index >= configs.length) return;
+
+    const config = configs[index];
+    editLotsConfigIndex = index;
+
+    document.getElementById("ta-lots-edit-config-index").value = index;
+
+    // Pair name
+    let monthPairName = "Unknown Pair";
+    let p_sym = "";
+    let m_sym = "";
+    const latestPayload = window.latestDataPayload || {};
+    if (latestPayload.month_master && latestPayload.month_master[config.month_idx]) {
+        const m = latestPayload.month_master[config.month_idx];
+        p_sym = m.petal_symbol;
+        m_sym = m.mini_symbol;
+        monthPairName = `${p_sym} / ${m_sym}`;
+    }
+    document.getElementById("ta-lots-edit-disp-pair").innerText = monthPairName;
+
+    // Mode
+    const modeBadge = document.getElementById("ta-lots-edit-disp-mode");
+    if (modeBadge) {
+        modeBadge.innerText = config.paper_mode ? "PAPER MODE" : "REAL TRADING";
+        modeBadge.style.background = config.paper_mode ? "rgba(59,130,246,0.12)" : "rgba(239,68,68,0.12)";
+        modeBadge.style.color = config.paper_mode ? "#38bdf8" : "#ef4444";
+        modeBadge.style.border = config.paper_mode ? "1px solid rgba(59,130,246,0.3)" : "1px solid rgba(239,68,68,0.3)";
+    }
+
+    // Parameters
+    const dirSelect = document.getElementById("ta-lots-edit-direction");
+    const entryDiffInput = document.getElementById("ta-lots-edit-entry-diff");
+    const avgStepInput = document.getElementById("ta-lots-edit-averaging-step");
+    const exitGapInput = document.getElementById("ta-lots-edit-exit-gap");
+    const paperModeCheckbox = document.getElementById("ta-lots-edit-paper-mode");
+
+    dirSelect.value = config.direction || "Expansion";
+    entryDiffInput.value = config.entry_diff !== undefined ? config.entry_diff : 500;
+    avgStepInput.value = config.averaging_step !== undefined ? config.averaging_step : 50;
+    exitGapInput.value = config.exit_gap !== undefined ? config.exit_gap : 100;
+    paperModeCheckbox.checked = !!config.paper_mode;
+
+    // Check how many trades have ALREADY been executed for this pair/instance
+    const allTrades = latestPayload.ta_lots_trades || [];
+    const pairOpenTrades = allTrades.filter(t => (t.status === "Open" || !t.status) && t.petal_symbol === p_sym && t.mini_symbol === m_sym);
+    const totalOpenLots = pairOpenTrades.reduce((acc, t) => acc + (parseInt(t.quantity) || 1), 0);
+
+    // Original lots list
+    let originalLotsList = [];
+    if (Array.isArray(config.lots_list) && config.lots_list.length > 0) {
+        originalLotsList = [...config.lots_list];
+    } else if (config.lots_str) {
+        originalLotsList = config.lots_str.split(",").map(x => parseInt(x.trim())).filter(x => !isNaN(x) && x > 0);
+    }
+    if (originalLotsList.length === 0) originalLotsList = [1];
+
+    // Calculate how many levels were already completed/traded
+    let accum = 0;
+    let calcLvl = 0;
+    for (let i = 0; i < originalLotsList.length; i++) {
+        if (accum + originalLotsList[i] <= totalOpenLots) {
+            accum += originalLotsList[i];
+            calcLvl = i + 1;
+        } else {
+            break;
+        }
+    }
+    const currentProgressLvl = config.level_index || 0;
+    const tradedLevelsCount = Math.max(calcLvl, currentProgressLvl);
+
+    editLotsAlreadyTradedList = originalLotsList.slice(0, tradedLevelsCount);
+    const remainingList = originalLotsList.slice(tradedLevelsCount);
+
+    // UI: Traded Alert & Fields Locking
+    const alertBox = document.getElementById("ta-lots-edit-traded-alert");
+    const tradedLevelsBox = document.getElementById("ta-lots-edit-traded-levels-box");
+    const tradedLevelsList = document.getElementById("ta-lots-edit-traded-levels-list");
+    const remainingLotsInput = document.getElementById("ta-lots-edit-lots-input");
+    const remainingLabel = document.getElementById("ta-lots-edit-remaining-label");
+
+    if (tradedLevelsCount > 0) {
+        // Trades have already occurred!
+        alertBox.style.display = "block";
+        const totalTradedLots = editLotsAlreadyTradedList.reduce((a, b) => a + b, 0);
+        document.getElementById("ta-lots-edit-traded-alert-title").innerText = `Already Traded: Level 1 to ${tradedLevelsCount} (${totalTradedLots} Lots total)`;
+        document.getElementById("ta-lots-edit-traded-alert-desc").innerHTML = `Ye trades pehle hi market me execute ho chuke hain, isliye ye <strong>locked</strong> hain aur dobara execute <strong>nahi honge</strong>. Aap sirf aage ke upcoming levels ko edit kar sakte hain.`;
+
+        // Lock Direction and Base Entry
+        dirSelect.disabled = true;
+        entryDiffInput.disabled = true;
+
+        // Populate Traded Levels Badges
+        tradedLevelsBox.style.display = "block";
+        tradedLevelsList.innerHTML = "";
+        editLotsAlreadyTradedList.forEach((qty, idx) => {
+            const badge = document.createElement("span");
+            badge.style.cssText = "font-size: 0.68rem; font-family: var(--font-mono); font-weight: 700; padding: 2px 7px; border-radius: 4px; background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3);";
+            badge.innerText = `Level ${idx + 1}: ${qty} ${qty === 1 ? 'Lot' : 'Lots'} (🔒 Traded)`;
+            tradedLevelsList.appendChild(badge);
+        });
+
+        remainingLabel.innerText = `Upcoming Levels Sequence (Levels ${tradedLevelsCount + 1}+)`;
+        remainingLotsInput.value = remainingList.length > 0 ? remainingList.join(", ") : "";
+        remainingLotsInput.placeholder = "e.g. 3, 4 (Add upcoming level lots)";
+    } else {
+        // No trades executed yet
+        alertBox.style.display = "none";
+        tradedLevelsBox.style.display = "none";
+        dirSelect.disabled = false;
+        entryDiffInput.disabled = false;
+
+        remainingLabel.innerText = "Lots Sequence Ladder (Comma Separated)";
+        remainingLotsInput.value = originalLotsList.join(", ");
+        remainingLotsInput.placeholder = "e.g. 2, 3, 4";
+    }
+
+    window.updateTaLotsEditPreview();
+    modal.style.display = "flex";
+};
+
+window.closeEditTaLotsConfigModal = function() {
+    const modal = document.getElementById("ta-lots-edit-config-modal");
+    if (modal) modal.style.display = "none";
+};
+
+window.updateTaLotsEditPreview = function() {
+    const input = document.getElementById("ta-lots-edit-lots-input");
+    const previewContainer = document.getElementById("ta-lots-edit-flow-preview");
+    const totalPreview = document.getElementById("ta-lots-edit-total-preview");
+    if (!input || !previewContainer) return;
+
+    const rawVal = input.value || "";
+    const parsedRemaining = rawVal.split(",").map(x => parseInt(x.trim())).filter(x => !isNaN(x) && x > 0);
+
+    const fullSequence = [...editLotsAlreadyTradedList, ...parsedRemaining];
+    const totalLots = fullSequence.reduce((a, b) => a + b, 0);
+
+    if (totalPreview) {
+        totalPreview.innerText = `${fullSequence.length} Levels | Total: ${totalLots} Lots`;
+    }
+
+    previewContainer.innerHTML = "";
+    if (fullSequence.length === 0) {
+        previewContainer.innerHTML = `<span style="color: var(--text-muted); font-size: 0.68rem;">Enter lots sequence above (e.g. 2, 3, 4)</span>`;
+        return;
+    }
+
+    fullSequence.forEach((qty, idx) => {
+        const isTraded = idx < editLotsAlreadyTradedList.length;
+        const chip = document.createElement("span");
+        if (isTraded) {
+            chip.style.cssText = "font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.3); font-weight: 700;";
+            chip.innerText = `L${idx + 1}: ${qty}L (Traded)`;
+        } else {
+            chip.style.cssText = "font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: rgba(245,158,11,0.12); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); font-weight: 700;";
+            chip.innerText = `L${idx + 1}: ${qty}L`;
+        }
+        previewContainer.appendChild(chip);
+
+        if (idx < fullSequence.length - 1) {
+            const arrow = document.createElement("span");
+            arrow.style.cssText = "color: var(--text-muted); font-size: 0.65rem;";
+            arrow.innerText = "➔";
+            previewContainer.appendChild(arrow);
+        }
+    });
+};
+
+const taLotsEditInputEl = document.getElementById("ta-lots-edit-lots-input");
+if (taLotsEditInputEl) {
+    taLotsEditInputEl.addEventListener("input", window.updateTaLotsEditPreview);
+}
+
+window.saveEditTaLotsConfig = async function() {
+    const configs = window.taLotsConfigs || [];
+    const index = editLotsConfigIndex;
+    if (index < 0 || index >= configs.length) {
+        alert("Invalid config index.");
+        return;
+    }
+
+    const config = configs[index];
+    const input = document.getElementById("ta-lots-edit-lots-input");
+    const rawVal = input ? input.value || "" : "";
+    const parsedRemaining = rawVal.split(",").map(x => parseInt(x.trim())).filter(x => !isNaN(x) && x > 0);
+
+    const fullSequence = [...editLotsAlreadyTradedList, ...parsedRemaining];
+    if (fullSequence.length === 0) {
+        alert("Please specify at least 1 valid lot quantity greater than 0.");
+        return;
+    }
+
+    const avgStepVal = parseFloat(document.getElementById("ta-lots-edit-averaging-step").value);
+    const exitGapVal = parseFloat(document.getElementById("ta-lots-edit-exit-gap").value);
+    if (isNaN(avgStepVal) || avgStepVal <= 0) {
+        alert("Please enter a valid averaging step greater than 0.");
+        return;
+    }
+    if (isNaN(exitGapVal) || exitGapVal <= 0) {
+        alert("Please enter a valid exit gap greater than 0.");
+        return;
+    }
+
+    if (editLotsAlreadyTradedList.length === 0) {
+        config.direction = document.getElementById("ta-lots-edit-direction").value;
+        const entryDiffVal = parseFloat(document.getElementById("ta-lots-edit-entry-diff").value);
+        if (isNaN(entryDiffVal)) {
+            alert("Please enter a valid base entry difference.");
+            return;
+        }
+        config.entry_diff = entryDiffVal;
+    }
+
+    config.averaging_step = avgStepVal;
+    config.exit_gap = exitGapVal;
+    config.lots_list = fullSequence;
+    config.lots_str = fullSequence.join(", ");
+    config.paper_mode = document.getElementById("ta-lots-edit-paper-mode").checked;
+
+    const saveBtn = document.getElementById("ta-lots-edit-save-btn");
+    if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerText = "Saving...";
+    }
+
+    try {
+        logLocalMessage(`[SYSTEM] Updating Trade Automation with Lots instance #${index + 1}...`);
+        await postAction("ta-lots-config", { configs: configs });
+        closeEditTaLotsConfigModal();
+        logLocalMessage(`[SYSTEM] Successfully updated Lots Bot Instance (Ladder: ${config.lots_str}).`);
+    } catch (err) {
+        alert("Failed to update config: " + err);
+    } finally {
+        if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.innerText = "💾 Save Changes";
         }
     }
 };
