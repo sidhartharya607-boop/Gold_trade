@@ -1726,6 +1726,11 @@ killSwitchBtn.addEventListener("click", () => {
 window.cancelManualTrade = function(tradeId) {
     if (confirm(`Are you sure you want to cancel manual trade ID ${tradeId}?`)) {
         logLocalMessage(`[SYSTEM] Cancelling manual trade ID ${tradeId}...`);
+        manualTrades = (manualTrades || []).filter(t => String(t.id) !== String(tradeId));
+        if (typeof latestPayload !== "undefined" && latestPayload) {
+            latestPayload.manual_trades = manualTrades;
+            updateDashboard(latestPayload);
+        }
         postAction("cancel-manual", { trade_id: tradeId });
     }
 };
@@ -1738,6 +1743,11 @@ window.exitManualTrade = function(tradeId) {
 };
 
 window.dismissManualTrade = function(tradeId) {
+    manualTrades = (manualTrades || []).filter(t => String(t.id) !== String(tradeId));
+    if (typeof latestPayload !== "undefined" && latestPayload) {
+        latestPayload.manual_trades = manualTrades;
+        updateDashboard(latestPayload);
+    }
     postAction("dismiss-manual", { trade_id: tradeId });
 };
 

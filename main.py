@@ -232,6 +232,8 @@ class TradingSystem:
         
         self.api_connected = False
         self.execution_in_progress = False
+        self.last_global_order_time = 0.0
+        self.order_execution_in_progress = False
 
         self.auto_target_enabled = False
         self.auto_target_val = 5000.0    # Net PnL profit target in INR
@@ -549,6 +551,7 @@ class TradingSystem:
             if os.path.exists(filepath):
                 with open(filepath, "r", encoding="utf-8") as f:
                     self.manual_trades = json.load(f)
+                self.manual_trades = [t for t in self.manual_trades if str(t.get("status", "")).strip().lower() != "cancelled"]
                 self.log(f"[PERSISTENCE] Loaded {len(self.manual_trades)} manual trades from {filepath}.")
             else:
                 self.manual_trades = []
@@ -1088,6 +1091,17 @@ class TradingSystem:
 # Global State Instance
 system_state = TradingSystem()
 
+def check_global_order_cooldown(cooldown_seconds: float = 20.0) -> tuple[bool, float]:
+    """
+    Enforces a strict 20-second gap between ANY order execution (Manual or Automation, Entry or Exit).
+    Returns (can_execute: bool, remaining_seconds: float).
+    """
+    last_time = getattr(system_state, "last_global_order_time", 0.0)
+    elapsed = time.time() - last_time
+    if elapsed < cooldown_seconds:
+        return False, round(cooldown_seconds - elapsed, 1)
+    return True, 0.0
+
 # Token verification helper
 # ContextVar for thread-safe authentication status
 auth_status_var = contextvars.ContextVar("auth_status", default=False)
@@ -1465,18 +1479,30 @@ async def check_real_orders_status(order_ids: List[str]) -> Dict[str, Dict]:
             system_state.log(f"[LIVE ORDER STATUS] Error checking order book: {e}")
     return {}
 
-async def cancel_real_order(order_id: str, variety: str = "NORMAL"):
+async def cancel_real_order(order_id: str, variety: str = "NORMAL") -> dict:
     if not system_state.smart_connect:
-        return
+        return {"success": False, "already_traded": False}
     try:
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
+        res = await loop.run_in_executor(
             None,
             lambda: system_state.smart_connect.cancelOrder(order_id, variety)
         )
+        if isinstance(res, dict):
+            err_code = str(res.get("errorcode", "")).upper()
+            msg = str(res.get("message", "")).lower()
+            if res.get("status") == False and (err_code == "AB1007" or "bad input" in msg or "already" in msg):
+                system_state.log(f"[LIVE ORDER] Cancel rejected for order {order_id}: Already executed/traded in broker ({err_code}).")
+                return {"success": False, "already_traded": True, "data": res}
         system_state.log(f"[LIVE ORDER] Cancelled order {order_id}")
+        return {"success": True, "already_traded": False, "data": res}
     except Exception as e:
+        err_str = str(e).lower()
+        if "ab1007" in err_str or "bad input" in err_str or "already" in err_str:
+            system_state.log(f"[LIVE ORDER] Cancel rejected for order {order_id}: Already executed/traded in broker.")
+            return {"success": False, "already_traded": True, "error": str(e)}
         system_state.log(f"[LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
+        return {"success": False, "already_traded": False, "error": str(e)}
 
 async def check_dhan_orders_status(order_ids: List[str]) -> Dict[str, Dict]:
     if not system_state.dhan_client:
@@ -1843,123 +1869,152 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             check_status_func = check_real_orders_status
 
         # Place both market order legs concurrently at the exact same millisecond
-        petal_order_id, mini_order_id = await asyncio.gather(
-            place_order_func(target_petal_symbol, target_petal_token, petal_action, required_petal),
-            place_order_func(target_mini_symbol, target_mini_token, mini_action, required_mini)
-        )
-        
-        if not petal_order_id and not mini_order_id:
-            system_state.log("[LIVE ORDER ERROR] Both market order placements failed to return IDs.")
-            record_failed_attempt(direction, "FAILED", "Market order placements failed", is_entry)
-            return {"success": False, "status": "FAILED", "reason": "Market order placements failed"}
+        system_state.order_execution_in_progress = True
+        system_state.last_global_order_time = time.time()
+        try:
+            petal_order_id, mini_order_id = await asyncio.gather(
+                place_order_func(target_petal_symbol, target_petal_token, petal_action, required_petal),
+                place_order_func(target_mini_symbol, target_mini_token, mini_action, required_mini)
+            )
             
-        # Instant rollback if one order fails to place on the broker API
-        if petal_order_id and not mini_order_id:
-            system_state.log(f"[EMERGENCY ROLLBACK] Leg 2 ({target_mini_symbol}) failed to place. Reversing Leg 1 ({target_petal_symbol}) instantly...")
-            rollback_action = "SELL" if petal_action == "BUY" else "BUY"
-            await place_order_func(target_petal_symbol, target_petal_token, rollback_action, required_petal)
-            record_failed_attempt(direction, "FAILED", "Leg 2 failed to place. Leg 1 rolled back.", is_entry)
-            return {"success": False, "status": "FAILED", "reason": "Leg 2 failed to place"}
-            
-        if mini_order_id and not petal_order_id:
-            system_state.log(f"[EMERGENCY ROLLBACK] Leg 1 ({target_petal_symbol}) failed to place. Reversing Leg 2 ({target_mini_symbol}) instantly...")
-            rollback_action = "SELL" if mini_action == "BUY" else "BUY"
-            await place_order_func(target_mini_symbol, target_mini_token, rollback_action, required_mini)
-            record_failed_attempt(direction, "FAILED", "Leg 1 failed to place. Leg 2 rolled back.", is_entry)
-            return {"success": False, "status": "FAILED", "reason": "Leg 1 failed to place"}
+            if not petal_order_id and not mini_order_id:
+                system_state.log("[LIVE ORDER ERROR] Both market order placements failed to return IDs.")
+                record_failed_attempt(direction, "FAILED", "Market order placements failed", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "Market order placements failed"}
+                
+            # Instant rollback if one order fails to place on the broker API
+            if petal_order_id and not mini_order_id:
+                system_state.log(f"[EMERGENCY ROLLBACK] Leg 2 ({target_mini_symbol}) failed to place. Reversing Leg 1 ({target_petal_symbol}) instantly...")
+                rollback_action = "SELL" if petal_action == "BUY" else "BUY"
+                await place_order_func(target_petal_symbol, target_petal_token, rollback_action, required_petal)
+                record_failed_attempt(direction, "FAILED", "Leg 2 failed to place. Leg 1 rolled back.", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "Leg 2 failed to place"}
+                
+            if mini_order_id and not petal_order_id:
+                system_state.log(f"[EMERGENCY ROLLBACK] Leg 1 ({target_petal_symbol}) failed to place. Reversing Leg 2 ({target_mini_symbol}) instantly...")
+                rollback_action = "SELL" if mini_action == "BUY" else "BUY"
+                await place_order_func(target_mini_symbol, target_mini_token, rollback_action, required_mini)
+                record_failed_attempt(direction, "FAILED", "Leg 1 failed to place. Leg 2 rolled back.", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "Leg 1 failed to place"}
 
-        # Both placed successfully, check status loop
-        petal_filled = False
-        mini_filled = False
-        
-        petal_fill_price = petal_price
-        mini_fill_price = mini_price
-        petal_type = "MARKET"
-        mini_type = "MARKET"
-        
-        timeout = 6.0
-        elapsed = 0.0
-        interval = 0.6
-        
-        while elapsed < timeout:
-            await asyncio.sleep(interval)
-            elapsed += interval
+            # Both placed successfully, check status loop
+            petal_filled = False
+            mini_filled = False
             
-            # Query status
-            status_map = await check_status_func([petal_order_id, mini_order_id])
+            petal_fill_price = petal_price
+            mini_fill_price = mini_price
+            petal_type = "MARKET"
+            mini_type = "MARKET"
             
-            if not petal_filled:
-                val = status_map.get(petal_order_id, {})
-                status = val.get("status", "") if isinstance(val, dict) else str(val).upper()
-                avg_p = val.get("average_price", 0.0) if isinstance(val, dict) else 0.0
-                if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
+            # Initial grace period: exchange processes market orders in ~50-100ms
+            await asyncio.sleep(0.8)
+            
+            timeout = 8.0
+            elapsed = 0.8
+            interval = 1.2
+            
+            while elapsed < timeout:
+                await asyncio.sleep(interval)
+                elapsed += interval
+                
+                # Query status
+                status_map = await check_status_func([petal_order_id, mini_order_id])
+                
+                if not petal_filled:
+                    val = status_map.get(petal_order_id, {})
+                    status = val.get("status", "") if isinstance(val, dict) else str(val).upper()
+                    avg_p = val.get("average_price", 0.0) if isinstance(val, dict) else 0.0
+                    if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
+                        petal_filled = True
+                        if avg_p and avg_p > 0:
+                            petal_fill_price = avg_p
+                        else:
+                            petal_fill_price = petal_ltp
+                        system_state.log(f"[LIVE MARKET FILL] Leg 1: {target_petal_symbol} filled @ MARKET {petal_fill_price:.2f} (Traded Avg)")
+                    elif status in ["REJECTED", "CANCELLED"]:
+                        system_state.log(f"[LIVE ORDER CANCEL/REJECT] Leg 1: {target_petal_symbol} order {status.lower()}")
+                        break
+                        
+                if not mini_filled:
+                    val = status_map.get(mini_order_id, {})
+                    status = val.get("status", "") if isinstance(val, dict) else str(val).upper()
+                    avg_p = val.get("average_price", 0.0) if isinstance(val, dict) else 0.0
+                    if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
+                        mini_filled = True
+                        if avg_p and avg_p > 0:
+                            mini_fill_price = avg_p
+                        else:
+                            mini_fill_price = mini_ltp
+                        system_state.log(f"[LIVE MARKET FILL] Leg 2: {target_mini_symbol} filled @ MARKET {mini_fill_price:.2f} (Traded Avg)")
+                    elif status in ["REJECTED", "CANCELLED"]:
+                        system_state.log(f"[LIVE ORDER CANCEL/REJECT] Leg 2: {target_mini_symbol} order {status.lower()}")
+                        break
+                        
+                if petal_filled and mini_filled:
+                    break
+
+            # Cancel/reverse if not completed
+            if not petal_filled and not mini_filled:
+                petal_cancel_res = await cancel_order_func(petal_order_id) if petal_order_id else {}
+                mini_cancel_res = await cancel_order_func(mini_order_id) if mini_order_id else {}
+                
+                # Check if cancel was rejected by broker because orders were already executed/traded!
+                p_already = isinstance(petal_cancel_res, dict) and petal_cancel_res.get("already_traded", False)
+                m_already = isinstance(mini_cancel_res, dict) and mini_cancel_res.get("already_traded", False)
+                
+                if p_already or m_already:
+                    system_state.log("[AB1007 DESYNC RECOVERY] Broker indicated orders were already executed in market! Recovering trade...")
+                    await asyncio.sleep(1.0)
+                    try:
+                        final_status = await check_status_func([petal_order_id, mini_order_id])
+                        if petal_order_id in final_status and final_status[petal_order_id].get("average_price"):
+                            petal_fill_price = final_status[petal_order_id]["average_price"]
+                        elif petal_ltp > 0:
+                            petal_fill_price = petal_ltp
+                        if mini_order_id in final_status and final_status[mini_order_id].get("average_price"):
+                            mini_fill_price = final_status[mini_order_id]["average_price"]
+                        elif mini_ltp > 0:
+                            mini_fill_price = mini_ltp
+                    except Exception:
+                        pass
                     petal_filled = True
-                    if avg_p and avg_p > 0:
-                        petal_fill_price = avg_p
-                    else:
-                        petal_fill_price = petal_ltp
-                    system_state.log(f"[LIVE MARKET FILL] Leg 1: {target_petal_symbol} filled @ MARKET {petal_fill_price:.2f} (Traded Avg)")
-                elif status in ["REJECTED", "CANCELLED"]:
-                    system_state.log(f"[LIVE ORDER CANCEL/REJECT] Leg 1: {target_petal_symbol} order {status.lower()}")
-                    break
-                    
-            if not mini_filled:
-                val = status_map.get(mini_order_id, {})
-                status = val.get("status", "") if isinstance(val, dict) else str(val).upper()
-                avg_p = val.get("average_price", 0.0) if isinstance(val, dict) else 0.0
-                if status in ["COMPLETE", "COMPLETED", "TRADED", "EXECUTED", "SUCCESS"]:
                     mini_filled = True
-                    if avg_p and avg_p > 0:
-                        mini_fill_price = avg_p
-                    else:
-                        mini_fill_price = mini_ltp
-                    system_state.log(f"[LIVE MARKET FILL] Leg 2: {target_mini_symbol} filled @ MARKET {mini_fill_price:.2f} (Traded Avg)")
-                elif status in ["REJECTED", "CANCELLED"]:
-                    system_state.log(f"[LIVE ORDER CANCEL/REJECT] Leg 2: {target_mini_symbol} order {status.lower()}")
-                    break
-                    
-            if petal_filled and mini_filled:
-                break
-
-        # Cancel/reverse if not completed
-        if not petal_filled and not mini_filled:
-            # Market orders usually execute instantly, but if stuck in pending (rare), cancel them.
-            if petal_order_id:
-                await cancel_order_func(petal_order_id)
-            if mini_order_id:
-                await cancel_order_func(mini_order_id)
-            system_state.log("[LIVE TIMEOUT] Both orders timed out without fill. Orders cancelled.")
-            record_failed_attempt(direction, "CANCELLED", "Timeout - no legs filled", is_entry)
-            return {"success": False, "status": "CANCELLED", "reason": "Timeout - no legs filled"}
-            
-        # Emergency rollback if partial fill occurred (only one leg filled)
-        if petal_filled and not mini_filled:
-            system_state.log(f"[EMERGENCY ROLLBACK] Leg 1 ({target_petal_symbol}) filled, Leg 2 ({target_mini_symbol}) failed. Reversing Leg 1...")
-            if petal_order_id:
-                await cancel_order_func(petal_order_id)
-            rollback_action = "SELL" if petal_action == "BUY" else "BUY"
-            await place_order_func(target_petal_symbol, target_petal_token, rollback_action, required_petal)
-            record_failed_attempt(direction, "FAILED", "Leg 1 filled, Leg 2 failed. Rolled back.", is_entry)
-            return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 2 failure"}
-            
-        if mini_filled and not petal_filled:
-            system_state.log(f"[EMERGENCY ROLLBACK] Leg 2 ({target_mini_symbol}) filled, Leg 1 ({target_petal_symbol}) failed. Reversing Leg 2...")
-            if mini_order_id:
-                await cancel_order_func(mini_order_id)
-            rollback_action = "SELL" if mini_action == "BUY" else "BUY"
-            await place_order_func(target_mini_symbol, target_mini_token, rollback_action, required_mini)
-            record_failed_attempt(direction, "FAILED", "Leg 2 filled, Leg 1 failed. Rolled back.", is_entry)
-            return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 1 failure"}
-            
-        return {
-            "success": True,
-            "status": "COMPLETED",
-            "reason": "Matched on Depth Market (VWAP)",
-            "petal_fill_price": petal_fill_price,
-            "mini_fill_price": mini_fill_price,
-            "petal_order_type": petal_type,
-            "mini_order_type": mini_type
-        }
+                    system_state.log(f"[AB1007 DESYNC RECOVERY] Position recovered! Leg 1: {petal_fill_price:.2f}, Leg 2: {mini_fill_price:.2f}")
+                else:
+                    system_state.log("[LIVE TIMEOUT] Both orders timed out without fill. Orders cancelled.")
+                    record_failed_attempt(direction, "CANCELLED", "Timeout - no legs filled", is_entry)
+                    return {"success": False, "status": "CANCELLED", "reason": "Timeout - no legs filled"}
+                
+            # Emergency rollback if partial fill occurred (only one leg filled)
+            if petal_filled and not mini_filled:
+                system_state.log(f"[EMERGENCY ROLLBACK] Leg 1 ({target_petal_symbol}) filled, Leg 2 ({target_mini_symbol}) failed. Reversing Leg 1...")
+                if petal_order_id:
+                    await cancel_order_func(petal_order_id)
+                rollback_action = "SELL" if petal_action == "BUY" else "BUY"
+                await place_order_func(target_petal_symbol, target_petal_token, rollback_action, required_petal)
+                record_failed_attempt(direction, "FAILED", "Leg 1 filled, Leg 2 failed. Rolled back.", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 2 failure"}
+                
+            if mini_filled and not petal_filled:
+                system_state.log(f"[EMERGENCY ROLLBACK] Leg 2 ({target_mini_symbol}) filled, Leg 1 ({target_petal_symbol}) failed. Reversing Leg 2...")
+                if mini_order_id:
+                    await cancel_order_func(mini_order_id)
+                rollback_action = "SELL" if mini_action == "BUY" else "BUY"
+                await place_order_func(target_mini_symbol, target_mini_token, rollback_action, required_mini)
+                record_failed_attempt(direction, "FAILED", "Leg 2 filled, Leg 1 failed. Rolled back.", is_entry)
+                return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 1 failure"}
+                
+            return {
+                "success": True,
+                "status": "COMPLETED",
+                "reason": "Matched on Depth Market (VWAP)",
+                "petal_fill_price": petal_fill_price,
+                "mini_fill_price": mini_fill_price,
+                "petal_order_type": petal_type,
+                "mini_order_type": mini_type
+            }
+        finally:
+            system_state.order_execution_in_progress = False
 
 async def execute_position_exit(exit_reason: str):
     global system_state
@@ -2380,9 +2435,9 @@ async def run_trade_automation_checks():
                 exit_triggered = True
                 
         if exit_triggered:
-            # Enforce 20-second time gap between consecutive autonomous exits to protect against slippage
-            last_exit = getattr(system_state, "last_ta_exit_time", 0.0)
-            if time.time() - last_exit < 20.0:
+            # Enforce 20-second time gap between ANY order execution globally to protect against slippage and API rate limits
+            can_exec, rem = check_global_order_cooldown()
+            if not can_exec:
                 continue
 
             # Find month mapping
@@ -2456,9 +2511,9 @@ async def run_trade_automation_checks():
             # Reached max order limit for this bot instance - skip taking new entry/averaging trades
             continue
 
-        # Enforce minimum 20-second time gap between consecutive orders for this bot instance to avoid slippage
-        last_order_time = config.get("last_order_time", 0.0)
-        if time.time() - last_order_time < 20.0:
+        # Enforce minimum 20-second time gap between ANY order execution globally
+        can_exec, rem = check_global_order_cooldown()
+        if not can_exec:
             continue
 
         # Fixed Anchor Grid (Slippage-Independent)
@@ -2704,9 +2759,9 @@ async def run_trade_automation_lots_checks():
                 exit_triggered = True
                 
         if exit_triggered:
-            # Enforce 20-second time gap between consecutive autonomous exits to avoid market slippage
-            last_exit = getattr(system_state, "last_ta_lots_exit_time", 0.0)
-            if time.time() - last_exit < 20.0:
+            # Enforce 20-second time gap between ANY order execution globally to avoid slippage and rate limits
+            can_exec, rem = check_global_order_cooldown()
+            if not can_exec:
                 continue
 
             mapping = None
@@ -2818,9 +2873,9 @@ async def run_trade_automation_lots_checks():
                 continue
             lots_in_this_level = lots_list[level_idx]
 
-        # Enforce minimum 20-second time gap between consecutive orders/lots for this bot instance
-        last_order_time = config.get("last_order_time", 0.0)
-        if time.time() - last_order_time < 20.0:
+        # Enforce minimum 20-second time gap between ANY order execution globally
+        can_exec, rem = check_global_order_cooldown()
+        if not can_exec:
             continue
 
         direction = config.get("direction", "Expansion")
@@ -3320,6 +3375,10 @@ async def run_manual_bot_check():
             state_changed = True
             continue
 
+        can_exec, rem = check_global_order_cooldown()
+        if not can_exec:
+            continue
+
         order_idx = filled_orders + 1
         bot_label = bot.get("id", "MAIN")
         system_state.log(f"[MANUAL BOT {bot_label}] Triggered Order #{order_idx}/{total_orders} for {p_sym}/{m_sym} at spread {live_spread:.2f} (Target Window: {min_p:.1f} - {max_p:.1f})...")
@@ -3621,8 +3680,13 @@ async def process_market_data(data: dict):
                         expected_spread = sell_spread
                 
                 if triggered:
+                    can_exec, rem = check_global_order_cooldown()
+                    if not can_exec:
+                        continue
                     trade["status"] = "Executing"
+                    system_state.last_global_order_time = time.time()
                     asyncio.create_task(trigger_manual_trade_execution(trade, expected_spread))
+                    break
         
     # Check execution lock or halted / hold state: skip automations to prevent overlaps
     if system_state.execution_in_progress or system_state.system_status in ["Halted", "Hold"]:
@@ -3672,15 +3736,17 @@ async def process_market_data(data: dict):
     else:
         # Not in position: Check Auto Trading triggers
         if system_state.auto_trading_enabled:
-            buffer = system_state.spread_buffer
-            
-            # Expansion Entry Condition: depth_buy_spread <= entry_threshold + buffer
-            if system_state.depth_buy_spread <= (system_state.entry_threshold + buffer):
-                asyncio.create_task(run_auto_entry("Expansion", "BUY", "SELL", system_state.entry_threshold))
+            can_exec, rem = check_global_order_cooldown()
+            if can_exec:
+                buffer = system_state.spread_buffer
                 
-            # Contraction Entry Condition: depth_sell_spread >= target_threshold - buffer (Only if Contraction is enabled)
-            elif system_state.auto_contraction_enabled and (system_state.depth_sell_spread >= (system_state.target_threshold - buffer)):
-                asyncio.create_task(run_auto_entry("Contraction", "SELL", "BUY", system_state.target_threshold))
+                # Expansion Entry Condition: depth_buy_spread <= entry_threshold + buffer
+                if system_state.depth_buy_spread <= (system_state.entry_threshold + buffer):
+                    asyncio.create_task(run_auto_entry("Expansion", "BUY", "SELL", system_state.entry_threshold))
+                    
+                # Contraction Entry Condition: depth_sell_spread >= target_threshold - buffer (Only if Contraction is enabled)
+                elif system_state.auto_contraction_enabled and (system_state.depth_sell_spread >= (system_state.target_threshold - buffer)):
+                    asyncio.create_task(run_auto_entry("Contraction", "SELL", "BUY", system_state.target_threshold))
  
     # Process Trade Automation Strategy Checks (Entries & Autonomous Exits)
     if system_state.ta_configs or any(t.get("status") == "Open" for t in system_state.ta_trades):
@@ -3894,6 +3960,11 @@ async def live_mcx_ticker_task():
     
     while True:
         try:
+            # If an order is currently executing and verifying fill with broker, pause quote requests to avoid hitting API rate limits
+            if getattr(system_state, "order_execution_in_progress", False):
+                await asyncio.sleep(1.0)
+                continue
+
             tick_count += 1
             # 1. Try to fetch from Active Broker API
             if system_state.broker == "AngelOne":
@@ -4614,6 +4685,11 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
         return {"status": "SUCCESS", "message": f"Pending manual trade ID {trade_id} created."}
         
     # Immediate execution
+    can_exec, rem = check_global_order_cooldown()
+    if not can_exec:
+        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before placing new order (minimum 20s gap between orders).")
+    system_state.last_global_order_time = time.time()
+    
     expected_entry_spread = system_state.depth_buy_spread if payload.direction == "Expansion" else system_state.depth_sell_spread
     
     result = await execute_netting_manual_trades(
@@ -4633,6 +4709,11 @@ async def api_exit(token: str = None, authorization: str = Header(None)):
     
     if not system_state.is_in_position:
         raise HTTPException(status_code=400, detail="No active position to exit.")
+        
+    can_exec, rem = check_global_order_cooldown()
+    if not can_exec:
+        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before squaring off (minimum 20s gap between orders).")
+    system_state.last_global_order_time = time.time()
         
     if system_state.position_direction == "Expansion":
         system_state.expected_exit_spread = system_state.depth_sell_spread
@@ -4664,14 +4745,12 @@ async def api_cancel_manual(payload: ExitManualPayload, token: str = None, autho
     if status_lower == "open":
         return await api_exit_manual(payload, token, authorization)
     else:
-        trade["status"] = "Cancelled"
-        trade["reason"] = "Cancelled by user"
-        trade["exit_time"] = get_ist_time_str("%H:%M:%S")
-        trade["exit_date"] = get_ist_time_str("%Y-%m-%d")
-        system_state.log(f"MANUAL TRADE ID {trade.get('id')} CANCELLED.")
+        matched_id = trade.get("id")
+        system_state.manual_trades = [t for t in system_state.manual_trades if str(t.get("id")) != str(matched_id)]
+        system_state.log(f"MANUAL PENDING TRADE ID {matched_id} CANCELLED AND REMOVED.")
         system_state.save_manual_trades()
         await broadcast_system_state()
-        return {"status": "SUCCESS", "message": f"Manual trade ID {trade.get('id')} cancelled successfully."}
+        return {"status": "SUCCESS", "message": f"Manual trade ID {matched_id} cancelled and removed."}
 
 @app.post("/api/exit-manual")
 async def api_exit_manual(payload: ExitManualPayload, token: str = None, authorization: str = Header(None)):
@@ -4690,16 +4769,19 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
         
     status_lower = str(trade.get("status", "")).strip().lower()
     
-    # If trade is NOT Open (e.g. Pending, pending, Failed, Cancelled, empty, etc.), cancel it safely without 400!
+    # If trade is NOT Open (e.g. Pending, pending, Failed, Cancelled, empty, etc.), cancel and remove it!
     if status_lower != "open":
-        trade["status"] = "Cancelled"
-        trade["reason"] = "Cancelled by user"
-        trade["exit_time"] = get_ist_time_str("%H:%M:%S")
-        trade["exit_date"] = get_ist_time_str("%Y-%m-%d")
-        system_state.log(f"MANUAL PENDING/INACTIVE ENTRY ID {trade.get('id')} CANCELLED.")
+        matched_id = trade.get("id")
+        system_state.manual_trades = [t for t in system_state.manual_trades if str(t.get("id")) != str(matched_id)]
+        system_state.log(f"MANUAL PENDING/INACTIVE ENTRY ID {matched_id} CANCELLED AND REMOVED.")
         system_state.save_manual_trades()
         await broadcast_system_state()
-        return {"status": "SUCCESS", "message": f"Pending trade ID {trade.get('id')} cancelled."}
+        return {"status": "SUCCESS", "message": f"Pending trade ID {matched_id} cancelled and removed."}
+        
+    can_exec, rem = check_global_order_cooldown()
+    if not can_exec:
+        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before squaring off (minimum 20s gap between orders).")
+    system_state.last_global_order_time = time.time()
         
     direction = trade["direction"]
     petal_action = "SELL" if direction == "Expansion" else "BUY"
@@ -4863,8 +4945,8 @@ async def api_kill_switch(token: str = None, authorization: str = Header(None)):
     # 2. Cancel and square off manual trades
     for trade in list(system_state.manual_trades):
         if trade.get("status") == "Pending":
-            trade["status"] = "Cancelled"
-            system_state.log(f"MANUAL PENDING ENTRY ID {trade['id']} CANCELLED due to Kill Switch.")
+            system_state.manual_trades.remove(trade)
+            system_state.log(f"MANUAL PENDING ENTRY ID {trade.get('id')} CANCELLED AND REMOVED due to Kill Switch.")
         elif trade.get("status") == "Open":
             direction = trade["direction"]
             petal_action = "SELL" if direction == "Expansion" else "BUY"
