@@ -1726,12 +1726,21 @@ killSwitchBtn.addEventListener("click", () => {
 window.cancelManualTrade = function(tradeId) {
     if (confirm(`Are you sure you want to cancel manual trade ID ${tradeId}?`)) {
         logLocalMessage(`[SYSTEM] Cancelling manual trade ID ${tradeId}...`);
-        manualTrades = (manualTrades || []).filter(t => String(t.id) !== String(tradeId));
-        if (typeof latestPayload !== "undefined" && latestPayload) {
-            latestPayload.manual_trades = manualTrades;
-            updateDashboard(latestPayload);
+        if (window.latestDataPayload && Array.isArray(window.latestDataPayload.manual_trades)) {
+            window.latestDataPayload.manual_trades = window.latestDataPayload.manual_trades.filter(t => String(t.id) !== String(tradeId));
+            if (typeof updateDashboard === "function") {
+                updateDashboard(window.latestDataPayload);
+            }
         }
-        postAction("cancel-manual", { trade_id: tradeId });
+        postAction("cancel-manual", { trade_id: tradeId })
+            .then(res => {
+                if (res && res.message) {
+                    logLocalMessage(`[SYSTEM] ${res.message}`);
+                }
+            })
+            .catch(err => {
+                console.error("Cancel manual error:", err);
+            });
     }
 };
 
@@ -1743,10 +1752,11 @@ window.exitManualTrade = function(tradeId) {
 };
 
 window.dismissManualTrade = function(tradeId) {
-    manualTrades = (manualTrades || []).filter(t => String(t.id) !== String(tradeId));
-    if (typeof latestPayload !== "undefined" && latestPayload) {
-        latestPayload.manual_trades = manualTrades;
-        updateDashboard(latestPayload);
+    if (window.latestDataPayload && Array.isArray(window.latestDataPayload.manual_trades)) {
+        window.latestDataPayload.manual_trades = window.latestDataPayload.manual_trades.filter(t => String(t.id) !== String(tradeId));
+        if (typeof updateDashboard === "function") {
+            updateDashboard(window.latestDataPayload);
+        }
     }
     postAction("dismiss-manual", { trade_id: tradeId });
 };

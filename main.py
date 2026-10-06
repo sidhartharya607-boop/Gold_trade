@@ -4730,27 +4730,22 @@ class ExitManualPayload(BaseModel):
 async def api_cancel_manual(payload: ExitManualPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     
-    trade = None
     target_id = str(payload.trade_id).strip()
+    new_trades = []
+    removed_any = False
     for i, t in enumerate(system_state.manual_trades):
         t_id = str(t.get("id", "")).strip()
-        if t_id == target_id or str(i + 1) == target_id:
-            trade = t
-            break
+        idx_str = str(i + 1)
+        if t_id == target_id or idx_str == target_id:
+            removed_any = True
+            system_state.log(f"MANUAL TRADE ID {t.get('id', target_id)} (Status: {t.get('status')}) CANCELLED AND REMOVED.")
+        else:
+            new_trades.append(t)
             
-    if not trade:
-        return {"status": "SUCCESS", "message": f"Trade ID {payload.trade_id} already removed or not found."}
-        
-    status_lower = str(trade.get("status", "")).strip().lower()
-    if status_lower == "open":
-        return await api_exit_manual(payload, token, authorization)
-    else:
-        matched_id = trade.get("id")
-        system_state.manual_trades = [t for t in system_state.manual_trades if str(t.get("id")) != str(matched_id)]
-        system_state.log(f"MANUAL PENDING TRADE ID {matched_id} CANCELLED AND REMOVED.")
-        system_state.save_manual_trades()
-        await broadcast_system_state()
-        return {"status": "SUCCESS", "message": f"Manual trade ID {matched_id} cancelled and removed."}
+    system_state.manual_trades = new_trades
+    system_state.save_manual_trades()
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": f"Manual trade ID {target_id} cancelled and removed."}
 
 @app.post("/api/exit-manual")
 async def api_exit_manual(payload: ExitManualPayload, token: str = None, authorization: str = Header(None)):
@@ -4910,7 +4905,8 @@ class DismissManualPayload(BaseModel):
 @app.post("/api/dismiss-manual")
 async def api_dismiss_manual(payload: DismissManualPayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    system_state.manual_trades = [t for t in system_state.manual_trades if str(t.get("id")) != str(payload.trade_id)]
+    target_id = str(payload.trade_id).strip()
+    system_state.manual_trades = [t for i, t in enumerate(system_state.manual_trades) if str(t.get("id", "")).strip() != target_id and str(i + 1) != target_id]
     system_state.save_manual_trades()
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": f"Manual trade ID {payload.trade_id} dismissed."}
