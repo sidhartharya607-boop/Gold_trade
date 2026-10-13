@@ -3599,7 +3599,7 @@ window.switchRightTab = function(tabName) {
 })();
 
 // ==========================================
-// Manual BOT (Multi-Pair Slicer with 30s Cooldown)
+// Manual BOT (Multi-Pair Slicer with 10s Cooldown)
 // ==========================================
 window.manualBotTasksCache = [];
 
@@ -4018,7 +4018,7 @@ if (mbotStartBtn) {
         const maxP = directionVal === "Expansion" ? triggerDiffVal.toFixed(1) : (triggerDiffVal + diffGapVal).toFixed(1);
 
         const actionText = editIdVal ? `Update Bot Task #${editIdVal}` : `Start / Add New Bot Task`;
-        const confirmMsg = `${actionText}?\nPair: ${symText}\nDirection: ${directionVal}\nTrigger Window: [${minP} to ${maxP}] (Target: ${triggerDiffVal}, Gap: ${diffGapVal})\nTotal Orders: ${totalOrdersVal} (Strict 30s cooldown)\nLots Per Order: ${lotsPerOrderVal}`;
+        const confirmMsg = `${actionText}?\nPair: ${symText}\nDirection: ${directionVal}\nTrigger Window: [${minP} to ${maxP}] (Target: ${triggerDiffVal}, Gap: ${diffGapVal})\nTotal Orders: ${totalOrdersVal} (Strict 10s cooldown)\nLots Per Order: ${lotsPerOrderVal}`;
         if (!confirm(confirmMsg)) return;
 
         logLocalMessage(`[MANUAL BOT] ${actionText} for ${symText}...`);

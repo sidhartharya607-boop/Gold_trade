@@ -381,7 +381,7 @@ class TradingSystem:
             "total_orders": 5,
             "filled_orders": 0,
             "quantity": 1,
-            "order_delay": 30.0,
+            "order_delay": 10.0,
             "last_order_time": 0.0,
             "status_message": "Idle",
             "why_waiting": "Bot not started",
@@ -1091,9 +1091,9 @@ class TradingSystem:
 # Global State Instance
 system_state = TradingSystem()
 
-def check_global_order_cooldown(cooldown_seconds: float = 20.0) -> tuple[bool, float]:
+def check_global_order_cooldown(cooldown_seconds: float = 10.0) -> tuple[bool, float]:
     """
-    Enforces a strict 20-second gap between ANY order execution (Manual or Automation, Entry or Exit).
+    Enforces a strict 10-second gap between ANY order execution (Manual or Automation, Entry or Exit).
     Returns (can_execute: bool, remaining_seconds: float).
     """
     last_time = getattr(system_state, "last_global_order_time", 0.0)
@@ -2435,7 +2435,7 @@ async def run_trade_automation_checks():
                 exit_triggered = True
                 
         if exit_triggered:
-            # Enforce 20-second time gap between ANY order execution globally to protect against slippage and API rate limits
+            # Enforce 10-second time gap between ANY order execution globally to protect against slippage and API rate limits
             can_exec, rem = check_global_order_cooldown()
             if not can_exec:
                 continue
@@ -2511,7 +2511,7 @@ async def run_trade_automation_checks():
             # Reached max order limit for this bot instance - skip taking new entry/averaging trades
             continue
 
-        # Enforce minimum 20-second time gap between ANY order execution globally
+        # Enforce minimum 10-second time gap between ANY order execution globally
         can_exec, rem = check_global_order_cooldown()
         if not can_exec:
             continue
@@ -2759,7 +2759,7 @@ async def run_trade_automation_lots_checks():
                 exit_triggered = True
                 
         if exit_triggered:
-            # Enforce 20-second time gap between ANY order execution globally to avoid slippage and rate limits
+            # Enforce 10-second time gap between ANY order execution globally to avoid slippage and rate limits
             can_exec, rem = check_global_order_cooldown()
             if not can_exec:
                 continue
@@ -2873,7 +2873,7 @@ async def run_trade_automation_lots_checks():
                 continue
             lots_in_this_level = lots_list[level_idx]
 
-        # Enforce minimum 20-second time gap between ANY order execution globally
+        # Enforce minimum 10-second time gap between ANY order execution globally
         can_exec, rem = check_global_order_cooldown()
         if not can_exec:
             continue
@@ -3291,9 +3291,9 @@ async def run_manual_bot_check():
             state_changed = True
             continue
 
-        # Check 30-second cooldown
+        # Check 10-second cooldown
         last_time = float(bot.get("last_order_time", 0.0))
-        cooldown = float(bot.get("order_delay", 30.0))
+        cooldown = float(bot.get("order_delay", 10.0))
         time_diff = now_ts - last_time
         if last_time > 0 and time_diff < cooldown:
             rem = int(cooldown - time_diff)
@@ -3430,8 +3430,8 @@ async def run_manual_bot_check():
                 bot["status_message"] = f"Completed: All {total_orders} orders filled successfully."
                 bot["why_waiting"] = f"Completed: All {total_orders} orders filled."
             else:
-                bot["status_message"] = f"Order #{order_idx} filled. 30s cooldown started ({bot['filled_orders']}/{total_orders})."
-                bot["why_waiting"] = f"Order #{order_idx} filled. 30s cooldown before Order #{order_idx + 1}"
+                bot["status_message"] = f"Order #{order_idx} filled. 10s cooldown started ({bot['filled_orders']}/{total_orders})."
+                bot["why_waiting"] = f"Order #{order_idx} filled. 10s cooldown before Order #{order_idx + 1}"
             state_changed = True
         else:
             bot["filled_orders"] = order_idx - 1
@@ -3455,11 +3455,81 @@ def extract_month_from_symbol(symbol: str) -> str:
             return m
     return "UNKNOWN"
 
+_last_depth_record_tracker = {}
+
 def record_depth_spread(petal_symbol: str, mini_symbol: str, 
                         avg_petal_buy: float, avg_mini_sell: float, depth_buy_spread: float,
                         avg_petal_sell: float, avg_mini_buy: float, depth_sell_spread: float):
-    # Disabled logging to depth_spread_history.csv as requested
-    pass
+    global _last_depth_record_tracker
+    if not petal_symbol or not mini_symbol:
+        return
+    
+    # Ignore empty or zero values when quotes are not yet populated
+    if (avg_petal_buy <= 0 and avg_mini_sell <= 0) and (avg_petal_sell <= 0 and avg_mini_buy <= 0):
+        return
+
+    pair_key = f"{petal_symbol}_{mini_symbol}"
+    now_ts = time.time()
+
+    # Smart throttling & de-duplication:
+    # 1. Do not write more than once per second for the same pair
+    # 2. Record immediately if spread change >= 0.05, or every 15s if live and changed
+    last_info = _last_depth_record_tracker.get(pair_key)
+    if last_info:
+        elapsed = now_ts - last_info["time"]
+        if elapsed < 1.0:
+            return
+            
+        buy_diff = abs(depth_buy_spread - last_info["buy_spread"])
+        sell_diff = abs(depth_sell_spread - last_info["sell_spread"])
+        
+        if buy_diff < 0.05 and sell_diff < 0.05 and elapsed < 15.0:
+            return
+
+    _last_depth_record_tracker[pair_key] = {
+        "buy_spread": depth_buy_spread,
+        "sell_spread": depth_sell_spread,
+        "time": now_ts
+    }
+
+    try:
+        csv_file = get_data_filepath("depth_spread_history.csv")
+        file_exists = os.path.exists(csv_file) and os.path.getsize(csv_file) > 0
+        
+        now_ist = get_ist_time().strftime("%Y-%m-%d %H:%M:%S")
+        month = extract_month_from_symbol(petal_symbol)
+        if month == "UNKNOWN":
+            month = extract_month_from_symbol(mini_symbol)
+
+        with open(csv_file, "a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow([
+                    "Month",
+                    "Timestamp", 
+                    "Petal_Symbol",
+                    "Mini_Symbol",
+                    "Petal_Ask_Avg", 
+                    "Mini_Bid_Avg", 
+                    "Depth_Buy_Spread", 
+                    "Petal_Bid_Avg", 
+                    "Mini_Ask_Avg", 
+                    "Depth_Sell_Spread"
+                ])
+            writer.writerow([
+                month,
+                now_ist,
+                petal_symbol,
+                mini_symbol,
+                f"{avg_petal_buy:.2f}",
+                f"{avg_mini_sell:.2f}",
+                f"{depth_buy_spread:.2f}",
+                f"{avg_petal_sell:.2f}",
+                f"{avg_mini_buy:.2f}",
+                f"{depth_sell_spread:.2f}"
+            ])
+    except Exception as e:
+        logger.error(f"[DEPTH LOG] Error recording depth spread: {e}")
 
 async def process_market_data(data: dict):
     global system_state
@@ -3756,7 +3826,7 @@ async def process_market_data(data: dict):
     if getattr(system_state, "ta_lots_configs", None) or any(t.get("status") == "Open" for t in getattr(system_state, "ta_lots_trades", [])):
         asyncio.create_task(run_trade_automation_lots_checks())
 
-    # Process Manual BOT Strategy Checks (Tolerance Range & 30s Cooldown)
+    # Process Manual BOT Strategy Checks (Tolerance Range & 10s Cooldown)
     if system_state.manual_bot.get("active", False) or any(b.get("active", False) for b in getattr(system_state, "manual_bots", [])):
         asyncio.create_task(run_manual_bot_check())
 
@@ -4687,7 +4757,7 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
     # Immediate execution
     can_exec, rem = check_global_order_cooldown()
     if not can_exec:
-        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before placing new order (minimum 20s gap between orders).")
+        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before placing new order (minimum 10s gap between orders).")
     system_state.last_global_order_time = time.time()
     
     expected_entry_spread = system_state.depth_buy_spread if payload.direction == "Expansion" else system_state.depth_sell_spread
@@ -4712,7 +4782,7 @@ async def api_exit(token: str = None, authorization: str = Header(None)):
         
     can_exec, rem = check_global_order_cooldown()
     if not can_exec:
-        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before squaring off (minimum 20s gap between orders).")
+        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before squaring off (minimum 10s gap between orders).")
     system_state.last_global_order_time = time.time()
         
     if system_state.position_direction == "Expansion":
@@ -4775,7 +4845,7 @@ async def api_exit_manual(payload: ExitManualPayload, token: str = None, authori
         
     can_exec, rem = check_global_order_cooldown()
     if not can_exec:
-        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before squaring off (minimum 20s gap between orders).")
+        raise HTTPException(status_code=400, detail=f"Order cooldown active: Please wait {rem}s before squaring off (minimum 10s gap between orders).")
     system_state.last_global_order_time = time.time()
         
     direction = trade["direction"]
@@ -5261,7 +5331,7 @@ async def api_manual_bot_start(payload: ManualBotStartPayload, token: str = None
             "total_orders": int(payload.total_orders),
             "filled_orders": 0,
             "quantity": int(payload.quantity),
-            "order_delay": 30.0,
+            "order_delay": 10.0,
             "last_order_time": 0.0,
             "status_message": f"Active: Scanning {payload.direction} spread in range [{min_p:.1f} - {max_p:.1f}]",
             "why_waiting": f"Scanning spread in [{min_p:.1f} - {max_p:.1f}]",
@@ -5270,7 +5340,7 @@ async def api_manual_bot_start(payload: ManualBotStartPayload, token: str = None
         }
         system_state.manual_bots.append(new_bot)
         system_state.manual_bot = new_bot
-        system_state.log(f"[MANUAL BOT] Added New Task #{new_id} for {p_sym}/{m_sym}: Target {payload.trigger_diff}, Gap {payload.diff_gap} [{min_p:.1f} - {max_p:.1f}], Orders {payload.total_orders}, Qty {payload.quantity}, 30s Cooldown")
+        system_state.log(f"[MANUAL BOT] Added New Task #{new_id} for {p_sym}/{m_sym}: Target {payload.trigger_diff}, Gap {payload.diff_gap} [{min_p:.1f} - {max_p:.1f}], Orders {payload.total_orders}, Qty {payload.quantity}, 10s Cooldown")
 
     system_state.save_manual_bot()
     await broadcast_system_state()
@@ -5893,8 +5963,37 @@ async def api_export_csv(token: str = None, authorization: str = Header(None)):
 async def api_export_depth_spread(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     
-    csv_file = "depth_spread_history.csv"
-    if not os.path.exists(csv_file):
+    csv_file = get_data_filepath("depth_spread_history.csv")
+    
+    # If file doesn't exist or is empty, snapshot current active spread if available
+    if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
+        if system_state.petal_symbol and system_state.mini_symbol and (system_state.depth_buy_spread != 0.0 or system_state.depth_sell_spread != 0.0):
+            try:
+                p_spec = get_gold_contract_specs(system_state.petal_symbol)
+                m_spec = get_gold_contract_specs(system_state.mini_symbol)
+                qty = system_state.trade_quantity
+                p_req_qty = qty * p_spec.get("lots_per_unit_mini", 100)
+                m_req_qty = qty * m_spec.get("lots_per_unit_mini", 1)
+                p_ltp = system_state.gold_petal_ltp
+                m_ltp = system_state.gold_mini_ltp
+                avg_petal_buy = get_depth_average_price(system_state.petal_depth, "sell", p_req_qty, p_ltp)
+                avg_mini_sell = get_depth_average_price(system_state.mini_depth, "buy", m_req_qty, m_ltp)
+                avg_petal_sell = get_depth_average_price(system_state.petal_depth, "buy", p_req_qty, p_ltp)
+                avg_mini_buy = get_depth_average_price(system_state.mini_depth, "sell", m_req_qty, m_ltp)
+                record_depth_spread(
+                    system_state.petal_symbol,
+                    system_state.mini_symbol,
+                    avg_petal_buy,
+                    avg_mini_sell,
+                    system_state.depth_buy_spread,
+                    avg_petal_sell,
+                    avg_mini_buy,
+                    system_state.depth_sell_spread
+                )
+            except Exception as e:
+                logger.error(f"[EXPORT DEPTH] Failed to snapshot current depth: {e}")
+
+    if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
         # Return empty file with headers
         csv_buffer = StringIO()
         writer = csv.writer(csv_buffer)
