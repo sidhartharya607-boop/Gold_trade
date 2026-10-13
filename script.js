@@ -1954,20 +1954,20 @@ downloadBtn.addEventListener("click", () => {
     document.body.removeChild(anchor);
 });
 
-// Handle Depth Spread History CSV Export
+// Handle Spread & Price High / Low Report CSV Export
 if (exportDepthSpreadBtn) {
     exportDepthSpreadBtn.addEventListener("click", () => {
-        logLocalMessage("[SYSTEM] Exporting depth spread history records to CSV...");
+        logLocalMessage("[SYSTEM] Exporting Spread & Price High/Low report records to CSV...");
         const httpProtocol = window.location.protocol;
         const url = `${httpProtocol}//${host}/api/export-depth-spread${getAuthTokenParam()}`;
         
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = "depth_spread_history.csv";
+        anchor.download = "spread_price_high_low_report.csv";
         document.body.appendChild(anchor);
         anchor.click();
         document.body.removeChild(anchor);
-        logLocalMessage("[SYSTEM] Depth spread history CSV downloaded.");
+        logLocalMessage("[SYSTEM] Spread & Price High/Low report CSV downloaded.");
     });
 }
 

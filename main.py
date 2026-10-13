@@ -3455,81 +3455,113 @@ def extract_month_from_symbol(symbol: str) -> str:
             return m
     return "UNKNOWN"
 
-_last_depth_record_tracker = {}
-
-def record_depth_spread(petal_symbol: str, mini_symbol: str, 
-                        avg_petal_buy: float, avg_mini_sell: float, depth_buy_spread: float,
-                        avg_petal_sell: float, avg_mini_buy: float, depth_sell_spread: float):
-    global _last_depth_record_tracker
-    if not petal_symbol or not mini_symbol:
+def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp: float, m_ltp: float):
+    """
+    Tracks daily High and Low for Spread, Petal Price, and Mini Price.
+    Persists to daily_spread_stats.json.
+    """
+    if not p_sym or not m_sym:
         return
-    
-    # Ignore empty or zero values when quotes are not yet populated
-    if (avg_petal_buy <= 0 and avg_mini_sell <= 0) and (avg_petal_sell <= 0 and avg_mini_buy <= 0):
+    if (p_ltp is None or p_ltp <= 0) and (m_ltp is None or m_ltp <= 0):
         return
-
-    pair_key = f"{petal_symbol}_{mini_symbol}"
-    now_ts = time.time()
-
-    # Smart throttling & de-duplication:
-    # 1. Do not write more than once per second for the same pair
-    # 2. Record immediately if spread change >= 0.05, or every 15s if live and changed
-    last_info = _last_depth_record_tracker.get(pair_key)
-    if last_info:
-        elapsed = now_ts - last_info["time"]
-        if elapsed < 1.0:
-            return
-            
-        buy_diff = abs(depth_buy_spread - last_info["buy_spread"])
-        sell_diff = abs(depth_sell_spread - last_info["sell_spread"])
-        
-        if buy_diff < 0.05 and sell_diff < 0.05 and elapsed < 15.0:
-            return
-
-    _last_depth_record_tracker[pair_key] = {
-        "buy_spread": depth_buy_spread,
-        "sell_spread": depth_sell_spread,
-        "time": now_ts
-    }
 
     try:
-        csv_file = get_data_filepath("depth_spread_history.csv")
-        file_exists = os.path.exists(csv_file) and os.path.getsize(csv_file) > 0
+        now_ist = get_ist_time()
+        today_str = now_ist.strftime("%Y-%m-%d")
+        sess_stat = get_market_session_status()
         
-        now_ist = get_ist_time().strftime("%Y-%m-%d %H:%M:%S")
-        month = extract_month_from_symbol(petal_symbol)
+        if today_str not in system_state.daily_spread_stats:
+            system_state.daily_spread_stats[today_str] = {}
+            
+        pair_key = f"{p_sym}_{m_sym}"
+        month = extract_month_from_symbol(p_sym)
         if month == "UNKNOWN":
-            month = extract_month_from_symbol(mini_symbol)
+            month = extract_month_from_symbol(m_sym)
 
-        with open(csv_file, "a", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            if not file_exists:
-                writer.writerow([
-                    "Month",
-                    "Timestamp", 
-                    "Petal_Symbol",
-                    "Mini_Symbol",
-                    "Petal_Ask_Avg", 
-                    "Mini_Bid_Avg", 
-                    "Depth_Buy_Spread", 
-                    "Petal_Bid_Avg", 
-                    "Mini_Ask_Avg", 
-                    "Depth_Sell_Spread"
-                ])
-            writer.writerow([
-                month,
-                now_ist,
-                petal_symbol,
-                mini_symbol,
-                f"{avg_petal_buy:.2f}",
-                f"{avg_mini_sell:.2f}",
-                f"{depth_buy_spread:.2f}",
-                f"{avg_petal_sell:.2f}",
-                f"{avg_mini_buy:.2f}",
-                f"{depth_sell_spread:.2f}"
-            ])
+        if pair_key not in system_state.daily_spread_stats[today_str]:
+            system_state.daily_spread_stats[today_str][pair_key] = {
+                "date": today_str,
+                "month": month,
+                "petal_symbol": p_sym,
+                "mini_symbol": m_sym,
+                "month_group": f"{p_sym} / {m_sym}",
+                "high_spread": None,
+                "low_spread": None,
+                "last_spread": None,
+                "petal_high": None,
+                "petal_low": None,
+                "petal_last": None,
+                "mini_high": None,
+                "mini_low": None,
+                "mini_last": None,
+                "open_spread_905": None,
+                "close_spread_2327": None,
+                "last_updated": now_ist.strftime("%H:%M:%S")
+            }
+
+        rec = system_state.daily_spread_stats[today_str][pair_key]
+        cur_spread = round(spread_val, 2)
+        cur_p = round(p_ltp, 2) if p_ltp and p_ltp > 0 else None
+        cur_m = round(m_ltp, 2) if m_ltp and m_ltp > 0 else None
+        h_changed = False
+
+        # Capture 09:05 Open Spread
+        if now_ist.hour == 9 and 5 <= now_ist.minute <= 6 and rec.get("open_spread_905") is None:
+            rec["open_spread_905"] = cur_spread
+            h_changed = True
+
+        # Capture 23:27 Close Spread
+        if now_ist.hour == 23 and now_ist.minute >= 26 and rec.get("close_spread_2327") is None:
+            rec["close_spread_2327"] = cur_spread
+            h_changed = True
+
+        # High and Low tracking (excluding HOLD & SUSPENDED)
+        if sess_stat not in ["HOLD", "SUSPENDED"]:
+            # Spread High / Low
+            if rec.get("high_spread") is None or cur_spread > rec["high_spread"]:
+                rec["high_spread"] = cur_spread
+                h_changed = True
+            if rec.get("low_spread") is None or cur_spread < rec["low_spread"]:
+                rec["low_spread"] = cur_spread
+                h_changed = True
+
+            # Petal Price High / Low
+            if cur_p is not None and cur_p > 0:
+                if rec.get("petal_high") is None or cur_p > rec["petal_high"]:
+                    rec["petal_high"] = cur_p
+                    h_changed = True
+                if rec.get("petal_low") is None or cur_p < rec["petal_low"]:
+                    rec["petal_low"] = cur_p
+                    h_changed = True
+
+            # Mini Price High / Low
+            if cur_m is not None and cur_m > 0:
+                if rec.get("mini_high") is None or cur_m > rec["mini_high"]:
+                    rec["mini_high"] = cur_m
+                    h_changed = True
+                if rec.get("mini_low") is None or cur_m < rec["mini_low"]:
+                    rec["mini_low"] = cur_m
+                    h_changed = True
+
+        rec["last_spread"] = cur_spread
+        if cur_p is not None:
+            rec["petal_last"] = cur_p
+        if cur_m is not None:
+            rec["mini_last"] = cur_m
+        rec["last_updated"] = now_ist.strftime("%H:%M:%S")
+
+        # Periodic / throttled save to avoid high disk I/O
+        if h_changed:
+            now_ts = time.time()
+            if now_ts - getattr(system_state, "_last_daily_stats_save", 0) > 3.0:
+                system_state._last_daily_stats_save = now_ts
+                system_state.save_daily_spread_stats()
     except Exception as e:
-        logger.error(f"[DEPTH LOG] Error recording depth spread: {e}")
+        logger.error(f"[DAILY STATS] Error updating stats: {e}")
+
+def record_depth_spread(*args, **kwargs):
+    # Raw depth tick logging disabled as requested; High/Low summary is tracked via update_daily_high_low_stats
+    pass
 
 async def process_market_data(data: dict):
     global system_state
@@ -3576,22 +3608,14 @@ async def process_market_data(data: dict):
     avg_mini_buy = get_depth_average_price(system_state.mini_depth, "sell", m_req_qty, mini_ltp)
     system_state.depth_sell_spread = (avg_petal_sell * p_spec["price_scale_to_10g"]) - (avg_mini_buy * m_spec["price_scale_to_10g"])
     
-    # Record depth spreads if they change (de-duplicated)
-    if (abs(system_state.depth_buy_spread - system_state.last_logged_buy_spread) > 0.01 or 
-            abs(system_state.depth_sell_spread - system_state.last_logged_sell_spread) > 0.01):
-        
-        system_state.last_logged_buy_spread = system_state.depth_buy_spread
-        system_state.last_logged_sell_spread = system_state.depth_sell_spread
-        
-        record_depth_spread(
-            system_state.petal_symbol, 
-            system_state.mini_symbol, 
-            avg_petal_buy, 
-            avg_mini_sell, 
-            system_state.depth_buy_spread, 
-            avg_petal_sell, 
-            avg_mini_buy, 
-            system_state.depth_sell_spread
+    # Track Daily High / Low for Spread & Prices
+    if petal_ltp > 0 and mini_ltp > 0:
+        update_daily_high_low_stats(
+            system_state.petal_symbol,
+            system_state.mini_symbol,
+            spread,
+            petal_ltp,
+            mini_ltp
         )
             
     # Live leg and portfolio P&L calculations (Corrected to dynamic contract multipliers)
@@ -3917,67 +3941,9 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
                 system_state.symbol_ltps[m_tok] = m_ltp
                 system_state.symbol_depths[m_tok] = m_depth
 
-            # Log depth spread for this month master mapping
-            record_depth_spread(
-                p_sym,
-                m_sym,
-                avg_p_buy,
-                avg_m_sell,
-                mm_buy_spread,
-                avg_p_sell,
-                avg_m_buy,
-                mm_sell_spread
-            )
-
-            # Record Daily Spread Stats for Month Master Export (Point 1 & 2)
+            # Record Daily High / Low statistics for Spread and Prices (Petal & Mini)
             if mapping.get("capture_data", True):
-                try:
-                    now_ist = get_ist_time()
-                    today_str = now_ist.strftime("%Y-%m-%d")
-                    sess_stat = get_market_session_status()
-                    
-                    if today_str not in system_state.daily_spread_stats:
-                        system_state.daily_spread_stats[today_str] = {}
-                    pair_key = f"{p_sym}_{m_sym}"
-                    if pair_key not in system_state.daily_spread_stats[today_str]:
-                        system_state.daily_spread_stats[today_str][pair_key] = {
-                            "date": today_str,
-                            "petal_symbol": p_sym,
-                            "mini_symbol": m_sym,
-                            "month_group": f"{p_sym} / {m_sym}",
-                            "open_spread_905": None,
-                            "close_spread_2327": None,
-                            "high_spread": None,
-                            "low_spread": None,
-                            "last_spread": None
-                        }
-                    pair_rec = system_state.daily_spread_stats[today_str][pair_key]
-                    cur_spread = round(mm_spread, 2)
-                    
-                    # Capture 09:05 Open Spread
-                    if now_ist.hour == 9 and 5 <= now_ist.minute <= 6 and pair_rec["open_spread_905"] is None:
-                        pair_rec["open_spread_905"] = cur_spread
-                        system_state.save_daily_spread_stats()
-                    
-                    # Capture 23:27 Close Spread
-                    if now_ist.hour == 23 and now_ist.minute >= 26:
-                        pair_rec["close_spread_2327"] = cur_spread
-                        system_state.save_daily_spread_stats()
-                        
-                    # High and Low Spread (Strictly excluding HOLD and SUSPENDED periods)
-                    if sess_stat not in ["HOLD", "SUSPENDED"]:
-                        h_changed = False
-                        if pair_rec["high_spread"] is None or cur_spread > pair_rec["high_spread"]:
-                            pair_rec["high_spread"] = cur_spread
-                            h_changed = True
-                        if pair_rec["low_spread"] is None or cur_spread < pair_rec["low_spread"]:
-                            pair_rec["low_spread"] = cur_spread
-                            h_changed = True
-                        pair_rec["last_spread"] = cur_spread
-                        if h_changed:
-                            system_state.save_daily_spread_stats()
-                except Exception as e:
-                    pass
+                update_daily_high_low_stats(p_sym, m_sym, mm_spread, p_ltp, m_ltp)
             
             res.append({
                 "petal_symbol": p_sym,
@@ -5958,68 +5924,103 @@ async def api_export_csv(token: str = None, authorization: str = Header(None)):
     headers = {"Content-Disposition": "attachment; filename=trade_history.csv"}
     return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
 
-# REST CSV Depth Spread History exporter endpoint
+def generate_spread_price_high_low_csv() -> StringIO:
+    # Ensure current live contracts are recorded in stats before export
+    now_ist = get_ist_time()
+    today_str = now_ist.strftime("%Y-%m-%d")
+    if system_state.petal_symbol and system_state.mini_symbol:
+        p_ltp = system_state.gold_petal_ltp
+        m_ltp = system_state.gold_mini_ltp
+        if p_ltp > 0 and m_ltp > 0:
+            update_daily_high_low_stats(
+                system_state.petal_symbol,
+                system_state.mini_symbol,
+                system_state.spread,
+                p_ltp,
+                m_ltp
+            )
+
+    csv_buffer = StringIO()
+    writer = csv.writer(csv_buffer)
+    writer.writerow([
+        "Date",
+        "Time (IST)",
+        "Month",
+        "Contract Group",
+        "Petal Symbol",
+        "Mini Symbol",
+        "Spread High",
+        "Spread Low",
+        "Current Spread",
+        "Petal Price High",
+        "Petal Price Low",
+        "Current Petal Price",
+        "Mini Price High",
+        "Mini Price Low",
+        "Current Mini Price",
+        "Open Spread (09:05)",
+        "Close Spread (23:27)"
+    ])
+
+    all_dates = sorted(system_state.daily_spread_stats.keys(), reverse=True)
+    for d in all_dates:
+        day_dict = system_state.daily_spread_stats[d]
+        for pair_key, record in day_dict.items():
+            s_high = record.get("high_spread")
+            s_low = record.get("low_spread")
+            s_cur = record.get("last_spread")
+            
+            p_high = record.get("petal_high")
+            p_low = record.get("petal_low")
+            p_cur = record.get("petal_last")
+            
+            m_high = record.get("mini_high")
+            m_low = record.get("mini_low")
+            m_cur = record.get("mini_last")
+            
+            open_val = record.get("open_spread_905")
+            close_val = record.get("close_spread_2327")
+            
+            writer.writerow([
+                record.get("date", d),
+                record.get("last_updated", "--"),
+                record.get("month", extract_month_from_symbol(record.get("petal_symbol", ""))),
+                record.get("month_group", pair_key),
+                record.get("petal_symbol", "--"),
+                record.get("mini_symbol", "--"),
+                f"{s_high:.2f}" if s_high is not None else "--",
+                f"{s_low:.2f}" if s_low is not None else "--",
+                f"{s_cur:.2f}" if s_cur is not None else "--",
+                f"{p_high:.2f}" if p_high is not None else "--",
+                f"{p_low:.2f}" if p_low is not None else "--",
+                f"{p_cur:.2f}" if p_cur is not None else "--",
+                f"{m_high:.2f}" if m_high is not None else "--",
+                f"{m_low:.2f}" if m_low is not None else "--",
+                f"{m_cur:.2f}" if m_cur is not None else "--",
+                f"{open_val:.2f}" if open_val is not None else "--",
+                f"{close_val:.2f}" if close_val is not None else "--"
+            ])
+
+    csv_buffer.seek(0)
+    return csv_buffer
+
+# REST CSV Spread & Price High / Low Report exporter endpoint
 @app.get("/api/export-depth-spread")
 async def api_export_depth_spread(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     
-    csv_file = get_data_filepath("depth_spread_history.csv")
+    csv_buffer = generate_spread_price_high_low_csv()
+    content = csv_buffer.getvalue()
     
-    # If file doesn't exist or is empty, snapshot current active spread if available
-    if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
-        if system_state.petal_symbol and system_state.mini_symbol and (system_state.depth_buy_spread != 0.0 or system_state.depth_sell_spread != 0.0):
-            try:
-                p_spec = get_gold_contract_specs(system_state.petal_symbol)
-                m_spec = get_gold_contract_specs(system_state.mini_symbol)
-                qty = system_state.trade_quantity
-                p_req_qty = qty * p_spec.get("lots_per_unit_mini", 100)
-                m_req_qty = qty * m_spec.get("lots_per_unit_mini", 1)
-                p_ltp = system_state.gold_petal_ltp
-                m_ltp = system_state.gold_mini_ltp
-                avg_petal_buy = get_depth_average_price(system_state.petal_depth, "sell", p_req_qty, p_ltp)
-                avg_mini_sell = get_depth_average_price(system_state.mini_depth, "buy", m_req_qty, m_ltp)
-                avg_petal_sell = get_depth_average_price(system_state.petal_depth, "buy", p_req_qty, p_ltp)
-                avg_mini_buy = get_depth_average_price(system_state.mini_depth, "sell", m_req_qty, m_ltp)
-                record_depth_spread(
-                    system_state.petal_symbol,
-                    system_state.mini_symbol,
-                    avg_petal_buy,
-                    avg_mini_sell,
-                    system_state.depth_buy_spread,
-                    avg_petal_sell,
-                    avg_mini_buy,
-                    system_state.depth_sell_spread
-                )
-            except Exception as e:
-                logger.error(f"[EXPORT DEPTH] Failed to snapshot current depth: {e}")
-
-    if not os.path.exists(csv_file) or os.path.getsize(csv_file) == 0:
-        # Return empty file with headers
-        csv_buffer = StringIO()
-        writer = csv.writer(csv_buffer)
-        writer.writerow([
-            "Month",
-            "Timestamp", 
-            "Petal_Symbol",
-            "Mini_Symbol",
-            "Petal_Ask_Avg", 
-            "Mini_Bid_Avg", 
-            "Depth_Buy_Spread", 
-            "Petal_Bid_Avg", 
-            "Mini_Ask_Avg", 
-            "Depth_Sell_Spread"
-        ])
-        csv_buffer.seek(0)
-        headers = {"Content-Disposition": "attachment; filename=depth_spread_history.csv"}
-        return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
-        
     try:
-        with open(csv_file, "r", encoding="utf-8") as f:
-            content = f.read()
-        headers = {"Content-Disposition": "attachment; filename=depth_spread_history.csv"}
-        return StreamingResponse(iter([content]), media_type="text/csv", headers=headers)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        csv_file = get_data_filepath("depth_spread_history.csv")
+        with open(csv_file, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception:
+        pass
+
+    headers = {"Content-Disposition": "attachment; filename=spread_price_high_low_report.csv"}
+    return StreamingResponse(iter([content]), media_type="text/csv", headers=headers)
 
 # REST CSV Active & Pending Manual Trades exporter endpoint (Cleaned with IST Timestamps)
 @app.get("/api/export-manual-csv")
@@ -6074,36 +6075,18 @@ async def api_export_manual_csv(token: str = None, authorization: str = Header(N
 async def api_export_month_master_spreads_csv(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     
-    csv_buffer = StringIO()
-    writer = csv.writer(csv_buffer)
+    csv_buffer = generate_spread_price_high_low_csv()
+    content = csv_buffer.getvalue()
     
-    # Headers
-    writer.writerow([
-        "Date", "Month Group", "Open Spread (09:05)", "Close Spread (23:27)", "Day High Spread", "Day Low Spread"
-    ])
-    
-    # Sort dates descending (newest date first)
-    all_dates = sorted(system_state.daily_spread_stats.keys(), reverse=True)
-    for d in all_dates:
-        day_dict = system_state.daily_spread_stats[d]
-        for pair_key, record in day_dict.items():
-            open_val = record.get("open_spread_905")
-            close_val = record.get("close_spread_2327")
-            high_val = record.get("high_spread")
-            low_val = record.get("low_spread")
-            
-            writer.writerow([
-                record.get("date", d),
-                record.get("month_group", pair_key),
-                f"{open_val:.2f}" if open_val is not None else "--",
-                f"{close_val:.2f}" if close_val is not None else "--",
-                f"{high_val:.2f}" if high_val is not None else "--",
-                f"{low_val:.2f}" if low_val is not None else "--"
-            ])
-            
-    csv_buffer.seek(0)
+    try:
+        csv_file = get_data_filepath("month_master_daily_spreads.csv")
+        with open(csv_file, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception:
+        pass
+
     headers = {"Content-Disposition": "attachment; filename=month_master_daily_spreads.csv"}
-    return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
+    return StreamingResponse(iter([content]), media_type="text/csv", headers=headers)
 
 # REST CSV All Trades Master exporter endpoint (Point 3)
 @app.get("/api/export-all-trades-csv")
