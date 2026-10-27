@@ -4169,7 +4169,7 @@ function promptSetClaudeKey() {
 
 function callClaudeAnalysis(userQuery = "") {
     const advSummaryEl = document.getElementById("ai-adv-summary");
-    if (advSummaryEl) advSummaryEl.innerText = "Connecting to Claude 3.5 Sonnet... Analyzing live order book depth & channel range...";
+    if (advSummaryEl) advSummaryEl.innerText = "Connecting to Claude AI... Calculating optimal entry & exit parameters...";
 
     const statusIndicator = document.getElementById("ai-status-indicator");
     if (statusIndicator) {
@@ -4185,6 +4185,8 @@ function callClaudeAnalysis(userQuery = "") {
         if (res && res.status === "SUCCESS" && res.advisory) {
             renderClaudeAdvisory(res.advisory);
         }
+    }).catch(err => {
+        console.error("Claude analysis network error:", err);
     });
 }
 

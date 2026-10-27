@@ -2271,8 +2271,114 @@ class AIArbitrageEngine:
         self._spread_history = {}  # pair_key -> list of (timestamp, spread)
         self.claude_api_url = "https://api.anthropic.com/v1/messages"
         self.claude_model = "claude-3-5-sonnet-20240620"
+        self._cached_working_model = None
+        self._cached_discovered_models = []
         self._last_ai_analysis = None
         self._last_ai_analysis_time = 0.0
+
+    @staticmethod
+    def _parse_claude_response(content: str, default_data: dict) -> dict:
+        """
+        Bulletproof 3-stage parser for Claude API responses.
+        Handles markdown fences, unescaped quotes, trailing commas, and partial truncations gracefully.
+        Never throws a JSONDecodeError.
+        """
+        import re
+        import json
+
+        clean_text = content.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        elif clean_text.startswith("```"):
+            clean_text = clean_text[3:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+        clean_text = clean_text.strip()
+
+        first_brace = clean_text.find("{")
+        last_brace = clean_text.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            json_candidate = clean_text[first_brace:last_brace + 1]
+        else:
+            json_candidate = clean_text
+
+        # Stage 1: Standard JSON parse
+        try:
+            parsed = json.loads(json_candidate)
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+        # Stage 2: Clean trailing commas & unescaped control chars
+        try:
+            cleaned = re.sub(r",\s*([\]}])", r"\1", json_candidate)
+            cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', cleaned)
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception:
+            pass
+
+        # Stage 3: Regex Field Extraction Fallback
+        # If standard json.loads choked on unescaped quotes or delimiter at line 44,
+        # extract every field directly from Claude's generated text without throwing an error!
+        result = dict(default_data)
+
+        dir_m = re.search(r'"recommended_direction"\s*:\s*"([A-Za-z]+)"', content, re.IGNORECASE)
+        if dir_m:
+            result["recommended_direction"] = dir_m.group(1).capitalize()
+
+        entry_m = re.search(r'"suggested_entry_diff"\s*:\s*([0-9.-]+)', content)
+        if entry_m:
+            try:
+                result["suggested_entry_diff"] = float(entry_m.group(1))
+            except ValueError:
+                pass
+
+        exit_m = re.search(r'"suggested_exit_gap"\s*:\s*([0-9.-]+)', content)
+        if exit_m:
+            try:
+                result["suggested_exit_gap"] = float(exit_m.group(1))
+            except ValueError:
+                pass
+
+        step_m = re.search(r'"suggested_step"\s*:\s*([0-9.-]+)', content)
+        if step_m:
+            try:
+                result["suggested_step"] = float(step_m.group(1))
+            except ValueError:
+                pass
+
+        lots_m = re.search(r'"suggested_lots"\s*:\s*"([^"]+)"', content)
+        if lots_m:
+            result["suggested_lots"] = lots_m.group(1).strip()
+
+        pair_m = re.search(r'"top_pair"\s*:\s*"([^"]+)"', content)
+        if pair_m:
+            result["top_pair"] = pair_m.group(1).strip()
+
+        sum_m = re.search(r'"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
+        if sum_m:
+            result["summary"] = sum_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
+        else:
+            sum_m2 = re.search(r'"summary"\s*:\s*"([^"}]+)', content)
+            if sum_m2:
+                result["summary"] = sum_m2.group(1).replace('"', '').strip()
+
+        reas_m = re.search(r'"reasoning"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
+        if reas_m:
+            result["reasoning"] = reas_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
+        else:
+            reas_m2 = re.search(r'"reasoning"\s*:\s*"([^"}]+)', content)
+            if reas_m2:
+                result["reasoning"] = reas_m2.group(1).replace('"', '').strip()
+
+        risk_m = re.search(r'"risk_warning"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
+        if risk_m:
+            result["risk_warning"] = risk_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
+
+        return result
 
     def get_api_key(self) -> str:
         # 1. Check in-memory system_state
@@ -2775,14 +2881,16 @@ class AIArbitrageEngine:
                     "You are the AccuStock Gold Arbitrage Quantitative AI Advisor.\n"
                     "Your role is EXCLUSIVELY to provide mathematical, objective quantitative analysis "
                     "for MCX Gold spread arbitrage pairs (GOLDPETAL 1g vs GOLDMINI 100g vs GOLDGUINEA 8g vs GOLDTEN 10g).\n\n"
-                    "STRICT CONSTRAINTS & SECURITY RULES:\n"
+                    "STRICT CONSTRAINTS & SPEED/FORMAT RULES:\n"
                     "1. ADVISORY ONLY: You NEVER execute trades. You only suggest parameters for the human trader.\n"
                     "2. STRICT SCOPE: If asked ANY question unrelated to MCX Gold arbitrage, trading, spreads, or risk management, "
-                    "you MUST REFUSE and answer strictly: 'I am configured exclusively for MCX Gold Spread Arbitrage quantitative analysis.'\n"
-                    "3. DYNAMIC TARGETS: NEVER fixate on a rigid 100 points target. Always derive realistic exit gap and entry based on today's actual High/Low range.\n"
-                    "4. WEIGHT-BASED CHARGES: Taxes and slippage must be computed based on the exact traded weight in grams provided (do NOT assume fixed 100g for smaller weights).\n"
-                    "5. Output must be a valid JSON object matching the required schema with keys: "
-                    "summary, top_pair, petal_symbol, mini_symbol, recommended_direction, suggested_entry_diff, suggested_exit_gap, suggested_step, suggested_lots, reasoning, risk_warning."
+                    "refuse strictly: 'I am configured exclusively for MCX Gold Spread Arbitrage quantitative analysis.'\n"
+                    "3. DYNAMIC TARGETS: Derive realistic exit gap and entry based on today's actual High/Low range.\n"
+                    "4. WEIGHT-BASED CHARGES: Taxes and slippage must be computed based on the exact traded weight in grams provided.\n"
+                    "5. SPEED & CONCISENESS: Keep 'summary' under 2 sentences. Keep 'reasoning' under 3 sentences. Be ultra-fast and direct.\n"
+                    "6. FORMAT: Output STRICT RAW JSON only. Do NOT wrap in markdown ```json blocks. "
+                    "NEVER use unescaped double quotes inside string values (use single quotes 'like this' if quoting symbols or words). "
+                    "Keys required: summary, top_pair, petal_symbol, mini_symbol, recommended_direction, suggested_entry_diff, suggested_exit_gap, suggested_step, suggested_lots, reasoning, risk_warning."
                 )
 
                 market_context = {
@@ -2808,58 +2916,71 @@ class AIArbitrageEngine:
                     "content-type": "application/json"
                 }
 
-                # Graceful multi-model fallback across broadly supported Claude checkpoints (including Sonnet 5.5 / Haiku 5.5)
-                candidate_models = [
-                    os.getenv("CLAUDE_MODEL", "").strip(),
-                    "claude-sonnet-5-5",           # Active 2026 flagship Sonnet in user's console
-                    "claude-haiku-5-5",            # High-speed 2026 Haiku in user's console
+                # Priority model list: check env override, cached working model, or fast modern checkpoints
+                candidate_models = []
+                if os.getenv("CLAUDE_MODEL", "").strip():
+                    candidate_models.append(os.getenv("CLAUDE_MODEL", "").strip())
+                if self._cached_working_model:
+                    candidate_models.append(self._cached_working_model)
+                
+                default_tier_candidates = [
+                    "claude-sonnet-5-5",           # Active 2026 flagship Sonnet
+                    "claude-haiku-5-5",            # High-speed 2026 Haiku (< 1 sec)
                     "claude-3-7-sonnet-latest",
                     "claude-3-5-sonnet-latest",
                     "claude-3-5-sonnet-20241022",
-                    "claude-3-5-sonnet-20240620",  # Broadly supported legacy
-                    "claude-3-haiku-20240307",
+                    "claude-3-5-sonnet-20240620",
                     "claude-3-5-haiku-20241022",
+                    "claude-3-haiku-20240307",
                     "claude-fable-5-1",
                     "claude-opus-5-5"
                 ]
-                candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
+                for m in default_tier_candidates:
+                    if m not in candidate_models:
+                        candidate_models.append(m)
 
                 async with aiohttp.ClientSession() as session:
-                    # Dynamically auto-discover models enabled for this specific key
-                    try:
-                        async with session.get(
-                            "https://api.anthropic.com/v1/models",
-                            headers=headers,
-                            timeout=aiohttp.ClientTimeout(total=4)
-                        ) as m_resp:
-                            if m_resp.status == 200:
-                                m_json = await m_resp.json()
-                                discovered = [item.get("id") for item in m_json.get("data", []) if item.get("id")]
-                                if discovered:
-                                    logger.info(f"[CLAUDE API] Auto-discovered models for account: {discovered}")
-                                    sonnet_haiku = [m for m in discovered if "sonnet" in m.lower() or "haiku" in m.lower()]
-                                    other_disc = [m for m in discovered if m not in sonnet_haiku]
-                                    candidate_models = sonnet_haiku + other_disc + candidate_models
-                                    candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
-                    except Exception as e:
-                        logger.info(f"[CLAUDE API] Model auto-discovery note: {e}")
+                    # Dynamically auto-discover models enabled for this specific key (only if not already cached)
+                    if not self._cached_discovered_models and not self._cached_working_model:
+                        try:
+                            async with session.get(
+                                "https://api.anthropic.com/v1/models",
+                                headers=headers,
+                                timeout=aiohttp.ClientTimeout(total=3)
+                            ) as m_resp:
+                                if m_resp.status == 200:
+                                    m_json = await m_resp.json()
+                                    discovered = [item.get("id") for item in m_json.get("data", []) if item.get("id")]
+                                    if discovered:
+                                        self._cached_discovered_models = discovered
+                                        logger.info(f"[CLAUDE API] Auto-discovered models: {discovered}")
+                                        sonnet_haiku = [m for m in discovered if "sonnet" in m.lower() or "haiku" in m.lower()]
+                                        other_disc = [m for m in discovered if m not in sonnet_haiku]
+                                        candidate_models = sonnet_haiku + other_disc + candidate_models
+                                        candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
+                        except Exception as e:
+                            logger.info(f"[CLAUDE API] Discovery skip note: {e}")
+                    elif self._cached_discovered_models and not self._cached_working_model:
+                        candidate_models = self._cached_discovered_models + candidate_models
+                        candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
 
                     last_api_err = ""
                     for mod in candidate_models:
                         payload = {
                             "model": mod,
-                            "max_tokens": 800,
+                            "max_tokens": 1500,  # Ample headroom to prevent truncation
                             "system": system_prompt,
                             "messages": [{"role": "user", "content": user_message}]
                         }
-                        async with session.post(self.claude_api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                            if resp.status == 200:
-                                data = await resp.json()
-                                content = data.get("content", [{}])[0].get("text", "")
-                                import re
-                                json_match = re.search(r"\{.*\}", content, re.DOTALL)
-                                if json_match:
-                                    parsed = json.loads(json_match.group(0))
+                        try:
+                            async with session.post(self.claude_api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=12)) as resp:
+                                if resp.status == 200:
+                                    data = await resp.json()
+                                    content = data.get("content", [{}])[0].get("text", "")
+                                    
+                                    # Bulletproof multi-stage parse (never crashes on delimiter or quotes)
+                                    parsed = self._parse_claude_response(content, fallback_response)
+                                    self._cached_working_model = mod
                                     self.claude_model = mod
                                     parsed["source"] = f"Claude AI ({mod})"
                                     parsed["trade_grams"] = trade_grams
@@ -2884,33 +3005,37 @@ class AIArbitrageEngine:
                                     self._last_ai_analysis = parsed
                                     self._last_ai_analysis_time = time.time()
                                     return parsed
-                            else:
-                                err_text = await resp.text()
-                                try:
-                                    err_json = json.loads(err_text)
-                                    err_type = err_json.get("error", {}).get("type", "")
-                                    err_msg = err_json.get("error", {}).get("message", f"HTTP {resp.status}")
-                                except Exception:
-                                    err_type, err_msg = "", err_text[:200]
-                                
-                                # Check for invalid API key
-                                if resp.status == 401 or "authentication_error" in err_type:
-                                    last_api_err = "Invalid API Key (Anthropic rejected the key. Please verify sk-ant-...)"
-                                    break
-                                
-                                # Check for credit balance / quota issues
-                                if "credit" in err_msg.lower() or "balance" in err_msg.lower() or "quota" in err_msg.lower():
-                                    last_api_err = "Credit Balance is $0 (Please deposit credit at console.anthropic.com/settings/billing)"
-                                    break
+                                else:
+                                    err_text = await resp.text()
+                                    try:
+                                        err_json = json.loads(err_text)
+                                        err_type = err_json.get("error", {}).get("type", "")
+                                        err_msg = err_json.get("error", {}).get("message", f"HTTP {resp.status}")
+                                    except Exception:
+                                        err_type, err_msg = "", err_text[:200]
+                                    
+                                    # Check for invalid API key
+                                    if resp.status == 401 or "authentication_error" in err_type:
+                                        last_api_err = "Invalid API Key (Anthropic rejected the key. Please verify sk-ant-...)"
+                                        break
+                                    
+                                    # Check for credit balance / quota issues
+                                    if "credit" in err_msg.lower() or "balance" in err_msg.lower() or "quota" in err_msg.lower():
+                                        last_api_err = "Credit Balance is $0 (Please deposit credit at console.anthropic.com/settings/billing)"
+                                        break
 
-                                # If model not found or unavailable for key, try next model candidate
-                                if "not_found" in err_type or "model" in err_msg.lower() or resp.status == 404:
-                                    logger.info(f"[CLAUDE API] Model '{mod}' not found on this account tier. Trying next fallback...")
+                                    # If model not found, try next candidate
+                                    if "not_found" in err_type or "model" in err_msg.lower() or resp.status == 404:
+                                        logger.info(f"[CLAUDE API] Model '{mod}' not found on account. Trying next candidate...")
+                                        last_api_err = err_msg
+                                        continue
+                                    
                                     last_api_err = err_msg
-                                    continue
-                                
-                                last_api_err = err_msg
-                                break
+                                    break
+                        except Exception as post_err:
+                            logger.info(f"[CLAUDE API] Attempt with {mod} timed out or failed: {post_err}")
+                            last_api_err = str(post_err)
+                            continue
 
                     # If all model candidates failed
                     if "model:" in str(last_api_err).lower() or "not_found" in str(last_api_err).lower():
