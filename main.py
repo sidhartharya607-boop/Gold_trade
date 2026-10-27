@@ -2808,19 +2808,42 @@ class AIArbitrageEngine:
                     "content-type": "application/json"
                 }
 
-                # Graceful multi-model fallback across broadly supported Claude checkpoints
+                # Graceful multi-model fallback across broadly supported Claude checkpoints (including Sonnet 5.5 / Haiku 5.5)
                 candidate_models = [
                     os.getenv("CLAUDE_MODEL", "").strip(),
-                    "claude-3-5-sonnet-20240620",  # Broadly supported by all accounts
+                    "claude-sonnet-5-5",           # Active 2026 flagship Sonnet in user's console
+                    "claude-haiku-5-5",            # High-speed 2026 Haiku in user's console
+                    "claude-3-7-sonnet-latest",
                     "claude-3-5-sonnet-latest",
                     "claude-3-5-sonnet-20241022",
+                    "claude-3-5-sonnet-20240620",  # Broadly supported legacy
                     "claude-3-haiku-20240307",
                     "claude-3-5-haiku-20241022",
-                    "claude-3-5-haiku-latest"
+                    "claude-fable-5-1",
+                    "claude-opus-5-5"
                 ]
                 candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
 
                 async with aiohttp.ClientSession() as session:
+                    # Dynamically auto-discover models enabled for this specific key
+                    try:
+                        async with session.get(
+                            "https://api.anthropic.com/v1/models",
+                            headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=4)
+                        ) as m_resp:
+                            if m_resp.status == 200:
+                                m_json = await m_resp.json()
+                                discovered = [item.get("id") for item in m_json.get("data", []) if item.get("id")]
+                                if discovered:
+                                    logger.info(f"[CLAUDE API] Auto-discovered models for account: {discovered}")
+                                    sonnet_haiku = [m for m in discovered if "sonnet" in m.lower() or "haiku" in m.lower()]
+                                    other_disc = [m for m in discovered if m not in sonnet_haiku]
+                                    candidate_models = sonnet_haiku + other_disc + candidate_models
+                                    candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
+                    except Exception as e:
+                        logger.info(f"[CLAUDE API] Model auto-discovery note: {e}")
+
                     last_api_err = ""
                     for mod in candidate_models:
                         payload = {
@@ -2838,7 +2861,7 @@ class AIArbitrageEngine:
                                 if json_match:
                                     parsed = json.loads(json_match.group(0))
                                     self.claude_model = mod
-                                    parsed["source"] = f"Claude 3.5 Sonnet ({mod})"
+                                    parsed["source"] = f"Claude AI ({mod})"
                                     parsed["trade_grams"] = trade_grams
                                     parsed["total_charges"] = pair_charges
                                     parsed["slippage_cushion"] = pair_slippage

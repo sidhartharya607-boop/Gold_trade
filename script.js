@@ -4216,12 +4216,13 @@ function renderClaudeAdvisory(adv) {
     const srcText = adv.source || "Claude 3.5 Sonnet Analysis";
 
     // 1. DYNAMIC PROMINENT STATUS INDICATOR (Active / Offline / Error)
-    if (srcText.includes("Claude 3.5")) {
+    const isClaudeSuccess = srcText.includes("Claude") && !srcText.includes("Error") && !srcText.includes("Local");
+    if (isClaudeSuccess) {
         if (statusIndicator) {
             statusIndicator.innerHTML = `
                 <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #ECFDF5; color: #047857; border: 2px solid #10B981; display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 2px 8px rgba(16,185,129,0.2);">
                     <span style="width: 9px; height: 9px; background: #10B981; border-radius: 50%; box-shadow: 0 0 8px #10B981;"></span>
-                    🟢 CLAUDE 3.5 AI ACTIVE & LIVE
+                    🟢 CLAUDE AI ACTIVE &amp; LIVE
                 </span>
             `;
         }
@@ -4232,7 +4233,7 @@ function renderClaudeAdvisory(adv) {
             engineBadge.style.borderColor = "#C084FC";
         }
         if (srcEl) {
-            srcEl.innerText = "Claude 3.5 Sonnet Analysis";
+            srcEl.innerText = adv.source || "Claude AI Quantitative Analysis";
             srcEl.style.color = "#6B21A8";
         }
     } else if (srcText.includes("Error")) {
