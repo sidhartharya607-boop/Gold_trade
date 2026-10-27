@@ -4121,8 +4121,13 @@ function fetchAIHubData(forceClaude = false) {
                     mobileAiBadge.style.display = oppCount > 0 ? "inline-block" : "none";
                 }
 
-                // If user pressed Refresh or no previous analysis cached, call Claude
-                if (forceClaude || !data.last_analysis) {
+                // Check if cached analysis is stale (was generated before API key was set)
+                const lastSource = (data.last_analysis && data.last_analysis.source) || "";
+                const isStaleFallback = lastSource.includes("not set") || lastSource.includes("Fallback");
+                const shouldCallClaude = forceClaude || !data.last_analysis || (data.has_claude_api_key && isStaleFallback);
+                window._hasClaudeApiKey = !!data.has_claude_api_key;
+
+                if (shouldCallClaude) {
                     callClaudeAnalysis();
                 } else if (data.last_analysis) {
                     renderClaudeAdvisory(data.last_analysis);
@@ -4137,9 +4142,43 @@ function fetchAIHubData(forceClaude = false) {
         });
 }
 
+function promptSetClaudeKey() {
+    const existing = window._hasClaudeApiKey ? "••••••••••••••••" : "";
+    const key = prompt("Enter your Anthropic Claude API Key (starts with sk-ant-...):", existing);
+    if (!key || key.includes("•••")) return;
+    const cleanKey = key.trim();
+    if (!cleanKey.startsWith("sk-ant-")) {
+        alert("Invalid format! Anthropic Claude API key must start with 'sk-ant-'");
+        return;
+    }
+    logLocalMessage("[AI HUB] Saving Claude API key to server...");
+    postAction("ai/set-claude-key", { api_key: cleanKey }).then(res => {
+        if (res && res.status === "SUCCESS") {
+            alert("✅ Claude API key saved successfully!\n\nAI Advisory updated directly with Claude 3.5 Sonnet.");
+            window._hasClaudeApiKey = true;
+            if (res.advisory) renderClaudeAdvisory(res.advisory);
+            fetchAIHubData(true);
+        } else {
+            alert("Error saving API key: " + (res.detail || "Server error"));
+        }
+    }).catch(err => {
+        alert("Network error saving API key: " + err);
+    });
+}
+
 function callClaudeAnalysis(userQuery = "") {
     const advSummaryEl = document.getElementById("ai-adv-summary");
-    if (advSummaryEl) advSummaryEl.innerText = "Analyzing live order books & running quantitative channel model with Claude...";
+    if (advSummaryEl) advSummaryEl.innerText = "Connecting to Claude 3.5 Sonnet... Analyzing live order book depth & channel range...";
+
+    const statusIndicator = document.getElementById("ai-status-indicator");
+    if (statusIndicator) {
+        statusIndicator.innerHTML = `
+            <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #EFF6FF; color: #1D4ED8; border: 2px solid #3B82F6; display: inline-flex; align-items: center; gap: 7px;">
+                <span style="width: 8px; height: 8px; background: #3B82F6; border-radius: 50%;"></span>
+                ⏳ CONNECTING TO CLAUDE AI...
+            </span>
+        `;
+    }
 
     postAction("ai/analyze-claude", { query: userQuery }).then(res => {
         if (res && res.status === "SUCCESS" && res.advisory) {
@@ -4159,6 +4198,8 @@ function renderClaudeAdvisory(adv) {
         lots: adv.suggested_lots || "1, 2, 2"
     };
 
+    const statusIndicator = document.getElementById("ai-status-indicator");
+    const engineBadge = document.getElementById("ai-engine-badge");
     const srcEl = document.getElementById("ai-adv-source");
     const summaryEl = document.getElementById("ai-adv-summary");
     const pairEl = document.getElementById("ai-adv-pair");
@@ -4172,13 +4213,73 @@ function renderClaudeAdvisory(adv) {
 
     const entryLabelEl = document.getElementById("ai-adv-entry-label");
     const recDirection = adv.recommended_direction || "Expansion";
+    const srcText = adv.source || "Claude 3.5 Sonnet Analysis";
 
-    if (srcEl) srcEl.innerText = adv.source || "Claude 3.5 Sonnet Analysis";
+    // 1. DYNAMIC PROMINENT STATUS INDICATOR (Active / Offline / Error)
+    if (srcText.includes("Claude 3.5")) {
+        if (statusIndicator) {
+            statusIndicator.innerHTML = `
+                <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #ECFDF5; color: #047857; border: 2px solid #10B981; display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 2px 8px rgba(16,185,129,0.2);">
+                    <span style="width: 9px; height: 9px; background: #10B981; border-radius: 50%; box-shadow: 0 0 8px #10B981;"></span>
+                    🟢 CLAUDE 3.5 AI ACTIVE & LIVE
+                </span>
+            `;
+        }
+        if (engineBadge) {
+            engineBadge.innerText = "⚡ CLAUDE AI ONLINE";
+            engineBadge.style.background = "#F3E8FF";
+            engineBadge.style.color = "#6B21A8";
+            engineBadge.style.borderColor = "#C084FC";
+        }
+        if (srcEl) {
+            srcEl.innerText = "Claude 3.5 Sonnet Analysis";
+            srcEl.style.color = "#6B21A8";
+        }
+    } else if (srcText.includes("Error")) {
+        if (statusIndicator) {
+            statusIndicator.innerHTML = `
+                <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #FEF2F2; color: #DC2626; border: 2px solid #EF4444; display: inline-flex; align-items: center; gap: 7px;">
+                    <span style="width: 9px; height: 9px; background: #EF4444; border-radius: 50%;"></span>
+                    🔴 CLAUDE ERROR (${adv.api_error || 'Check API Key'})
+                </span>
+            `;
+        }
+        if (engineBadge) {
+            engineBadge.innerText = "⚠️ CLAUDE OFFLINE";
+            engineBadge.style.background = "#FEF2F2";
+            engineBadge.style.color = "#DC2626";
+            engineBadge.style.borderColor = "#FCA5A5";
+        }
+        if (srcEl) {
+            srcEl.innerText = srcText;
+            srcEl.style.color = "#DC2626";
+        }
+    } else {
+        if (statusIndicator) {
+            statusIndicator.innerHTML = `
+                <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #FFFBEB; color: #B45309; border: 2px solid #F59E0B; display: inline-flex; align-items: center; gap: 7px;">
+                    <span style="width: 9px; height: 9px; background: #F59E0B; border-radius: 50%;"></span>
+                    🟡 LOCAL STATS (Claude Key Not Set - Click '🔑 Claude API Key')
+                </span>
+            `;
+        }
+        if (engineBadge) {
+            engineBadge.innerText = "⚙️ LOCAL STATS";
+            engineBadge.style.background = "#FFFBEB";
+            engineBadge.style.color = "#B45309";
+            engineBadge.style.borderColor = "#FCD34D";
+        }
+        if (srcEl) {
+            srcEl.innerText = srcText;
+            srcEl.style.color = "#B45309";
+        }
+    }
+
     if (summaryEl) summaryEl.innerText = adv.summary || "";
     if (pairEl) pairEl.innerText = adv.top_pair || "--";
     if (dirEl) {
         dirEl.innerText = recDirection;
-        dirEl.style.color = recDirection === "Expansion" ? "#38bdf8" : "#f43f5e";
+        dirEl.style.color = recDirection === "Expansion" ? "#0284C7" : "#DC2626";
     }
     if (entryLabelEl) {
         entryLabelEl.innerText = recDirection === "Expansion" ? "Entry (Depth Buy):" : "Entry (Depth Sell):";
@@ -4196,55 +4297,135 @@ function renderClaudeAdvisory(adv) {
     if (profitEl) profitEl.innerText = `+₹${estimatedNet} In-Hand`;
 }
 
+// Category Filter Controller for Multi-Pair Matrix
+window._selectedAICategory = "ALL";
+window._lastAIMatrix = [];
+
+function filterAIMatrixCategory(category, btnElement) {
+    window._selectedAICategory = category || "ALL";
+
+    // Update active tab buttons styling
+    const buttons = document.querySelectorAll(".ai-cat-filter-btn");
+    buttons.forEach(b => {
+        b.style.background = "#FFFFFF";
+        b.style.color = "#334155";
+        b.style.borderColor = "#CBD5E1";
+        b.classList.remove("active");
+    });
+    if (btnElement) {
+        btnElement.style.background = "#8B5CF6";
+        btnElement.style.color = "#FFFFFF";
+        btnElement.style.borderColor = "#8B5CF6";
+        btnElement.classList.add("active");
+    }
+
+    if (window._lastAIMatrix && window._lastAIMatrix.length > 0) {
+        renderAIMatrix(window._lastAIMatrix);
+    }
+}
+
 function renderAIMatrix(matrix) {
     const tbody = document.getElementById("ai-matrix-tbody");
     if (!tbody) return;
 
+    window._lastAIMatrix = matrix || [];
+
     if (!matrix || matrix.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding: 1rem; text-align: center; color: var(--text-muted);">No combinations available. Add pairs in Month Master.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No combinations available. Add pairs in Month Master.</td></tr>`;
         return;
     }
 
-    tbody.innerHTML = matrix.map((row, idx) => {
-        const isTop = row.is_top_pick;
-        const bg = isTop ? "rgba(168, 85, 247, 0.08)" : (idx % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent");
-        const border = isTop ? "border-left: 3px solid #a855f7;" : "";
+    // Apply category filter
+    const activeCat = (window._selectedAICategory || "ALL").toUpperCase();
+    let displayList = matrix;
+    if (activeCat !== "ALL") {
+        displayList = matrix.filter(row => {
+            const cat = (row.category || "").toUpperCase();
+            if (activeCat === "CROSS") {
+                return !cat.includes("CALENDAR") && !cat.includes("ACTIVE");
+            }
+            if (activeCat === "TEN / MINI") {
+                return cat.includes("TEN") && cat.includes("MINI");
+            }
+            if (activeCat === "PETAL / MINI") {
+                return cat.includes("PETAL") && cat.includes("MINI");
+            }
+            if (activeCat === "GUINEA / PETAL") {
+                return (cat.includes("GUINEA") && cat.includes("PETAL")) || (cat.includes("PETAL") && cat.includes("GUINEA"));
+            }
+            if (activeCat === "PETAL / TEN") {
+                return (cat.includes("PETAL") && cat.includes("TEN")) || (cat.includes("TEN") && cat.includes("PETAL"));
+            }
+            return cat.includes(activeCat);
+        });
+    }
 
-        let statusBadge = `<span style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Safe</span>`;
+    if (displayList.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No combinations found for category '${window._selectedAICategory}'. Showing all pairs.</td></tr>`;
+        displayList = matrix;
+    }
+
+    tbody.innerHTML = displayList.map((row, idx) => {
+        const isTop = row.is_top_pick;
+        const bg = isTop ? "rgba(168, 85, 247, 0.08)" : (idx % 2 === 0 ? "#FFFFFF" : "#F8FAFC");
+        const borderLeft = isTop ? "border-left: 3.5px solid #8B5CF6;" : "";
+
+        // Status Badge (Safe, Moderate, Wide Gap)
+        let statusBadge = `<span style="background: #ECFDF5; color: #047857; border: 1.5px solid #10B981; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800;">Safe &amp; Liquid</span>`;
         if (row.liquidity_score < 40) {
-            statusBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Wide Gap</span>`;
+            statusBadge = `<span style="background: #FEF2F2; color: #DC2626; border: 1.5px solid #EF4444; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800;">Wide Gap</span>`;
         } else if (row.liquidity_score < 70) {
-            statusBadge = `<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Moderate</span>`;
+            statusBadge = `<span style="background: #FFFBEB; color: #B45309; border: 1.5px solid #F59E0B; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800;">Moderate</span>`;
+        }
+
+        // Category Pill Style
+        const catUpper = (row.category || "").toUpperCase();
+        let catBg = "#F1F5F9";
+        let catColor = "#334155";
+        let catBorder = "#CBD5E1";
+        if (catUpper.includes("TEN") && catUpper.includes("MINI")) {
+            catBg = "#EFF6FF"; catColor = "#1D4ED8"; catBorder = "#BFDBFE";
+        } else if (catUpper.includes("PETAL") && catUpper.includes("MINI")) {
+            catBg = "#ECFDF5"; catColor = "#047857"; catBorder = "#A7F3D0";
+        } else if (catUpper.includes("GUINEA") && catUpper.includes("PETAL")) {
+            catBg = "#FAF5FF"; catColor = "#7E22CE"; catBorder = "#E9D5FF";
+        } else if (catUpper.includes("PETAL") && catUpper.includes("TEN")) {
+            catBg = "#FFFBEB"; catColor = "#B45309"; catBorder = "#FDE68A";
         }
 
         return `
-            <tr style="background: ${bg}; ${border} border-bottom: 1px solid rgba(255,255,255,0.04);">
-                <td style="padding: 0.55rem 0.75rem; font-weight: 600;">
-                    ${isTop ? '<span style="color: #fbbf24; margin-right: 4px;" title="Top Opportunity">⭐</span>' : ''}
-                    <strong style="color: #e2e8f0;">${row.label}</strong>
+            <tr style="background: ${bg}; ${borderLeft} border-bottom: 1.5px solid #E2E8F0;">
+                <td style="padding: 0.6rem 0.85rem; font-weight: 700;">
+                    ${isTop ? '<span style="color: #F59E0B; margin-right: 4px;" title="Top Pick">⭐</span>' : ''}
+                    <strong style="color: #0F172A; font-size: 0.82rem;">${row.label}</strong>
                 </td>
-                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-weight: 700; color: #facc15;">
+                <td style="padding: 0.6rem 0.6rem;">
+                    <span style="background: ${catBg}; color: ${catColor}; border: 1.5px solid ${catBorder}; padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;">
+                        ${row.category || 'Cross'}
+                    </span>
+                </td>
+                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-weight: 800; font-size: 0.88rem; color: #B45309;">
                     ${row.spread.toFixed(2)}
                 </td>
-                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-size: 0.72rem; color: #94a3b8;">
-                    <span style="color: #38bdf8;">B: ${row.depth_buy_spread.toFixed(1)}</span> / 
-                    <span style="color: #f43f5e;">S: ${row.depth_sell_spread.toFixed(1)}</span>
+                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-size: 0.74rem;">
+                    <span style="color: #0284C7; font-weight: 700;">B: ${row.depth_buy_spread.toFixed(1)}</span> / 
+                    <span style="color: #DC2626; font-weight: 700;">S: ${row.depth_sell_spread.toFixed(1)}</span>
                 </td>
-                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-size: 0.72rem; color: #cbd5e1;">
+                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-size: 0.74rem; color: #334155; font-weight: 600;">
                     ${row.day_low} ── ${row.day_high} (${row.day_range} pts)
                 </td>
-                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-size: 0.72rem; color: #94a3b8;">
+                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-size: 0.74rem; color: #475569;">
                     ₹${row.bid_ask_petal_gap} / ₹${row.bid_ask_mini_gap}
                 </td>
-                <td style="padding: 0.55rem 0.5rem;">
-                    <div style="display: flex; align-items: center; gap: 0.4rem;">
-                        <div style="flex: 1; height: 5px; background: rgba(255,255,255,0.1); border-radius: 999px; overflow: hidden; width: 45px;">
-                            <div style="height: 100%; width: ${row.liquidity_score}%; background: ${row.liquidity_score >= 70 ? '#22c55e' : (row.liquidity_score >= 40 ? '#f59e0b' : '#ef4444')};"></div>
+                <td style="padding: 0.6rem 0.6rem;">
+                    <div style="display: flex; align-items: center; gap: 0.45rem;">
+                        <div style="flex: 1; height: 6px; background: #E2E8F0; border-radius: 999px; overflow: hidden; width: 45px;">
+                            <div style="height: 100%; width: ${row.liquidity_score}%; background: ${row.liquidity_score >= 70 ? '#10B981' : (row.liquidity_score >= 40 ? '#F59E0B' : '#EF4444')};"></div>
                         </div>
-                        <span style="font-size: 0.7rem; font-family: monospace; font-weight: 700; color: #cbd5e1;">${row.liquidity_score}</span>
+                        <span style="font-size: 0.72rem; font-family: monospace; font-weight: 800; color: #1E293B;">${row.liquidity_score}</span>
                     </div>
                 </td>
-                <td style="padding: 0.55rem 0.75rem; text-align: right;">
+                <td style="padding: 0.6rem 0.85rem; text-align: right;">
                     ${statusBadge}
                 </td>
             </tr>
@@ -4257,7 +4438,7 @@ function renderAIOpportunities(opps) {
     if (!tbody) return;
 
     if (!opps || opps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1rem; text-align: center; color: var(--text-muted);">No divergence events logged today yet. Scanner automatically tracks live spreads from 09:00 AM.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No divergence events logged today yet. Scanner automatically tracks live spreads from 09:00 AM.</td></tr>`;
         return;
     }
 
@@ -4265,32 +4446,46 @@ function renderAIOpportunities(opps) {
         const isReverted = opp.status === "Reverted (Success)";
         const isActive = opp.status === "Active";
 
-        let statusColor = "#94a3b8";
         let statusBadge = opp.status;
+        let badgeBg = "#F1F5F9";
+        let badgeColor = "#475569";
+        let badgeBorder = "#CBD5E1";
+
         if (isReverted) {
-            statusColor = "#4ade80";
+            badgeBg = "#ECFDF5";
+            badgeColor = "#047857";
+            badgeBorder = "#10B981";
             statusBadge = `✅ Reverted (+${opp.captured_pts} pts)`;
         } else if (isActive) {
-            statusColor = "#38bdf8";
+            badgeBg = "#EFF6FF";
+            badgeColor = "#1D4ED8";
+            badgeBorder = "#3B82F6";
             statusBadge = `⏳ Active Tracking`;
         } else {
-            statusColor = "#f87171";
+            badgeBg = "#FEF2F2";
+            badgeColor = "#DC2626";
+            badgeBorder = "#EF4444";
             statusBadge = `⚠️ Breakout`;
         }
 
-        const netPnlColor = opp.net_profit > 0 ? "#4ade80" : (opp.net_profit < 0 ? "#f87171" : "#94a3b8");
+        const netPnlColor = opp.net_profit > 0 ? "#059669" : (opp.net_profit < 0 ? "#DC2626" : "#64748B");
         const netPnlText = opp.net_profit !== 0 ? `${opp.net_profit > 0 ? '+' : ''}₹${opp.net_profit.toLocaleString()}` : (isActive ? "In Progress" : "₹0");
+        const dirColor = opp.direction === "Expansion" ? "#0284C7" : "#DC2626";
 
         return `
-            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); background: ${idx % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent'};">
-                <td style="padding: 0.45rem 0.65rem; font-family: monospace; color: #94a3b8;">${opp.timestamp}</td>
-                <td style="padding: 0.45rem 0.5rem; font-weight: 600; color: #e2e8f0;">${opp.pair}</td>
-                <td style="padding: 0.45rem 0.5rem; font-family: monospace; color: #facc15;">${opp.trigger_spread}</td>
-                <td style="padding: 0.45rem 0.5rem; font-family: monospace; color: #cbd5e1;">${opp.divergence_pts} pts</td>
-                <td style="padding: 0.45rem 0.5rem; font-weight: 700; color: ${opp.direction === 'Expansion' ? '#38bdf8' : '#f43f5e'};">${opp.direction}</td>
-                <td style="padding: 0.45rem 0.5rem; font-weight: 600; color: ${statusColor};">${statusBadge}</td>
-                <td style="padding: 0.45rem 0.5rem; font-family: monospace; color: #e2e8f0;">${opp.accuracy_score > 0 ? opp.accuracy_score + '%' : (isActive ? '--' : '0%')}</td>
-                <td style="padding: 0.45rem 0.65rem; text-align: right; font-family: monospace; font-weight: 700; color: ${netPnlColor};">${netPnlText}</td>
+            <tr style="border-bottom: 1.5px solid #E2E8F0; background: ${idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC'};">
+                <td style="padding: 0.55rem 0.75rem; font-family: monospace; color: #475569; font-weight: 600;">${opp.timestamp}</td>
+                <td style="padding: 0.55rem 0.6rem; font-weight: 700; color: #0F172A;">${opp.pair}</td>
+                <td style="padding: 0.55rem 0.6rem; font-family: monospace; font-weight: 800; color: #B45309;">${opp.trigger_spread}</td>
+                <td style="padding: 0.55rem 0.6rem; font-family: monospace; color: #334155; font-weight: 600;">${opp.divergence_pts} pts</td>
+                <td style="padding: 0.55rem 0.6rem; font-weight: 800; color: ${dirColor};">${opp.direction}</td>
+                <td style="padding: 0.55rem 0.6rem;">
+                    <span style="background: ${badgeBg}; color: ${badgeColor}; border: 1.5px solid ${badgeBorder}; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; display: inline-block;">
+                        ${statusBadge}
+                    </span>
+                </td>
+                <td style="padding: 0.55rem 0.6rem; font-family: monospace; font-weight: 700; color: #0F172A;">${opp.accuracy_score > 0 ? opp.accuracy_score + '%' : (isActive ? '--' : '0%')}</td>
+                <td style="padding: 0.55rem 0.75rem; text-align: right; font-family: monospace; font-weight: 800; font-size: 0.85rem; color: ${netPnlColor};">${netPnlText}</td>
             </tr>
         `;
     }).join("");
@@ -4306,7 +4501,7 @@ function renderAISummary(summary) {
     if (profitEl) {
         const p = summary.total_simulated_profit || 0.0;
         profitEl.innerText = `${p >= 0 ? '+' : ''}₹${p.toLocaleString()}`;
-        profitEl.style.color = p >= 0 ? "#4ade80" : "#f87171";
+        profitEl.style.color = p >= 0 ? "#059669" : "#DC2626";
     }
 }
 
