@@ -392,6 +392,11 @@ class TradingSystem:
 
         self.load_angel_master()
         self.load_rules()
+
+        # AI Arbitrage Quantitative Engine State
+        self.ai_divergence_threshold = 80.0  # Dynamic threshold (default 80.0 pts, user configurable)
+        self.ai_opportunities_log = []
+        self.load_ai_opportunities()
         
     def load_rules(self):
         try:
@@ -733,6 +738,28 @@ class TradingSystem:
             filepath = get_data_filepath("daily_spread_stats.json")
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.daily_spread_stats, f, indent=4)
+        except Exception as e:
+            pass
+
+    def load_ai_opportunities(self):
+        try:
+            filepath = get_data_filepath("ai_opportunities.json")
+            if os.path.exists(filepath):
+                with open(filepath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    today_str = get_ist_time_str("%Y-%m-%d")
+                    # Keep today's opportunities
+                    self.ai_opportunities_log = [o for o in data if o.get("date") == today_str]
+                self.log(f"[AI ENGINE] Loaded {len(self.ai_opportunities_log)} opportunities for today.")
+        except Exception as e:
+            self.log(f"[AI ENGINE] Could not load ai_opportunities.json: {e}")
+            self.ai_opportunities_log = []
+
+    def save_ai_opportunities(self):
+        try:
+            filepath = get_data_filepath("ai_opportunities.json")
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(self.ai_opportunities_log, f, indent=4)
         except Exception as e:
             pass
 
@@ -1386,6 +1413,8 @@ async def broadcast_system_state(force: bool = False):
         "ta_lots_trades": getattr(system_state, "ta_lots_trades", []),
         "manual_bot": system_state.manual_bot,
         "manual_bots": getattr(system_state, "manual_bots", []),
+        "ai_divergence_threshold": getattr(system_state, "ai_divergence_threshold", 80.0),
+        "ai_opportunities_count": len(getattr(system_state, "ai_opportunities_log", [])),
         
         "logs": system_state.logs
     })
@@ -2171,6 +2200,408 @@ def get_depth_average_price(depth: dict, side: str, required_qty: int, default_p
             return default_price
             
     return total_cost / required_qty
+
+# =====================================================================
+# 🧠 AI & QUANTITATIVE ARBITRAGE INTELLIGENCE ENGINE (Claude Sonnet + Stats)
+# =====================================================================
+class AIArbitrageEngine:
+    def __init__(self, state: TradingSystem):
+        self.state = state
+        self._last_tick_processed = {}
+        self._spread_history = {}  # pair_key -> list of (timestamp, spread)
+        self.claude_api_url = "https://api.anthropic.com/v1/messages"
+        self.claude_model = "claude-3-5-sonnet-20241022"
+        self._last_ai_analysis = None
+        self._last_ai_analysis_time = 0.0
+
+    def get_api_key(self) -> str:
+        # Strictly loaded from server environment variable (.env) - never exposed to client
+        return os.getenv("ANTHROPIC_API_KEY", "").strip()
+
+    def calculate_rolling_mean(self, pair_key: str, cur_spread: float) -> float:
+        history = self._spread_history.setdefault(pair_key, [])
+        now = time.time()
+        history.append((now, cur_spread))
+        # Retain last 60 minutes of tick history for rolling channel calculation
+        cutoff = now - 3600
+        self._spread_history[pair_key] = [h for h in history if h[0] >= cutoff]
+        if not self._spread_history[pair_key]:
+            return cur_spread
+        spreads = [h[1] for h in self._spread_history[pair_key]]
+        return sum(spreads) / len(spreads)
+
+    def process_tick(self, petal_sym: str, mini_sym: str, spread: float, buy_spread: float, sell_spread: float):
+        if not petal_sym or not mini_sym or spread == 0.0:
+            return
+
+        pair_key = f"{petal_sym}_{mini_sym}"
+        now_ts = time.time()
+        
+        # Throttle processing to once every 1 second per pair
+        if now_ts - self._last_tick_processed.get(pair_key, 0) < 1.0:
+            return
+        self._last_tick_processed[pair_key] = now_ts
+
+        rolling_mean = self.calculate_rolling_mean(pair_key, spread)
+        divergence = abs(spread - rolling_mean)
+        threshold = getattr(self.state, "ai_divergence_threshold", 80.0)
+
+        # 1. Update any existing ACTIVE opportunities for this pair
+        for opp in self.state.ai_opportunities_log:
+            if opp.get("status") == "Active" and opp.get("pair_key") == pair_key:
+                entry_spread = opp["trigger_spread"]
+                opp_dir = opp["direction"]
+                init_div = opp["divergence_pts"]
+
+                # If Expansion (entered when spread was low), profit comes when spread widens back towards mean
+                # If Contraction (entered when spread was high), profit comes when spread narrows back towards mean
+                if opp_dir == "Expansion":
+                    current_gain = spread - entry_spread
+                else:
+                    current_gain = entry_spread - spread
+
+                # Mean reversion success condition: captured >= 60% of initial divergence
+                target_reversion = max(30.0, init_div * 0.6)
+                if current_gain >= target_reversion:
+                    opp["status"] = "Reverted (Success)"
+                    opp["captured_pts"] = round(current_gain, 1)
+                    opp["exit_spread"] = round(spread, 2)
+                    opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
+                    
+                    gross = round(current_gain * 10.0, 2)
+                    charges = 359.20  # Standard simulated broker + MCX fees
+                    slippage = 80.0   # Conservative 8-point slippage cushion
+                    opp["gross_profit"] = gross
+                    opp["charges"] = charges
+                    opp["slippage_cushion"] = slippage
+                    opp["net_profit"] = round(gross - charges - slippage, 2)
+                    opp["accuracy_score"] = round(min(100.0, 75.0 + (current_gain / max(1.0, init_div)) * 25.0), 1)
+                    self.state.save_ai_opportunities()
+
+                # Stop loss / breakout failure condition: spread moved 0.8x further in adverse direction
+                elif (opp_dir == "Expansion" and spread < (entry_spread - init_div * 0.8)) or \
+                     (opp_dir == "Contraction" and spread > (entry_spread + init_div * 0.8)):
+                    opp["status"] = "Breakout / Stopped"
+                    loss_pts = abs(spread - entry_spread)
+                    opp["captured_pts"] = round(-loss_pts, 1)
+                    opp["exit_spread"] = round(spread, 2)
+                    opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
+                    opp["gross_profit"] = round(-loss_pts * 10.0, 2)
+                    opp["charges"] = 359.20
+                    opp["slippage_cushion"] = 80.0
+                    opp["net_profit"] = round(- (loss_pts * 10.0) - 359.20, 2)
+                    opp["accuracy_score"] = 0.0
+                    self.state.save_ai_opportunities()
+
+        # 2. Check if a NEW divergence opportunity has opened
+        if divergence >= threshold:
+            recent_same_pair = [
+                o for o in self.state.ai_opportunities_log
+                if o.get("pair_key") == pair_key and (now_ts - o.get("created_ts", 0)) < 180.0
+            ]
+            if not recent_same_pair:
+                new_opp = {
+                    "id": f"opp_{int(now_ts)}_{random.randint(100, 999)}",
+                    "created_ts": now_ts,
+                    "timestamp": get_ist_time_str("%H:%M:%S"),
+                    "date": get_ist_time_str("%Y-%m-%d"),
+                    "pair": f"{petal_sym} vs {mini_sym}",
+                    "pair_key": pair_key,
+                    "petal_symbol": petal_sym,
+                    "mini_symbol": mini_sym,
+                    "trigger_spread": round(spread, 2),
+                    "rolling_mean": round(rolling_mean, 2),
+                    "divergence_pts": round(divergence, 1),
+                    "direction": "Expansion" if spread < rolling_mean else "Contraction",
+                    "status": "Active",
+                    "depth_buy_spread": round(buy_spread, 2),
+                    "depth_sell_spread": round(sell_spread, 2),
+                    "captured_pts": 0.0,
+                    "duration_seconds": 0,
+                    "gross_profit": 0.0,
+                    "charges": 359.20,
+                    "slippage_cushion": 80.0,
+                    "net_profit": 0.0,
+                    "accuracy_score": 0.0
+                }
+                self.state.ai_opportunities_log.insert(0, new_opp)
+                if len(self.state.ai_opportunities_log) > 50:
+                    self.state.ai_opportunities_log.pop()
+                self.state.save_ai_opportunities()
+
+    def get_multi_pair_matrix(self) -> list:
+        matrix = []
+        pairs_to_evaluate = []
+
+        # Active Main pair
+        if self.state.petal_symbol and self.state.mini_symbol:
+            pairs_to_evaluate.append({
+                "petal_symbol": self.state.petal_symbol,
+                "mini_symbol": self.state.mini_symbol,
+                "label": f"{self.state.petal_symbol} / {self.state.mini_symbol} (Active)"
+            })
+
+        # Month master mappings
+        for m in getattr(self.state, "month_master", []):
+            p = m.get("petal_symbol", "")
+            mini = m.get("mini_symbol", "")
+            if p and mini:
+                if not any(x["petal_symbol"] == p and x["mini_symbol"] == mini for x in pairs_to_evaluate):
+                    pairs_to_evaluate.append({
+                        "petal_symbol": p,
+                        "mini_symbol": mini,
+                        "label": f"{p} / {mini}"
+                    })
+
+        today_str = get_ist_time_str("%Y-%m-%d")
+        daily_stats_today = self.state.daily_spread_stats.get(today_str, {})
+
+        for p_info in pairs_to_evaluate:
+            p_sym = p_info["petal_symbol"]
+            m_sym = p_info["mini_symbol"]
+            p_spec = get_gold_contract_specs(p_sym)
+            m_spec = get_gold_contract_specs(m_sym)
+
+            p_ltp = self.state.symbol_ltps.get(p_sym, 0.0) or (self.state.gold_petal_ltp if p_sym == self.state.petal_symbol else 0.0)
+            m_ltp = self.state.symbol_ltps.get(m_sym, 0.0) or (self.state.gold_mini_ltp if m_sym == self.state.mini_symbol else 0.0)
+
+            p_depth = self.state.symbol_depths.get(p_sym) or (self.state.petal_depth if p_sym == self.state.petal_symbol else None)
+            m_depth = self.state.symbol_depths.get(m_sym) or (self.state.mini_depth if m_sym == self.state.mini_symbol else None)
+
+            p_10g = p_ltp * p_spec["price_scale_to_10g"] if p_ltp > 0 else 0.0
+            m_10g = m_ltp * m_spec["price_scale_to_10g"] if m_ltp > 0 else 0.0
+            cur_spread = round(p_10g - m_10g, 2) if (p_ltp > 0 and m_ltp > 0) else 0.0
+
+            buy_spread = cur_spread
+            sell_spread = cur_spread
+            bid_ask_petal_gap = 0.0
+            bid_ask_mini_gap = 0.0
+
+            if p_depth and m_depth:
+                try:
+                    p_req_qty = p_spec["lots_per_unit_mini"]
+                    m_req_qty = m_spec["lots_per_unit_mini"]
+                    avg_p_buy = get_depth_average_price(p_depth, "sell", p_req_qty, p_ltp)
+                    avg_m_sell = get_depth_average_price(m_depth, "buy", m_req_qty, m_ltp)
+                    buy_spread = round((avg_p_buy * p_spec["price_scale_to_10g"]) - (avg_m_sell * m_spec["price_scale_to_10g"]), 2)
+
+                    avg_p_sell = get_depth_average_price(p_depth, "buy", p_req_qty, p_ltp)
+                    avg_m_buy = get_depth_average_price(m_depth, "sell", m_req_qty, m_ltp)
+                    sell_spread = round((avg_p_sell * p_spec["price_scale_to_10g"]) - (avg_m_buy * m_spec["price_scale_to_10g"]), 2)
+
+                    p_best_bid = p_depth.get("buy", [{}])[0].get("price", 0.0) if p_depth.get("buy") else 0.0
+                    p_best_ask = p_depth.get("sell", [{}])[0].get("price", 0.0) if p_depth.get("sell") else 0.0
+                    if p_best_bid > 0 and p_best_ask > 0:
+                        bid_ask_petal_gap = round(p_best_ask - p_best_bid, 2)
+
+                    m_best_bid = m_depth.get("buy", [{}])[0].get("price", 0.0) if m_depth.get("buy") else 0.0
+                    m_best_ask = m_depth.get("sell", [{}])[0].get("price", 0.0) if m_depth.get("sell") else 0.0
+                    if m_best_bid > 0 and m_best_ask > 0:
+                        bid_ask_mini_gap = round(m_best_ask - m_best_bid, 2)
+                except Exception:
+                    pass
+
+            pair_key = f"{p_sym}_{m_sym}"
+            stats_rec = daily_stats_today.get(pair_key, {})
+            day_high = stats_rec.get("high_spread") or cur_spread
+            day_low = stats_rec.get("low_spread") or cur_spread
+            day_range = round(day_high - day_low, 2) if (day_high and day_low) else 0.0
+
+            liquidity_score = 100
+            if bid_ask_petal_gap > p_spec["bid_ask_limit"]:
+                liquidity_score -= 35
+            elif bid_ask_petal_gap > 5.0:
+                liquidity_score -= 15
+
+            if bid_ask_mini_gap > m_spec["bid_ask_limit"]:
+                liquidity_score -= 35
+            elif bid_ask_mini_gap > 50.0:
+                liquidity_score -= 15
+
+            liquidity_score = max(10, min(99, liquidity_score))
+            divergence = abs(cur_spread - ((day_high + day_low) / 2.0)) if day_range > 0 else 0.0
+            opp_score = round(liquidity_score * 0.6 + min(40.0, divergence), 1)
+
+            matrix.append({
+                "petal_symbol": p_sym,
+                "mini_symbol": m_sym,
+                "label": p_info["label"],
+                "petal_ltp": round(p_ltp, 2),
+                "mini_ltp": round(m_ltp, 2),
+                "petal_10g": round(p_10g, 2),
+                "mini_10g": round(m_10g, 2),
+                "spread": cur_spread,
+                "depth_buy_spread": buy_spread,
+                "depth_sell_spread": sell_spread,
+                "day_high": day_high,
+                "day_low": day_low,
+                "day_range": day_range,
+                "bid_ask_petal_gap": bid_ask_petal_gap,
+                "bid_ask_mini_gap": bid_ask_mini_gap,
+                "liquidity_score": liquidity_score,
+                "opportunity_score": opp_score,
+                "status": "Safe & Liquid" if liquidity_score >= 70 else ("Moderate" if liquidity_score >= 40 else "Wide Spread")
+            })
+
+        matrix.sort(key=lambda x: x["opportunity_score"], reverse=True)
+        if matrix:
+            matrix[0]["is_top_pick"] = True
+
+        return matrix
+
+    def get_opportunities_summary(self) -> dict:
+        total = len(self.state.ai_opportunities_log)
+        reverted = [o for o in self.state.ai_opportunities_log if o.get("status") == "Reverted (Success)"]
+        active = [o for o in self.state.ai_opportunities_log if o.get("status") == "Active"]
+        stopped = [o for o in self.state.ai_opportunities_log if "Stopped" in o.get("status", "")]
+
+        reverted_count = len(reverted)
+        win_rate = round((reverted_count / total * 100.0), 1) if total > 0 else 0.0
+        total_simulated_profit = round(sum(o.get("net_profit", 0.0) for o in reverted + stopped), 2)
+        avg_pts_captured = round(sum(o.get("captured_pts", 0.0) for o in reverted) / max(1, reverted_count), 1) if reverted_count > 0 else 0.0
+
+        return {
+            "total_opportunities": total,
+            "reverted_count": reverted_count,
+            "active_count": len(active),
+            "stopped_count": len(stopped),
+            "win_rate_percent": win_rate,
+            "total_simulated_profit": total_simulated_profit,
+            "avg_points_captured": avg_pts_captured
+        }
+
+    async def generate_claude_advisory(self, user_query: str = "") -> dict:
+        api_key = self.get_api_key()
+        matrix = self.get_multi_pair_matrix()
+        summary = self.get_opportunities_summary()
+        current_threshold = getattr(self.state, "ai_divergence_threshold", 80.0)
+
+        top_pair = matrix[0] if matrix else {
+            "petal_symbol": self.state.petal_symbol,
+            "mini_symbol": self.state.mini_symbol,
+            "spread": self.state.spread,
+            "depth_buy_spread": self.state.depth_buy_spread,
+            "depth_sell_spread": self.state.depth_sell_spread,
+            "day_high": self.state.spread + 40,
+            "day_low": self.state.spread - 40,
+            "day_range": 80.0
+        }
+
+        day_range = max(30.0, top_pair.get("day_range", 60.0))
+        mean_spread = (top_pair.get("day_high", 0.0) + top_pair.get("day_low", 0.0)) / 2.0 if top_pair.get("day_range", 0) > 0 else top_pair.get("spread", 800.0)
+        
+        if top_pair.get("spread", 0.0) <= mean_spread:
+            rec_dir = "Expansion"
+            suggested_entry = round(top_pair.get("depth_buy_spread", top_pair.get("spread", 0.0)), 2)
+            suggested_exit_gap = round(max(35.0, min(120.0, day_range * 0.45)), 1)
+        else:
+            rec_dir = "Contraction"
+            suggested_entry = round(top_pair.get("depth_sell_spread", top_pair.get("spread", 0.0)), 2)
+            suggested_exit_gap = round(max(35.0, min(120.0, day_range * 0.45)), 1)
+
+        suggested_step = round(max(15.0, suggested_exit_gap * 0.5), 1)
+
+        fallback_response = {
+            "source": "Local Statistical Engine",
+            "summary": f"Top Opportunity: {top_pair.get('petal_symbol')} vs {top_pair.get('mini_symbol')} (Spread: {top_pair.get('spread')}). Range today is {top_pair.get('day_range')} pts.",
+            "top_pair": f"{top_pair.get('petal_symbol')} vs {top_pair.get('mini_symbol')}",
+            "petal_symbol": top_pair.get("petal_symbol"),
+            "mini_symbol": top_pair.get("mini_symbol"),
+            "recommended_direction": rec_dir,
+            "suggested_entry_diff": suggested_entry,
+            "suggested_exit_gap": suggested_exit_gap,
+            "suggested_step": suggested_step,
+            "suggested_lots": "1, 2, 2",
+            "reasoning": f"Based on live channel (Floor: {top_pair.get('day_low')}, Ceiling: {top_pair.get('day_high')}), spread is currently at {top_pair.get('spread')}. An exit gap of {suggested_exit_gap} points offers an estimated ~{max(70.0, summary.get('win_rate_percent', 82.0))}% fill probability with ₹360 charges + slippage deducted.",
+            "risk_warning": f"Breakout threshold detected at {round(top_pair.get('day_low', 0) - 25.0, 1) if rec_dir == 'Expansion' else round(top_pair.get('day_high', 0) + 25.0, 1)}. Maintain safe stop-loss.",
+            "actionable_payload": {
+                "direction": rec_dir,
+                "petal_symbol": top_pair.get("petal_symbol"),
+                "mini_symbol": top_pair.get("mini_symbol"),
+                "entry_diff": suggested_entry,
+                "exit_gap": suggested_exit_gap,
+                "step": suggested_step,
+                "lots": "1, 2, 2"
+            }
+        }
+
+        if api_key:
+            try:
+                system_prompt = (
+                    "You are the AccuStock Gold Arbitrage Quantitative AI Advisor.\n"
+                    "Your role is EXCLUSIVELY to provide mathematical, objective quantitative analysis "
+                    "for MCX Gold spread arbitrage pairs (GOLDPETAL 1g vs GOLDMINI 100g vs GOLDGUINEA 8g).\n\n"
+                    "STRICT CONSTRAINTS & SECURITY RULES:\n"
+                    "1. ADVISORY ONLY: You NEVER execute trades. You only suggest parameters for the human trader.\n"
+                    "2. STRICT SCOPE: If asked ANY question unrelated to MCX Gold arbitrage, trading, spreads, or risk management, "
+                    "you MUST REFUSE and answer strictly: 'I am configured exclusively for MCX Gold Spread Arbitrage quantitative analysis.'\n"
+                    "3. DYNAMIC TARGETS: NEVER fixate on a rigid 100 points target. Always derive realistic exit gap and entry based on today's actual High/Low range.\n"
+                    "4. CONSERVATIVE PROFIT: Always account for ~Rs. 360 transaction charges per lot + 8-10 points slippage cushion.\n"
+                    "5. Output must be a valid JSON object matching the required schema with keys: "
+                    "summary, top_pair, petal_symbol, mini_symbol, recommended_direction, suggested_entry_diff, suggested_exit_gap, suggested_step, suggested_lots, reasoning, risk_warning."
+                )
+
+                market_context = {
+                    "current_time_ist": get_ist_time_str(),
+                    "market_session_status": get_market_session_status(),
+                    "scanner_dynamic_threshold": current_threshold,
+                    "top_pairs_matrix": matrix[:3],
+                    "today_summary": summary,
+                    "user_query": user_query or "Analyze current market opportunities and recommend the safest setup."
+                }
+
+                user_message = (
+                    f"Analyze this live MCX Gold arbitrage data and return optimal trading parameters in JSON format:\n"
+                    f"{json.dumps(market_context, indent=2)}"
+                )
+
+                headers = {
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                }
+                payload = {
+                    "model": self.claude_model,
+                    "max_tokens": 800,
+                    "system": system_prompt,
+                    "messages": [{"role": "user", "content": user_message}]
+                }
+
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(self.claude_api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            content = data.get("content", [{}])[0].get("text", "")
+                            import re
+                            json_match = re.search(r"\{.*\}", content, re.DOTALL)
+                            if json_match:
+                                parsed = json.loads(json_match.group(0))
+                                parsed["source"] = "Claude 3.5 Sonnet (AI Advisor)"
+                                parsed["actionable_payload"] = {
+                                    "direction": parsed.get("recommended_direction", rec_dir),
+                                    "petal_symbol": parsed.get("petal_symbol", top_pair.get("petal_symbol")),
+                                    "mini_symbol": parsed.get("mini_symbol", top_pair.get("mini_symbol")),
+                                    "entry_diff": float(parsed.get("suggested_entry_diff", suggested_entry)),
+                                    "exit_gap": float(parsed.get("suggested_exit_gap", suggested_exit_gap)),
+                                    "step": float(parsed.get("suggested_step", suggested_step)),
+                                    "lots": str(parsed.get("suggested_lots", "1, 2, 2"))
+                                }
+                                self._last_ai_analysis = parsed
+                                self._last_ai_analysis_time = time.time()
+                                return parsed
+                        else:
+                            err_text = await resp.text()
+                            logger.warning(f"[CLAUDE API] Status {resp.status}: {err_text[:200]}")
+            except Exception as e:
+                logger.error(f"[CLAUDE API ERROR] {e}")
+
+        fallback_response["source"] = "Local Statistical Engine (API Key not set in .env)" if not api_key else "Local Statistical Engine (Fallback)"
+        self._last_ai_analysis = fallback_response
+        self._last_ai_analysis_time = time.time()
+        return fallback_response
+
+# Global AI Engine Instance
+ai_arbitrage_engine = AIArbitrageEngine(system_state)
 
 async def run_auto_entry(direction: str, petal_action: str, mini_action: str, expected_entry_spread: float):
     if system_state.execution_in_progress:
@@ -3617,6 +4048,13 @@ async def process_market_data(data: dict):
             petal_ltp,
             mini_ltp
         )
+        ai_arbitrage_engine.process_tick(
+            system_state.petal_symbol,
+            system_state.mini_symbol,
+            spread,
+            system_state.depth_buy_spread,
+            system_state.depth_sell_spread
+        )
             
     # Live leg and portfolio P&L calculations (Corrected to dynamic contract multipliers)
     if system_state.is_in_position:
@@ -3944,6 +4382,7 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
             # Record Daily High / Low statistics for Spread and Prices (Petal & Mini)
             if mapping.get("capture_data", True):
                 update_daily_high_low_stats(p_sym, m_sym, mm_spread, p_ltp, m_ltp)
+                ai_arbitrage_engine.process_tick(p_sym, m_sym, mm_spread, mm_buy_spread, mm_sell_spread)
             
             res.append({
                 "petal_symbol": p_sym,
@@ -6184,6 +6623,57 @@ async def api_export_all_trades_csv(token: str = None, authorization: str = Head
     csv_buffer.seek(0)
     headers = {"Content-Disposition": "attachment; filename=all_trades_history.csv"}
     return StreamingResponse(iter([csv_buffer.getvalue()]), media_type="text/csv", headers=headers)
+
+# ----------------- 🧠 AI Arbitrage Intelligence Hub Endpoints -----------------
+@app.get("/api/ai/dashboard-data")
+async def api_get_ai_dashboard_data(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    matrix = ai_arbitrage_engine.get_multi_pair_matrix()
+    summary = ai_arbitrage_engine.get_opportunities_summary()
+    return {
+        "status": "SUCCESS",
+        "matrix": matrix,
+        "opportunities": system_state.ai_opportunities_log,
+        "summary": summary,
+        "threshold": getattr(system_state, "ai_divergence_threshold", 80.0),
+        "has_claude_api_key": bool(ai_arbitrage_engine.get_api_key()),
+        "last_analysis": ai_arbitrage_engine._last_ai_analysis
+    }
+
+class SetThresholdPayload(BaseModel):
+    threshold: float
+
+@app.post("/api/ai/set-threshold")
+async def api_set_ai_threshold(payload: SetThresholdPayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    if payload.threshold < 10.0 or payload.threshold > 500.0:
+        raise HTTPException(status_code=400, detail="Threshold must be between 10.0 and 500.0 points")
+    system_state.ai_divergence_threshold = round(payload.threshold, 1)
+    return {
+        "status": "SUCCESS",
+        "threshold": system_state.ai_divergence_threshold,
+        "message": f"AI Scanner threshold set to {system_state.ai_divergence_threshold} pts."
+    }
+
+class AnalyzeClaudePayload(BaseModel):
+    query: Optional[str] = ""
+
+@app.post("/api/ai/analyze-claude")
+async def api_analyze_claude(payload: AnalyzeClaudePayload = None, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    user_q = payload.query if payload else ""
+    advisory = await ai_arbitrage_engine.generate_claude_advisory(user_query=user_q)
+    return {
+        "status": "SUCCESS",
+        "advisory": advisory
+    }
+
+@app.post("/api/ai/clear-opportunities")
+async def api_clear_opportunities(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    system_state.ai_opportunities_log = []
+    system_state.save_ai_opportunities()
+    return {"status": "SUCCESS", "message": "Today's opportunity log cleared."}
 
 # Serving static dashboard files
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

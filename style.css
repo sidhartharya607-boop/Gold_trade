@@ -2569,4 +2569,36 @@ body {
     }
 }
 
+/* =========================================================================
+   🧠 AI Arbitrage Intelligence Hub Aesthetic Styles
+   ========================================================================= */
+@keyframes aiPulseGlow {
+    0%, 100% {
+        box-shadow: 0 0 8px rgba(168, 85, 247, 0.4);
+    }
+    50% {
+        box-shadow: 0 0 16px rgba(168, 85, 247, 0.85);
+    }
+}
+
+.ai-badge-pulse {
+    animation: aiPulseGlow 2.5s infinite ease-in-out;
+}
+
+#ai-hub-modal .modal-card {
+    animation: aiModalFadeIn 0.25s ease-out;
+}
+
+@keyframes aiModalFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.96) translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+    }
+}
+
+
 

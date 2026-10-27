@@ -46,6 +46,10 @@
                 </div>
                 <!-- Top Workstation Dock Switchers -->
                 <div class="header-dock-controls desktop-only" style="display: flex; gap: 0.35rem; align-items: center; margin-left: 0.25rem; border-left: 1px solid var(--border-color); padding-left: 0.5rem;">
+                    <button id="top-btn-ai-hub" class="dock-toggle-btn" onclick="openAIHubModal()" title="Open AI Arbitrage Intelligence Hub" style="background: linear-gradient(135deg, rgba(147, 51, 234, 0.2), rgba(79, 70, 229, 0.2)); border: 1px solid rgba(168, 85, 247, 0.45); color: #c084fc;">
+                        <span>🧠 AI Hub</span>
+                        <span id="header-ai-opp-badge" style="background: #a855f7; color: #fff; font-size: 0.62rem; font-weight: 700; padding: 1px 5px; border-radius: 999px; margin-left: 0.25rem;">0</span>
+                    </button>
                     <button id="top-btn-toggle-left" class="dock-toggle-btn active" onclick="toggleLeftCol()" title="Toggle Bots Studio (Left Column)">
                         <span>🤖 Bots</span>
                     </button>
@@ -1236,6 +1240,13 @@
             </div>
             <span class="nav-tab-label">Settings</span>
         </button>
+        <button class="nav-tab" id="tab-btn-ai-hub" onclick="openAIHubModal()">
+            <div class="nav-tab-icon" style="position: relative;">
+                <span style="font-size: 1.15rem;">🧠</span>
+                <span id="mobile-ai-badge" class="nav-badge" style="display: none; background: #a855f7;">0</span>
+            </div>
+            <span class="nav-tab-label" style="color: #c084fc;">AI Hub</span>
+        </button>
     </nav>
     
     <!-- Modal: Edit Trade Target Gap / Target Spread -->
@@ -1379,6 +1390,187 @@
             </div>
         </div>
     </div>
+
+    <!-- =========================================================================
+         🧠 MODAL: AI ARBITRAGE INTELLIGENCE HUB (Claude Sonnet + Dynamic Quant)
+         ========================================================================= -->
+    <div id="ai-hub-modal" class="modal-overlay" style="display: none; z-index: 9999;">
+        <div class="modal-card" style="max-width: 950px; width: 96%; max-height: 90vh; display: flex; flex-direction: column; padding: 1.25rem; background: var(--bg-card, #131722); border: 1px solid rgba(168, 85, 247, 0.45); box-shadow: 0 20px 45px rgba(0,0,0,0.7), 0 0 30px rgba(168, 85, 247, 0.18);">
+            
+            <!-- Modal Header -->
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 0.85rem;">
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                    <span style="font-size: 1.4rem; filter: drop-shadow(0 0 6px #a855f7);">🧠</span>
+                    <div>
+                        <h3 style="margin: 0; font-size: 1.05rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                            AI Arbitrage Intelligence Hub
+                            <span id="ai-status-chip" style="font-size: 0.65rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3);">🟢 SCANNER ACTIVE</span>
+                        </h3>
+                        <p style="margin: 2px 0 0 0; font-size: 0.72rem; color: var(--text-muted, #94a3b8);">Multi-Pair Cross Spread Scanner &amp; Claude 3.5 Advisory (Strictly Human-Controlled Execution)</p>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.65rem;">
+                    <button type="button" class="action-btn" onclick="fetchAIHubData(true)" title="Refresh Scanner &amp; Claude Analysis" style="padding: 0.35rem 0.75rem; font-size: 0.75rem; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;">
+                        <span id="ai-refresh-spinner">🔄</span> Refresh Analysis
+                    </button>
+                    <button type="button" class="modal-close-btn" onclick="closeAIHubModal()" style="font-size: 1.4rem; color: #94a3b8; background: none; border: none; cursor: pointer; line-height: 1;">&times;</button>
+                </div>
+            </div>
+
+            <!-- Modal Body (Scrollable) -->
+            <div class="modal-body" style="overflow-y: auto; padding: 1rem 0; display: flex; flex-direction: column; gap: 1rem; flex: 1;">
+                
+                <!-- Dynamic Scanner Control Bar -->
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 0.75rem 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-secondary, #cbd5e1);">⚡ Dynamic Divergence Threshold:</span>
+                        <input type="range" id="ai-threshold-slider" min="30" max="200" step="5" value="80" oninput="onAIThresholdSliderChange(this.value)" style="width: 130px; cursor: pointer; accent-color: #a855f7;">
+                        <span id="ai-threshold-val-badge" class="font-mono" style="background: rgba(168,85,247,0.2); color: #c084fc; border: 1px solid rgba(168,85,247,0.4); padding: 2px 7px; border-radius: 4px; font-weight: 700; font-size: 0.8rem;">80.0 pts</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.72rem; color: var(--text-muted, #94a3b8);">
+                        <span>Rule: Divergence $\ge$ Threshold par Opportunity Log hogi (Not static)</span>
+                    </div>
+                </div>
+
+                <!-- TOP SECTION: Claude AI Advisory & Recommendation Card (Advisory Only) -->
+                <div id="ai-advisory-card" style="background: linear-gradient(135deg, rgba(30, 27, 75, 0.6), rgba(15, 23, 42, 0.8)); border: 1px solid rgba(168, 85, 247, 0.45); border-radius: 10px; padding: 1rem; box-shadow: 0 8px 24px rgba(0,0,0,0.35);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; margin-bottom: 0.75rem;">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 0.45rem;">
+                                <span style="font-size: 1rem;">💡</span>
+                                <strong style="font-size: 0.88rem; color: #e2e8f0;" id="ai-adv-source">Claude 3.5 Sonnet Analysis</strong>
+                                <span style="font-size: 0.65rem; background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.4); border-radius: 4px; padding: 1px 6px; font-weight: 700;">ADVISORY ONLY</span>
+                            </div>
+                            <p id="ai-adv-summary" style="margin: 0.35rem 0 0 0; font-size: 0.78rem; color: #cbd5e1; line-height: 1.45;">Analyzing current MCX Gold spread opportunities across combinations...</p>
+                        </div>
+                        <div id="ai-adv-profit-badge" style="text-align: right; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 6px; padding: 0.35rem 0.65rem; min-width: 140px;">
+                            <span style="font-size: 0.65rem; color: #94a3b8; display: block;">Expected Net/Lot:</span>
+                            <strong id="ai-adv-net-profit" class="font-mono" style="color: #4ade80; font-size: 0.95rem;">+₹640 In-Hand</strong>
+                            <span style="font-size: 0.6rem; color: #94a3b8; display: block;">(After ₹360 Tax &amp; Slippage)</span>
+                        </div>
+                    </div>
+
+                    <!-- Recommended Setup Parameters Grid -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; background: rgba(0,0,0,0.3); padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06); margin-bottom: 0.85rem;">
+                        <div>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); display: block;">Recommended Pair:</span>
+                            <strong id="ai-adv-pair" class="font-mono" style="font-size: 0.82rem; color: #f8fafc;">--</strong>
+                        </div>
+                        <div>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); display: block;">Direction:</span>
+                            <strong id="ai-adv-direction" class="font-mono" style="font-size: 0.82rem; color: #38bdf8;">--</strong>
+                        </div>
+                        <div>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); display: block;">Entry Spread:</span>
+                            <strong id="ai-adv-entry" class="font-mono" style="font-size: 0.82rem; color: #facc15;">--</strong>
+                        </div>
+                        <div>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); display: block;">Realistic Exit Gap:</span>
+                            <strong id="ai-adv-exit-gap" class="font-mono" style="font-size: 0.82rem; color: #4ade80;">--</strong>
+                        </div>
+                        <div>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); display: block;">Averaging Step:</span>
+                            <strong id="ai-adv-step" class="font-mono" style="font-size: 0.82rem; color: #cbd5e1;">--</strong>
+                        </div>
+                        <div>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); display: block;">Safe Lots Ladder:</span>
+                            <strong id="ai-adv-lots" class="font-mono" style="font-size: 0.82rem; color: #cbd5e1;">1, 2, 2</strong>
+                        </div>
+                    </div>
+
+                    <!-- Reasoning & 1-Click Action Footer -->
+                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
+                        <div id="ai-adv-reasoning" style="font-size: 0.73rem; color: #94a3b8; max-width: 65%;">
+                            💡 Based on live channel and liquidity depth. Click below to load these parameters into your Lots Bot setup.
+                        </div>
+                        <button type="button" id="btn-ai-1click-apply" onclick="applyAISuggestionToBot()" class="update-button" style="width: auto; padding: 0.5rem 1.25rem; font-size: 0.82rem; font-weight: 700; background: linear-gradient(135deg, #a855f7, #6366f1); border: none; border-radius: 6px; box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4); cursor: pointer; color: #fff;">
+                            🚀 1-Click Load into Lots Bot
+                        </button>
+                    </div>
+                </div>
+
+                <!-- MIDDLE SECTION: Multi-Pair Opportunity Matrix (Live Leaderboard) -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h4 style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+                            <span>📊 Multi-Combination Matrix</span>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: normal;">(Normalized 10g Scale)</span>
+                        </h4>
+                        <span style="font-size: 0.7rem; color: var(--text-muted);">Auto-ranked by Liquidity &amp; Opportunity</span>
+                    </div>
+
+                    <div style="overflow-x: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.75rem; text-align: left;">
+                            <thead>
+                                <tr style="background: rgba(255,255,255,0.04); border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary);">
+                                    <th style="padding: 0.55rem 0.75rem;">Combination Pair</th>
+                                    <th style="padding: 0.55rem 0.5rem;">Live Spread</th>
+                                    <th style="padding: 0.55rem 0.5rem;">Depth Buy / Sell</th>
+                                    <th style="padding: 0.55rem 0.5rem;">Today's Range (H/L)</th>
+                                    <th style="padding: 0.55rem 0.5rem;">Slippage Gap</th>
+                                    <th style="padding: 0.55rem 0.5rem;">Liquidity Score</th>
+                                    <th style="padding: 0.55rem 0.75rem; text-align: right;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ai-matrix-tbody">
+                                <tr>
+                                    <td colspan="7" style="padding: 1rem; text-align: center; color: var(--text-muted);">Loading live combination matrix...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- BOTTOM SECTION: Today's Dynamic Opportunities & Accuracy Tracker ("What-If" Log) -->
+                <div>
+                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <h4 style="margin: 0; font-size: 0.88rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 0.4rem;">
+                            <span>🎯 Today's Opportunity &amp; Accuracy Log</span>
+                            <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: normal;">(Divergence $\ge$ Threshold Events)</span>
+                        </h4>
+                        
+                        <!-- Summary Stats Pill -->
+                        <div id="ai-opp-summary-pill" style="display: flex; align-items: center; gap: 0.75rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); padding: 0.25rem 0.65rem; border-radius: 6px; font-size: 0.72rem;">
+                            <span>Total Events: <strong id="ai-stat-total" style="color: #fff;">0</strong></span>
+                            <span>Win Rate: <strong id="ai-stat-winrate" style="color: #4ade80;">0.0%</strong></span>
+                            <span>Simulated Net: <strong id="ai-stat-profit" class="font-mono" style="color: #4ade80;">₹0</strong></span>
+                            <button type="button" onclick="clearAIOpportunities()" title="Clear today's log" style="background: none; border: none; color: #94a3b8; cursor: pointer; font-size: 0.7rem; padding: 0 0.25rem;">🗑️</button>
+                        </div>
+                    </div>
+
+                    <div style="overflow-x: auto; max-height: 220px; overflow-y: auto; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.74rem; text-align: left;">
+                            <thead style="position: sticky; top: 0; z-index: 2;">
+                                <tr style="background: #171b26; border-bottom: 1px solid rgba(255,255,255,0.08); color: var(--text-secondary);">
+                                    <th style="padding: 0.5rem 0.65rem;">Time</th>
+                                    <th style="padding: 0.5rem 0.5rem;">Pair</th>
+                                    <th style="padding: 0.5rem 0.5rem;">Trigger Spread</th>
+                                    <th style="padding: 0.5rem 0.5rem;">Divergence</th>
+                                    <th style="padding: 0.5rem 0.5rem;">Direction</th>
+                                    <th style="padding: 0.5rem 0.5rem;">Outcome</th>
+                                    <th style="padding: 0.5rem 0.5rem;">Accuracy %</th>
+                                    <th style="padding: 0.5rem 0.65rem; text-align: right;">Simulated Net P&amp;L</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ai-opportunities-tbody">
+                                <tr>
+                                    <td colspan="8" style="padding: 1rem; text-align: center; color: var(--text-muted);">No divergence events logged today yet. Scanner tracks spreads live from market open.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 0.75rem;">
+                <span style="font-size: 0.7rem; color: var(--text-muted);">🔒 Safety Shield Active: Orders only execute when you manually confirm. API key is 100% server-protected.</span>
+                <button type="button" class="metallic-button" onclick="closeAIHubModal()" style="padding: 0.4rem 1.25rem; font-size: 0.78rem;">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Floating Screen Edge Quick-Expand Buttons -->
     <button id="floating-expand-left" class="floating-col-toggle floating-left desktop-only" onclick="toggleLeftCol()" style="display: none;" title="Open Bot Studio (Left Column)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>

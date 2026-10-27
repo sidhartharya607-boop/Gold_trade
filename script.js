@@ -4048,4 +4048,325 @@ if (mbotStartBtn) {
     });
 }
 
+// =========================================================================
+// 🧠 AI ARBITRAGE INTELLIGENCE HUB & CLAUDE 3.5 COPILOT CLIENT
+// =========================================================================
+let _aiThresholdDebounceTimer = null;
+window._lastAIActionablePayload = null;
+
+function openAIHubModal() {
+    const modal = document.getElementById("ai-hub-modal");
+    if (modal) {
+        modal.style.display = "flex";
+        fetchAIHubData(false);
+    }
+}
+
+function closeAIHubModal() {
+    const modal = document.getElementById("ai-hub-modal");
+    if (modal) modal.style.display = "none";
+}
+
+function onAIThresholdSliderChange(val) {
+    const badge = document.getElementById("ai-threshold-val-badge");
+    if (badge) badge.innerText = `${parseFloat(val).toFixed(1)} pts`;
+
+    clearTimeout(_aiThresholdDebounceTimer);
+    _aiThresholdDebounceTimer = setTimeout(() => {
+        postAction("ai/set-threshold", { threshold: parseFloat(val) }).then(res => {
+            if (res && res.status === "SUCCESS") {
+                logLocalMessage(`[AI SCANNER] Divergence threshold updated to ${res.threshold} pts.`);
+            }
+        });
+    }, 400);
+}
+
+function clearAIOpportunities() {
+    if (!confirm("Are you sure you want to clear today's AI opportunity log?")) return;
+    postAction("ai/clear-opportunities", {}).then(() => {
+        fetchAIHubData(false);
+    });
+}
+
+function fetchAIHubData(forceClaude = false) {
+    const spinner = document.getElementById("ai-refresh-spinner");
+    if (spinner) spinner.style.animation = "spin 1s linear infinite";
+
+    const httpProtocol = window.location.protocol;
+    const url = `${httpProtocol}//${host}/api/ai/dashboard-data${getAuthTokenParam()}`;
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            if (data && data.status === "SUCCESS") {
+                renderAIMatrix(data.matrix || []);
+                renderAIOpportunities(data.opportunities || []);
+                renderAISummary(data.summary || {});
+
+                // Update threshold slider if user is not currently dragging it
+                const slider = document.getElementById("ai-threshold-slider");
+                const badge = document.getElementById("ai-threshold-val-badge");
+                if (slider && document.activeElement !== slider && data.threshold) {
+                    slider.value = data.threshold;
+                    if (badge) badge.innerText = `${parseFloat(data.threshold).toFixed(1)} pts`;
+                }
+
+                // Update badges
+                const oppCount = (data.opportunities || []).length;
+                const topAiBadge = document.getElementById("header-ai-opp-badge");
+                const mobileAiBadge = document.getElementById("mobile-ai-badge");
+                if (topAiBadge) topAiBadge.innerText = oppCount;
+                if (mobileAiBadge) {
+                    mobileAiBadge.innerText = oppCount;
+                    mobileAiBadge.style.display = oppCount > 0 ? "inline-block" : "none";
+                }
+
+                // If user pressed Refresh or no previous analysis cached, call Claude
+                if (forceClaude || !data.last_analysis) {
+                    callClaudeAnalysis();
+                } else if (data.last_analysis) {
+                    renderClaudeAdvisory(data.last_analysis);
+                }
+            }
+        })
+        .catch(err => {
+            console.error("Error fetching AI dashboard data:", err);
+        })
+        .finally(() => {
+            if (spinner) spinner.style.animation = "";
+        });
+}
+
+function callClaudeAnalysis(userQuery = "") {
+    const advSummaryEl = document.getElementById("ai-adv-summary");
+    if (advSummaryEl) advSummaryEl.innerText = "Analyzing live order books & running quantitative channel model with Claude...";
+
+    postAction("ai/analyze-claude", { query: userQuery }).then(res => {
+        if (res && res.status === "SUCCESS" && res.advisory) {
+            renderClaudeAdvisory(res.advisory);
+        }
+    });
+}
+
+function renderClaudeAdvisory(adv) {
+    window._lastAIActionablePayload = adv.actionable_payload || {
+        direction: adv.recommended_direction || "Expansion",
+        petal_symbol: adv.petal_symbol || "",
+        mini_symbol: adv.mini_symbol || "",
+        entry_diff: adv.suggested_entry_diff || 900,
+        exit_gap: adv.suggested_exit_gap || 60,
+        step: adv.suggested_step || 30,
+        lots: adv.suggested_lots || "1, 2, 2"
+    };
+
+    const srcEl = document.getElementById("ai-adv-source");
+    const summaryEl = document.getElementById("ai-adv-summary");
+    const pairEl = document.getElementById("ai-adv-pair");
+    const dirEl = document.getElementById("ai-adv-direction");
+    const entryEl = document.getElementById("ai-adv-entry");
+    const exitEl = document.getElementById("ai-adv-exit-gap");
+    const stepEl = document.getElementById("ai-adv-step");
+    const lotsEl = document.getElementById("ai-adv-lots");
+    const reasoningEl = document.getElementById("ai-adv-reasoning");
+    const profitEl = document.getElementById("ai-adv-net-profit");
+
+    if (srcEl) srcEl.innerText = adv.source || "Claude 3.5 Sonnet Analysis";
+    if (summaryEl) summaryEl.innerText = adv.summary || "";
+    if (pairEl) pairEl.innerText = adv.top_pair || "--";
+    if (dirEl) {
+        dirEl.innerText = adv.recommended_direction || "Expansion";
+        dirEl.style.color = adv.recommended_direction === "Expansion" ? "#38bdf8" : "#f43f5e";
+    }
+    if (entryEl) entryEl.innerText = `${adv.suggested_entry_diff} pts`;
+    if (exitEl) exitEl.innerText = `${adv.suggested_exit_gap} pts`;
+    if (stepEl) stepEl.innerText = `${adv.suggested_step} pts`;
+    if (lotsEl) lotsEl.innerText = adv.suggested_lots || "1, 2, 2";
+    if (reasoningEl) reasoningEl.innerHTML = `💡 ${adv.reasoning || ""}`;
+
+    // Estimated net in-hand profit (Exit Gap * 10 - Rs 360 charges - 8 pts slippage)
+    const exitGap = parseFloat(adv.suggested_exit_gap) || 60.0;
+    const grossProfit = exitGap * 10.0;
+    const estimatedNet = Math.max(0, Math.round(grossProfit - 359.20 - 80.0));
+    if (profitEl) profitEl.innerText = `+₹${estimatedNet} In-Hand`;
+}
+
+function renderAIMatrix(matrix) {
+    const tbody = document.getElementById("ai-matrix-tbody");
+    if (!tbody) return;
+
+    if (!matrix || matrix.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="padding: 1rem; text-align: center; color: var(--text-muted);">No combinations available. Add pairs in Month Master.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = matrix.map((row, idx) => {
+        const isTop = row.is_top_pick;
+        const bg = isTop ? "rgba(168, 85, 247, 0.08)" : (idx % 2 === 0 ? "rgba(255,255,255,0.015)" : "transparent");
+        const border = isTop ? "border-left: 3px solid #a855f7;" : "";
+
+        let statusBadge = `<span style="background: rgba(34, 197, 94, 0.15); color: #22c55e; border: 1px solid rgba(34, 197, 94, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Safe</span>`;
+        if (row.liquidity_score < 40) {
+            statusBadge = `<span style="background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Wide Gap</span>`;
+        } else if (row.liquidity_score < 70) {
+            statusBadge = `<span style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); padding: 1px 6px; border-radius: 4px; font-size: 0.68rem; font-weight: 700;">Moderate</span>`;
+        }
+
+        return `
+            <tr style="background: ${bg}; ${border} border-bottom: 1px solid rgba(255,255,255,0.04);">
+                <td style="padding: 0.55rem 0.75rem; font-weight: 600;">
+                    ${isTop ? '<span style="color: #fbbf24; margin-right: 4px;" title="Top Opportunity">⭐</span>' : ''}
+                    <strong style="color: #e2e8f0;">${row.label}</strong>
+                </td>
+                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-weight: 700; color: #facc15;">
+                    ${row.spread.toFixed(2)}
+                </td>
+                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-size: 0.72rem; color: #94a3b8;">
+                    <span style="color: #38bdf8;">B: ${row.depth_buy_spread.toFixed(1)}</span> / 
+                    <span style="color: #f43f5e;">S: ${row.depth_sell_spread.toFixed(1)}</span>
+                </td>
+                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-size: 0.72rem; color: #cbd5e1;">
+                    ${row.day_low} ── ${row.day_high} (${row.day_range} pts)
+                </td>
+                <td style="padding: 0.55rem 0.5rem; font-family: monospace; font-size: 0.72rem; color: #94a3b8;">
+                    ₹${row.bid_ask_petal_gap} / ₹${row.bid_ask_mini_gap}
+                </td>
+                <td style="padding: 0.55rem 0.5rem;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem;">
+                        <div style="flex: 1; height: 5px; background: rgba(255,255,255,0.1); border-radius: 999px; overflow: hidden; width: 45px;">
+                            <div style="height: 100%; width: ${row.liquidity_score}%; background: ${row.liquidity_score >= 70 ? '#22c55e' : (row.liquidity_score >= 40 ? '#f59e0b' : '#ef4444')};"></div>
+                        </div>
+                        <span style="font-size: 0.7rem; font-family: monospace; font-weight: 700; color: #cbd5e1;">${row.liquidity_score}</span>
+                    </div>
+                </td>
+                <td style="padding: 0.55rem 0.75rem; text-align: right;">
+                    ${statusBadge}
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function renderAIOpportunities(opps) {
+    const tbody = document.getElementById("ai-opportunities-tbody");
+    if (!tbody) return;
+
+    if (!opps || opps.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1rem; text-align: center; color: var(--text-muted);">No divergence events logged today yet. Scanner automatically tracks live spreads from 09:00 AM.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = opps.map((opp, idx) => {
+        const isReverted = opp.status === "Reverted (Success)";
+        const isActive = opp.status === "Active";
+
+        let statusColor = "#94a3b8";
+        let statusBadge = opp.status;
+        if (isReverted) {
+            statusColor = "#4ade80";
+            statusBadge = `✅ Reverted (+${opp.captured_pts} pts)`;
+        } else if (isActive) {
+            statusColor = "#38bdf8";
+            statusBadge = `⏳ Active Tracking`;
+        } else {
+            statusColor = "#f87171";
+            statusBadge = `⚠️ Breakout`;
+        }
+
+        const netPnlColor = opp.net_profit > 0 ? "#4ade80" : (opp.net_profit < 0 ? "#f87171" : "#94a3b8");
+        const netPnlText = opp.net_profit !== 0 ? `${opp.net_profit > 0 ? '+' : ''}₹${opp.net_profit.toLocaleString()}` : (isActive ? "In Progress" : "₹0");
+
+        return `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); background: ${idx % 2 === 0 ? 'rgba(255,255,255,0.015)' : 'transparent'};">
+                <td style="padding: 0.45rem 0.65rem; font-family: monospace; color: #94a3b8;">${opp.timestamp}</td>
+                <td style="padding: 0.45rem 0.5rem; font-weight: 600; color: #e2e8f0;">${opp.pair}</td>
+                <td style="padding: 0.45rem 0.5rem; font-family: monospace; color: #facc15;">${opp.trigger_spread}</td>
+                <td style="padding: 0.45rem 0.5rem; font-family: monospace; color: #cbd5e1;">${opp.divergence_pts} pts</td>
+                <td style="padding: 0.45rem 0.5rem; font-weight: 700; color: ${opp.direction === 'Expansion' ? '#38bdf8' : '#f43f5e'};">${opp.direction}</td>
+                <td style="padding: 0.45rem 0.5rem; font-weight: 600; color: ${statusColor};">${statusBadge}</td>
+                <td style="padding: 0.45rem 0.5rem; font-family: monospace; color: #e2e8f0;">${opp.accuracy_score > 0 ? opp.accuracy_score + '%' : (isActive ? '--' : '0%')}</td>
+                <td style="padding: 0.45rem 0.65rem; text-align: right; font-family: monospace; font-weight: 700; color: ${netPnlColor};">${netPnlText}</td>
+            </tr>
+        `;
+    }).join("");
+}
+
+function renderAISummary(summary) {
+    const totalEl = document.getElementById("ai-stat-total");
+    const winrateEl = document.getElementById("ai-stat-winrate");
+    const profitEl = document.getElementById("ai-stat-profit");
+
+    if (totalEl) totalEl.innerText = summary.total_opportunities || 0;
+    if (winrateEl) winrateEl.innerText = `${summary.win_rate_percent || 0.0}%`;
+    if (profitEl) {
+        const p = summary.total_simulated_profit || 0.0;
+        profitEl.innerText = `${p >= 0 ? '+' : ''}₹${p.toLocaleString()}`;
+        profitEl.style.color = p >= 0 ? "#4ade80" : "#f87171";
+    }
+}
+
+function applyAISuggestionToBot() {
+    if (!window._lastAIActionablePayload) {
+        alert("No AI recommendation loaded yet. Please click Refresh Analysis.");
+        return;
+    }
+    const payload = window._lastAIActionablePayload;
+
+    // 1. Populate Lots Bot inputs
+    const dirEl = document.getElementById("ta-lots-select-direction");
+    const entryEl = document.getElementById("ta-lots-input-entry-diff");
+    const stepEl = document.getElementById("ta-lots-input-averaging-step");
+    const exitEl = document.getElementById("ta-lots-input-exit-gap");
+    const lotsEl = document.getElementById("ta-lots-input-lots");
+    const monthSelectEl = document.getElementById("ta-lots-select-month");
+
+    if (dirEl && payload.direction) dirEl.value = payload.direction;
+    if (entryEl && payload.entry_diff !== undefined) entryEl.value = payload.entry_diff;
+    if (stepEl && payload.step !== undefined) stepEl.value = payload.step;
+    if (exitEl && payload.exit_gap !== undefined) exitEl.value = payload.exit_gap;
+    if (lotsEl && payload.lots) {
+        lotsEl.value = payload.lots;
+        lotsEl.dispatchEvent(new Event("input"));
+    }
+
+    if (monthSelectEl && payload.petal_symbol && payload.mini_symbol) {
+        for (let i = 0; i < monthSelectEl.options.length; i++) {
+            const opt = monthSelectEl.options[i];
+            if (opt.text.includes(payload.petal_symbol) || opt.value.includes(payload.petal_symbol)) {
+                monthSelectEl.selectedIndex = i;
+                break;
+            }
+        }
+    }
+
+    // 2. Close modal
+    closeAIHubModal();
+
+    // 3. Switch left studio tab to 'lots' and ensure left column is open
+    if (typeof switchLeftTab === "function") {
+        switchLeftTab("lots");
+    }
+    if (typeof toggleLeftCol === "function") {
+        const leftCol = document.getElementById("workstation-col-left");
+        if (leftCol && leftCol.classList.contains("collapsed")) {
+            toggleLeftCol();
+        }
+    }
+
+    // 4. Highlight the form with glowing animation
+    const formCard = document.getElementById("card-trade-automation-lots");
+    if (formCard) {
+        formCard.scrollIntoView({ behavior: "smooth", block: "center" });
+        formCard.style.transition = "box-shadow 0.4s ease, border-color 0.4s ease";
+        formCard.style.boxShadow = "0 0 25px rgba(168, 85, 247, 0.7)";
+        formCard.style.borderColor = "#a855f7";
+        setTimeout(() => {
+            formCard.style.boxShadow = "";
+            formCard.style.borderColor = "";
+        }, 2500);
+    }
+
+    logLocalMessage(`[AI HUB] Loaded setup: Entry ${payload.entry_diff}, Target Gap ${payload.exit_gap}, Step ${payload.step}, Lots: ${payload.lots}. Please review lots and click 'Add Bot Instance' when ready.`);
+    alert(`✅ AI Recommended Setup Loaded!\n\n• Direction: ${payload.direction}\n• Entry Diff: ${payload.entry_diff}\n• Exit Gap: ${payload.exit_gap} pts\n• Averaging Step: ${payload.step} pts\n• Lots Ladder: ${payload.lots}\n\nForm has been auto-filled. Please review your quantities and click 'Add Bot Instance' to start.`);
+}
+
 
