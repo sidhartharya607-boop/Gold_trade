@@ -4121,9 +4121,9 @@ function fetchAIHubData(forceClaude = false) {
                     mobileAiBadge.style.display = oppCount > 0 ? "inline-block" : "none";
                 }
 
-                // Check if cached analysis is stale (was generated before API key was set)
+                // Check if cached analysis is stale (was generated before API key was set or encountered previous error)
                 const lastSource = (data.last_analysis && data.last_analysis.source) || "";
-                const isStaleFallback = lastSource.includes("not set") || lastSource.includes("Fallback");
+                const isStaleFallback = lastSource.includes("not set") || lastSource.includes("Fallback") || lastSource.includes("Error") || lastSource.includes("Statistical");
                 const shouldCallClaude = forceClaude || !data.last_analysis || (data.has_claude_api_key && isStaleFallback);
                 window._hasClaudeApiKey = !!data.has_claude_api_key;
 
@@ -4290,11 +4290,20 @@ function renderClaudeAdvisory(adv) {
     if (lotsEl) lotsEl.innerText = adv.suggested_lots || "1, 2, 2";
     if (reasoningEl) reasoningEl.innerHTML = `💡 ${adv.reasoning || ""}`;
 
-    // Estimated net in-hand profit (Exit Gap * 10 - Rs 360 charges - 8 pts slippage)
+    // Dynamic Estimated net in-hand profit based on exact traded grams
     const exitGap = parseFloat(adv.suggested_exit_gap) || 60.0;
-    const grossProfit = exitGap * 10.0;
-    const estimatedNet = Math.max(0, Math.round(grossProfit - 359.20 - 80.0));
-    if (profitEl) profitEl.innerText = `+₹${estimatedNet} In-Hand`;
+    const grams = parseFloat(adv.trade_grams) || 100.0;
+    const mult = adv.multiplier_10g_scale !== undefined ? parseFloat(adv.multiplier_10g_scale) : (grams / 10.0);
+    const charges = adv.total_charges !== undefined ? parseFloat(adv.total_charges) : Math.round(80 + (grams * 7200 * 4 * 0.000035));
+    const slippage = adv.slippage_cushion !== undefined ? parseFloat(adv.slippage_cushion) : Math.round((grams / 10.0) * 8.0);
+    const grossProfit = exitGap * mult;
+    const estimatedNet = adv.estimated_net_profit !== undefined ? adv.estimated_net_profit : Math.max(0, Math.round(grossProfit - charges - slippage));
+    
+    if (profitEl) profitEl.innerText = `+₹${estimatedNet.toLocaleString()} In-Hand`;
+    const profitSubtext = document.getElementById("ai-adv-profit-subtext");
+    if (profitSubtext) {
+        profitSubtext.innerText = `Based on ${grams}g weight (₹${charges} charges + ₹${slippage} slippage cushion)`;
+    }
 }
 
 // Category Filter Controller for Multi-Pair Matrix
@@ -4438,44 +4447,66 @@ function renderAIOpportunities(opps) {
     if (!tbody) return;
 
     if (!opps || opps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No divergence events logged today yet. Scanner automatically tracks live spreads from 09:00 AM.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No trades or divergence events logged today yet. Scanner automatically tracks live trades and spread events.</td></tr>`;
         return;
     }
 
     tbody.innerHTML = opps.map((opp, idx) => {
+        const isReal = opp.is_real_trade || (opp.status && opp.status.includes("Real"));
         const isReverted = opp.status === "Reverted (Success)";
-        const isActive = opp.status === "Active";
+        const isActive = opp.status === "Active" || (opp.status && opp.status.includes("Active"));
 
         let statusBadge = opp.status;
         let badgeBg = "#F1F5F9";
         let badgeColor = "#475569";
         let badgeBorder = "#CBD5E1";
 
-        if (isReverted) {
-            badgeBg = "#ECFDF5";
-            badgeColor = "#047857";
-            badgeBorder = "#10B981";
-            statusBadge = `✅ Reverted (+${opp.captured_pts} pts)`;
-        } else if (isActive) {
+        if (isReal) {
+            if (isActive) {
+                badgeBg = "#EFF6FF";
+                badgeColor = "#1D4ED8";
+                badgeBorder = "#3B82F6";
+                statusBadge = `🎯 Active Position (Live)`;
+            } else if (opp.net_profit >= 0) {
+                badgeBg = "#ECFDF5";
+                badgeColor = "#047857";
+                badgeBorder = "#10B981";
+                statusBadge = `🎯 Real Trade (+${opp.captured_pts} pts)`;
+            } else {
+                badgeBg = "#FEF2F2";
+                badgeColor = "#DC2626";
+                badgeBorder = "#EF4444";
+                statusBadge = `🎯 Real Trade (${opp.captured_pts} pts)`;
+            }
+        } else if (isReverted) {
             badgeBg = "#EFF6FF";
             badgeColor = "#1D4ED8";
             badgeBorder = "#3B82F6";
+            statusBadge = `✅ Reverted (+${opp.captured_pts} pts)`;
+        } else if (isActive) {
+            badgeBg = "#FFFBEB";
+            badgeColor = "#B45309";
+            badgeBorder = "#F59E0B";
             statusBadge = `⏳ Active Tracking`;
         } else {
-            badgeBg = "#FEF2F2";
-            badgeColor = "#DC2626";
-            badgeBorder = "#EF4444";
+            badgeBg = "#F8FAFC";
+            badgeColor = "#64748B";
+            badgeBorder = "#CBD5E1";
             statusBadge = `⚠️ Breakout`;
         }
 
         const netPnlColor = opp.net_profit > 0 ? "#059669" : (opp.net_profit < 0 ? "#DC2626" : "#64748B");
         const netPnlText = opp.net_profit !== 0 ? `${opp.net_profit > 0 ? '+' : ''}₹${opp.net_profit.toLocaleString()}` : (isActive ? "In Progress" : "₹0");
         const dirColor = opp.direction === "Expansion" ? "#0284C7" : "#DC2626";
+        const gramsBadge = opp.grams ? `<span style="font-size: 0.65rem; background: #EEF2F6; color: #475569; padding: 1px 5px; border-radius: 4px; font-weight: 700; margin-left: 4px;">${opp.grams}g</span>` : '';
+        const realTag = isReal ? `<span style="background: #10B981; color: #FFFFFF; font-size: 0.6rem; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-right: 4px;">REAL</span>` : '';
 
         return `
-            <tr style="border-bottom: 1.5px solid #E2E8F0; background: ${idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC'};">
+            <tr style="border-bottom: 1.5px solid #E2E8F0; background: ${isReal ? 'rgba(16, 185, 129, 0.04)' : (idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC')};">
                 <td style="padding: 0.55rem 0.75rem; font-family: monospace; color: #475569; font-weight: 600;">${opp.timestamp}</td>
-                <td style="padding: 0.55rem 0.6rem; font-weight: 700; color: #0F172A;">${opp.pair}</td>
+                <td style="padding: 0.55rem 0.6rem; font-weight: 700; color: #0F172A;">
+                    ${realTag}<strong>${opp.pair}</strong>${gramsBadge}
+                </td>
                 <td style="padding: 0.55rem 0.6rem; font-family: monospace; font-weight: 800; color: #B45309;">${opp.trigger_spread}</td>
                 <td style="padding: 0.55rem 0.6rem; font-family: monospace; color: #334155; font-weight: 600;">${opp.divergence_pts} pts</td>
                 <td style="padding: 0.55rem 0.6rem; font-weight: 800; color: ${dirColor};">${opp.direction}</td>

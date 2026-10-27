@@ -1551,14 +1551,14 @@
                     <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem;">
                         <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.4rem;">
                             <span>🎯 Today's Opportunity &amp; Accuracy Log</span>
-                            <span style="font-size: 0.7rem; color: #64748B; font-weight: normal;">(Divergence $\ge$ Threshold Events)</span>
+                            <span style="font-size: 0.7rem; color: #64748B; font-weight: normal;">(Actual Workstation Trades &amp; Scanner Divergence Log)</span>
                         </h4>
                         
                         <!-- Summary Stats Pill -->
                         <div id="ai-opp-summary-pill" style="display: flex; align-items: center; gap: 0.85rem; background: #F8FAFC; border: 1.5px solid #E2E8F0; padding: 0.35rem 0.75rem; border-radius: 8px; font-size: 0.75rem; color: #334155;">
                             <span>Total Events: <strong id="ai-stat-total" style="color: #0F172A; font-weight: 800;">0</strong></span>
                             <span>Win Rate: <strong id="ai-stat-winrate" style="color: #059669; font-weight: 800;">0.0%</strong></span>
-                            <span>Simulated Net: <strong id="ai-stat-profit" class="font-mono" style="color: #059669; font-weight: 800;">₹0</strong></span>
+                            <span>Net P&amp;L: <strong id="ai-stat-profit" class="font-mono" style="color: #059669; font-weight: 800;">₹0</strong></span>
                             <button type="button" onclick="clearAIOpportunities()" title="Clear today's log" style="background: none; border: none; color: #EF4444; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem;">🗑️</button>
                         </div>
                     </div>
@@ -1568,18 +1568,18 @@
                             <thead style="position: sticky; top: 0; z-index: 2;">
                                 <tr style="background: #F1F5F9; border-bottom: 1.5px solid #CBD5E1; color: #334155; font-weight: 800;">
                                     <th style="padding: 0.6rem 0.75rem;">Time</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Pair</th>
+                                    <th style="padding: 0.6rem 0.6rem;">Pair &amp; Weight</th>
                                     <th style="padding: 0.6rem 0.6rem;">Trigger Spread</th>
                                     <th style="padding: 0.6rem 0.6rem;">Divergence</th>
                                     <th style="padding: 0.6rem 0.6rem;">Direction</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Outcome</th>
+                                    <th style="padding: 0.6rem 0.6rem;">Outcome / Trade</th>
                                     <th style="padding: 0.6rem 0.6rem;">Accuracy %</th>
-                                    <th style="padding: 0.6rem 0.75rem; text-align: right;">Simulated Net P&amp;L</th>
+                                    <th style="padding: 0.6rem 0.75rem; text-align: right;">Net P&amp;L (Real / Sim)</th>
                                 </tr>
                             </thead>
                             <tbody id="ai-opportunities-tbody">
                                 <tr>
-                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No divergence events logged today yet. Scanner tracks spreads live from market open.</td>
+                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No trades or divergence events logged today yet. Scanner automatically tracks live trades and spread events.</td>
                                 </tr>
                             </tbody>
                         </table>

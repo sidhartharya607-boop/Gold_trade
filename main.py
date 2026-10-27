@@ -199,6 +199,98 @@ def get_gold_contract_specs(symbol: str) -> dict:
         "bid_ask_limit": 15.0
     }
 
+# =====================================================================
+# ⚖️ DYNAMIC ARBITRAGE CHARGES & TAX CALCULATOR (PER GRAM BASIS)
+# =====================================================================
+def calculate_trade_pair_charges(petal_sym: str, mini_sym: str, ltp: float = 72000.0) -> dict:
+    """
+    Dynamically calculates exact MCX exchange turnover charges, CTT, SEBI, GST, 
+    Stamp Duty & Brokerage based on the exact grams traded for this specific pair.
+    - 100g (Petal vs Mini): ~Rs. 339
+    - 96g (Guinea 12 lots vs Mini): ~Rs. 329
+    - 10g (Petal 10 lots vs Ten 1 lot): ~Rs. 119
+    - 8g (Guinea 1 lot vs Petal 8 lots): ~Rs. 114
+    - 40g (Guinea 5 lots vs Ten 4 lots): ~Rs. 200
+    """
+    spec_p = get_gold_contract_specs(petal_sym)
+    spec_m = get_gold_contract_specs(mini_sym)
+    p_type = spec_p.get("type", "")
+    m_type = spec_m.get("type", "")
+
+    # Determine traded weight in grams for 1 unit arbitrage combination
+    if ("M" in m_type or "MINI" in m_type or spec_m.get("lot_size_grams", 100) == 100) and p_type == "GOLDGUINEA":
+        # 12 Guinea lots (96g) vs 1 Mini lot (100g)
+        leg1_grams = 96.0
+        leg2_grams = 100.0
+        grams = 96.0  # Effective matched arbitrage weight
+    elif ("M" in m_type or "MINI" in m_type or spec_m.get("lot_size_grams", 100) == 100) and p_type != "GOLDGUINEA":
+        # 100 Petal lots (100g) vs 1 Mini lot (100g)
+        leg1_grams = 100.0
+        leg2_grams = 100.0
+        grams = 100.0
+    elif (p_type == "GOLDGUINEA" and (m_type == "GOLDPETAL" or spec_m.get("lot_size_grams") == 1)):
+        # 1 Guinea (8g) vs 8 Petals (8g)
+        leg1_grams = 8.0
+        leg2_grams = 8.0
+        grams = 8.0
+    elif ((p_type == "GOLDPETAL" or spec_p.get("lot_size_grams") == 1) and m_type == "GOLDGUINEA"):
+        # 8 Petals (8g) vs 1 Guinea (8g)
+        leg1_grams = 8.0
+        leg2_grams = 8.0
+        grams = 8.0
+    elif (p_type == "GOLDPETAL" and (m_type == "GOLDTEN" or spec_m.get("lot_size_grams") == 10)):
+        # 10 Petals (10g) vs 1 Ten (10g)
+        leg1_grams = 10.0
+        leg2_grams = 10.0
+        grams = 10.0
+    elif ((p_type == "GOLDTEN" or spec_p.get("lot_size_grams") == 10) and m_type == "GOLDPETAL"):
+        leg1_grams = 10.0
+        leg2_grams = 10.0
+        grams = 10.0
+    elif (p_type == "GOLDGUINEA" and (m_type == "GOLDTEN" or spec_m.get("lot_size_grams") == 10)):
+        # 5 Guineas (40g) vs 4 Tens (40g)
+        leg1_grams = 40.0
+        leg2_grams = 40.0
+        grams = 40.0
+    elif ((p_type == "GOLDTEN" or spec_p.get("lot_size_grams") == 10) and m_type == "GOLDGUINEA"):
+        leg1_grams = 40.0
+        leg2_grams = 40.0
+        grams = 40.0
+    else:
+        grams = float(max(spec_p.get("lot_size_grams", 10), spec_m.get("lot_size_grams", 10)))
+        if grams < 1.0: grams = 10.0
+        leg1_grams = grams
+        leg2_grams = grams
+
+    # Normalized MCX price per 1 gram (gold price ~72,000 per 10g => ~7,200/g)
+    price_per_gram = (ltp / 10.0) if ltp > 10000.0 else (ltp if ltp > 1000.0 else 7200.0)
+    
+    # 2 round-trip orders per leg (entry and exit)
+    leg1_turnover = leg1_grams * price_per_gram * 2.0
+    leg2_turnover = leg2_grams * price_per_gram * 2.0
+    total_turnover = leg1_turnover + leg2_turnover
+    sell_turnover = (leg1_grams + leg2_grams) * price_per_gram
+    buy_turnover = (leg1_grams + leg2_grams) * price_per_gram
+
+    brokerage = 20.0 * 4.0               # 4 orders total = Rs 80
+    exchange_charges = 0.000021 * total_turnover
+    ctt = 0.0001 * sell_turnover         # 0.01% on sell side
+    sebi = 0.0000001 * total_turnover    # Rs 10 per crore
+    stamp = 0.00002 * buy_turnover       # 0.002% on buy side
+    gst = 0.18 * (brokerage + exchange_charges)
+
+    total_charges = round(brokerage + exchange_charges + ctt + sebi + stamp + gst, 2)
+    # 8 points slippage cushion on 10g scale:
+    slippage = round((grams / 10.0) * 8.0, 2)
+    multiplier_10g_scale = round(grams / 10.0, 2)  # PnL multiplier per point of 10g normalized spread
+
+    return {
+        "grams": grams,
+        "total_charges": total_charges,
+        "slippage_cushion": slippage,
+        "multiplier_10g_scale": multiplier_10g_scale
+    }
+
 # ----------------- Trading System State -----------------
 class TradingSystem:
     def __init__(self):
@@ -828,45 +920,12 @@ class TradingSystem:
             pass
 
     def calculate_mcx_charges(self, direction: str, qty: int, petal_entry: float, mini_entry: float, petal_exit: float, mini_exit: float, petal_symbol: str = None, mini_symbol: str = None) -> float:
-        p_spec = get_gold_contract_specs(petal_symbol or self.petal_symbol)
-        m_spec = get_gold_contract_specs(mini_symbol or self.mini_symbol)
-        petal_qty = qty * p_spec.get("pnl_multiplier", 100.0)
-        mini_mult = qty * m_spec.get("pnl_multiplier", 10.0)
-        
-        if direction == "Expansion":
-            petal_buy_val = petal_qty * petal_entry
-            petal_sell_val = petal_qty * petal_exit
-            mini_sell_val = mini_mult * mini_entry
-            mini_buy_val = mini_mult * mini_exit
-        else:
-            petal_sell_val = petal_qty * petal_entry
-            petal_buy_val = petal_qty * petal_exit
-            mini_buy_val = mini_mult * mini_entry
-            mini_sell_val = mini_mult * mini_exit
-            
-        total_buy_val = petal_buy_val + mini_buy_val
-        total_sell_val = petal_sell_val + mini_sell_val
-        total_turnover = total_buy_val + total_sell_val
-        
-        # 1. Brokerage: Flat Rs. 20 per order. 4 orders = Rs. 80.
-        brokerage = 20.0 * 4
-        
-        # 2. Exchange Transaction Charges: 0.0021%
-        exchange_charges = 0.000021 * total_turnover
-        
-        # 3. CTT: 0.01% on sell side
-        ctt = 0.0001 * total_sell_val
-        
-        # 4. SEBI turnover fee: Rs 10 per crore (0.0000001)
-        sebi_charges = 0.0000001 * total_turnover
-        
-        # 5. Stamp Duty: 0.002% on buy side
-        stamp_duty = 0.00002 * total_buy_val
-        
-        # 6. GST: 18% on (brokerage + exchange transaction charges)
-        gst = 0.18 * (brokerage + exchange_charges)
-        
-        return brokerage + exchange_charges + ctt + sebi_charges + stamp_duty + gst
+        p_sym = petal_symbol or self.petal_symbol
+        m_sym = mini_symbol or self.mini_symbol
+        ref_p = petal_entry * 10.0 if petal_entry < 10000.0 else petal_entry
+        ch_info = calculate_trade_pair_charges(p_sym, m_sym, ref_p if ref_p > 1000.0 else 72000.0)
+        base_charge = ch_info["total_charges"]
+        return round(base_charge * max(1, qty), 2)
 
     def log(self, message: str):
         timestamp = get_ist_time_str("%Y-%m-%d %H:%M:%S")
@@ -2211,7 +2270,7 @@ class AIArbitrageEngine:
         self._last_tick_processed = {}
         self._spread_history = {}  # pair_key -> list of (timestamp, spread)
         self.claude_api_url = "https://api.anthropic.com/v1/messages"
-        self.claude_model = "claude-3-5-sonnet-20241022"
+        self.claude_model = "claude-3-5-sonnet-20240620"
         self._last_ai_analysis = None
         self._last_ai_analysis_time = 0.0
 
@@ -2278,6 +2337,13 @@ class AIArbitrageEngine:
         divergence = abs(spread - rolling_mean)
         threshold = getattr(self.state, "ai_divergence_threshold", 80.0)
 
+        # Dynamic charges & weight calculation
+        ch_info = calculate_trade_pair_charges(petal_sym, mini_sym, spread)
+        trade_grams = ch_info["grams"]
+        pair_charges = ch_info["total_charges"]
+        pair_slippage = ch_info["slippage_cushion"]
+        pair_mult = ch_info["multiplier_10g_scale"]
+
         # 1. Update any existing ACTIVE opportunities for this pair
         for opp in self.state.ai_opportunities_log:
             if opp.get("status") == "Active" and opp.get("pair_key") == pair_key:
@@ -2285,29 +2351,26 @@ class AIArbitrageEngine:
                 opp_dir = opp["direction"]
                 init_div = opp["divergence_pts"]
 
-                # If Expansion (entered when spread was low), profit comes when spread widens back towards mean
-                # If Contraction (entered when spread was high), profit comes when spread narrows back towards mean
                 if opp_dir == "Expansion":
                     current_gain = spread - entry_spread
                 else:
                     current_gain = entry_spread - spread
 
                 # Mean reversion success condition: captured >= 60% of initial divergence
-                target_reversion = max(30.0, init_div * 0.6)
+                target_reversion = max(20.0, init_div * 0.6)
                 if current_gain >= target_reversion:
                     opp["status"] = "Reverted (Success)"
                     opp["captured_pts"] = round(current_gain, 1)
                     opp["exit_spread"] = round(spread, 2)
                     opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
                     
-                    gross = round(current_gain * 10.0, 2)
-                    charges = 359.20  # Standard simulated broker + MCX fees
-                    slippage = 80.0   # Conservative 8-point slippage cushion
+                    gross = round(current_gain * pair_mult, 2)
                     opp["gross_profit"] = gross
-                    opp["charges"] = charges
-                    opp["slippage_cushion"] = slippage
-                    opp["net_profit"] = round(gross - charges - slippage, 2)
+                    opp["charges"] = pair_charges
+                    opp["slippage_cushion"] = pair_slippage
+                    opp["net_profit"] = round(gross - pair_charges - pair_slippage, 2)
                     opp["accuracy_score"] = round(min(100.0, 75.0 + (current_gain / max(1.0, init_div)) * 25.0), 1)
+                    opp["grams"] = trade_grams
                     self.state.save_ai_opportunities()
 
                 # Stop loss / breakout failure condition: spread moved 0.8x further in adverse direction
@@ -2318,11 +2381,12 @@ class AIArbitrageEngine:
                     opp["captured_pts"] = round(-loss_pts, 1)
                     opp["exit_spread"] = round(spread, 2)
                     opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
-                    opp["gross_profit"] = round(-loss_pts * 10.0, 2)
-                    opp["charges"] = 359.20
-                    opp["slippage_cushion"] = 80.0
-                    opp["net_profit"] = round(- (loss_pts * 10.0) - 359.20, 2)
+                    opp["gross_profit"] = round(-loss_pts * pair_mult, 2)
+                    opp["charges"] = pair_charges
+                    opp["slippage_cushion"] = pair_slippage
+                    opp["net_profit"] = round(- (loss_pts * pair_mult) - pair_charges, 2)
                     opp["accuracy_score"] = 0.0
+                    opp["grams"] = trade_grams
                     self.state.save_ai_opportunities()
 
         # 2. Check if a NEW divergence opportunity has opened
@@ -2351,10 +2415,11 @@ class AIArbitrageEngine:
                     "captured_pts": 0.0,
                     "duration_seconds": 0,
                     "gross_profit": 0.0,
-                    "charges": 359.20,
-                    "slippage_cushion": 80.0,
+                    "charges": pair_charges,
+                    "slippage_cushion": pair_slippage,
                     "net_profit": 0.0,
-                    "accuracy_score": 0.0
+                    "accuracy_score": 0.0,
+                    "grams": trade_grams
                 }
                 self.state.ai_opportunities_log.insert(0, new_opp)
                 if len(self.state.ai_opportunities_log) > 50:
@@ -2589,11 +2654,11 @@ class AIArbitrageEngine:
 
         return matrix
 
-    def get_opportunities_summary(self) -> dict:
-        total = len(self.state.ai_opportunities_log)
-        reverted = [o for o in self.state.ai_opportunities_log if o.get("status") == "Reverted (Success)"]
-        active = [o for o in self.state.ai_opportunities_log if o.get("status") == "Active"]
-        stopped = [o for o in self.state.ai_opportunities_log if "Stopped" in o.get("status", "")]
+    def get_opportunities_summary_from_list(self, events: list) -> dict:
+        total = len(events)
+        reverted = [o for o in events if "Reverted" in o.get("status", "") or "Trade Executed" in o.get("status", "")]
+        active = [o for o in events if "Active" in o.get("status", "")]
+        stopped = [o for o in events if "Stopped" in o.get("status", "") or "Breakout" in o.get("status", "")]
 
         reverted_count = len(reverted)
         win_rate = round((reverted_count / total * 100.0), 1) if total > 0 else 0.0
@@ -2609,6 +2674,9 @@ class AIArbitrageEngine:
             "total_simulated_profit": total_simulated_profit,
             "avg_points_captured": avg_pts_captured
         }
+
+    def get_opportunities_summary(self) -> dict:
+        return self.get_opportunities_summary_from_list(self.state.ai_opportunities_log)
 
     async def generate_claude_advisory(self, user_query: str = "") -> dict:
         api_key = self.get_api_key()
@@ -2630,37 +2698,46 @@ class AIArbitrageEngine:
         day_range = max(30.0, top_pair.get("day_range", 60.0))
         mean_spread = (top_pair.get("day_high", 0.0) + top_pair.get("day_low", 0.0)) / 2.0 if top_pair.get("day_range", 0) > 0 else top_pair.get("spread", 800.0)
         
+        # Calculate dynamic MCX charges based on EXACT grams weight of top pair
+        top_pair_ltp = top_pair.get("petal_ltp", 7200.0)
+        ch_info = calculate_trade_pair_charges(top_pair.get("petal_symbol", ""), top_pair.get("mini_symbol", ""), top_pair_ltp)
+        trade_grams = ch_info["grams"]
+        pair_charges = ch_info["total_charges"]
+        pair_slippage = ch_info["slippage_cushion"]
+        pair_mult = ch_info["multiplier_10g_scale"]
+
         # Determine Direction and Exact Depth Spread Trigger:
-        # For Expansion: We BUY Leg 1, SELL Leg 2 -> Entry is based on DEPTH BUY SPREAD
-        # For Contraction: We SELL Leg 1, BUY Leg 2 -> Entry is based on DEPTH SELL SPREAD
         if top_pair.get("spread", 0.0) <= mean_spread:
             rec_dir = "Expansion"
             suggested_entry = round(top_pair.get("depth_buy_spread", top_pair.get("spread", 0.0)), 1)
-            suggested_exit_gap = round(max(35.0, min(120.0, day_range * 0.45)), 1)
+            suggested_exit_gap = round(max(30.0, min(120.0, day_range * 0.45)), 1)
             depth_used_label = "Depth Buy Spread"
             opposite_exit_label = "Depth Sell Spread"
             expected_exit_target = round(suggested_entry + suggested_exit_gap, 1)
         else:
             rec_dir = "Contraction"
             suggested_entry = round(top_pair.get("depth_sell_spread", top_pair.get("spread", 0.0)), 1)
-            suggested_exit_gap = round(max(35.0, min(120.0, day_range * 0.45)), 1)
+            suggested_exit_gap = round(max(30.0, min(120.0, day_range * 0.45)), 1)
             depth_used_label = "Depth Sell Spread"
             opposite_exit_label = "Depth Buy Spread"
             expected_exit_target = round(suggested_entry - suggested_exit_gap, 1)
 
         suggested_step = round(max(15.0, suggested_exit_gap * 0.5), 1)
+        gross_profit = round(suggested_exit_gap * pair_mult, 2)
+        estimated_net_profit = max(0, round(gross_profit - pair_charges - pair_slippage, 2))
 
         summary_msg = (
-            f"Top Opportunity: {top_pair.get('label')} | "
+            f"Top Opportunity: {top_pair.get('label')} ({trade_grams}g weight) | "
             f"Direction: {rec_dir} | Entry {depth_used_label}: {suggested_entry} pts | "
             f"Target Exit ({opposite_exit_label}): {expected_exit_target} pts (+{suggested_exit_gap} gap). "
-            f"Today's Channel: {top_pair.get('day_low')} to {top_pair.get('day_high')} ({day_range} pts range)."
+            f"Est. Net In-Hand: ~₹{estimated_net_profit} (After ₹{pair_charges} dynamic taxes for {trade_grams}g)."
         )
 
         reasoning_msg = (
             f"Trade setup strictly evaluated using live {depth_used_label} ({suggested_entry} pts) from Order Book depth. "
             f"For {rec_dir.upper()}, entry occurs at {depth_used_label} and squares off when {opposite_exit_label} hits {expected_exit_target} pts. "
-            f"Channel range today is {day_range} pts, giving ~{max(70.0, summary.get('win_rate_percent', 82.0))}% fill probability with ₹360 charges + 8 pt slippage deducted."
+            f"Channel range today is {day_range} pts. Traded weight: {trade_grams} grams. "
+            f"Net profit calculated with exact weight-based charges (₹{pair_charges} taxes + ₹{pair_slippage} slippage cushion)."
         )
 
         fallback_response = {
@@ -2676,6 +2753,11 @@ class AIArbitrageEngine:
             "suggested_lots": "1, 2, 2",
             "reasoning": reasoning_msg,
             "risk_warning": f"Breakout threshold detected at {round(top_pair.get('day_low', 0) - 25.0, 1) if rec_dir == 'Expansion' else round(top_pair.get('day_high', 0) + 25.0, 1)}. Maintain safe stop-loss.",
+            "trade_grams": trade_grams,
+            "total_charges": pair_charges,
+            "slippage_cushion": pair_slippage,
+            "multiplier_10g_scale": pair_mult,
+            "estimated_net_profit": estimated_net_profit,
             "actionable_payload": {
                 "direction": rec_dir,
                 "petal_symbol": top_pair.get("petal_symbol"),
@@ -2692,13 +2774,13 @@ class AIArbitrageEngine:
                 system_prompt = (
                     "You are the AccuStock Gold Arbitrage Quantitative AI Advisor.\n"
                     "Your role is EXCLUSIVELY to provide mathematical, objective quantitative analysis "
-                    "for MCX Gold spread arbitrage pairs (GOLDPETAL 1g vs GOLDMINI 100g vs GOLDGUINEA 8g).\n\n"
+                    "for MCX Gold spread arbitrage pairs (GOLDPETAL 1g vs GOLDMINI 100g vs GOLDGUINEA 8g vs GOLDTEN 10g).\n\n"
                     "STRICT CONSTRAINTS & SECURITY RULES:\n"
                     "1. ADVISORY ONLY: You NEVER execute trades. You only suggest parameters for the human trader.\n"
                     "2. STRICT SCOPE: If asked ANY question unrelated to MCX Gold arbitrage, trading, spreads, or risk management, "
                     "you MUST REFUSE and answer strictly: 'I am configured exclusively for MCX Gold Spread Arbitrage quantitative analysis.'\n"
                     "3. DYNAMIC TARGETS: NEVER fixate on a rigid 100 points target. Always derive realistic exit gap and entry based on today's actual High/Low range.\n"
-                    "4. CONSERVATIVE PROFIT: Always account for ~Rs. 360 transaction charges per lot + 8-10 points slippage cushion.\n"
+                    "4. WEIGHT-BASED CHARGES: Taxes and slippage must be computed based on the exact traded weight in grams provided (do NOT assume fixed 100g for smaller weights).\n"
                     "5. Output must be a valid JSON object matching the required schema with keys: "
                     "summary, top_pair, petal_symbol, mini_symbol, recommended_direction, suggested_entry_diff, suggested_exit_gap, suggested_step, suggested_lots, reasoning, risk_warning."
                 )
@@ -2708,6 +2790,9 @@ class AIArbitrageEngine:
                     "market_session_status": get_market_session_status(),
                     "scanner_dynamic_threshold": current_threshold,
                     "top_pairs_matrix": matrix[:3],
+                    "top_pair_weight_grams": trade_grams,
+                    "top_pair_exact_charges_inr": pair_charges,
+                    "top_pair_slippage_cushion_inr": pair_slippage,
                     "today_summary": summary,
                     "user_query": user_query or "Analyze current market opportunities and recommend the safest setup."
                 }
@@ -2722,48 +2807,100 @@ class AIArbitrageEngine:
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json"
                 }
-                payload = {
-                    "model": self.claude_model,
-                    "max_tokens": 800,
-                    "system": system_prompt,
-                    "messages": [{"role": "user", "content": user_message}]
-                }
+
+                # Graceful multi-model fallback across broadly supported Claude checkpoints
+                candidate_models = [
+                    os.getenv("CLAUDE_MODEL", "").strip(),
+                    "claude-3-5-sonnet-20240620",  # Broadly supported by all accounts
+                    "claude-3-5-sonnet-latest",
+                    "claude-3-5-sonnet-20241022",
+                    "claude-3-haiku-20240307",
+                    "claude-3-5-haiku-20241022",
+                    "claude-3-5-haiku-latest"
+                ]
+                candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
 
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(self.claude_api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            content = data.get("content", [{}])[0].get("text", "")
-                            import re
-                            json_match = re.search(r"\{.*\}", content, re.DOTALL)
-                            if json_match:
-                                parsed = json.loads(json_match.group(0))
-                                parsed["source"] = "Claude 3.5 Sonnet (AI Advisor)"
-                                parsed["actionable_payload"] = {
-                                    "direction": parsed.get("recommended_direction", rec_dir),
-                                    "petal_symbol": parsed.get("petal_symbol", top_pair.get("petal_symbol")),
-                                    "mini_symbol": parsed.get("mini_symbol", top_pair.get("mini_symbol")),
-                                    "entry_diff": float(parsed.get("suggested_entry_diff", suggested_entry)),
-                                    "exit_gap": float(parsed.get("suggested_exit_gap", suggested_exit_gap)),
-                                    "step": float(parsed.get("suggested_step", suggested_step)),
-                                    "lots": str(parsed.get("suggested_lots", "1, 2, 2"))
-                                }
-                                self._last_ai_analysis = parsed
-                                self._last_ai_analysis_time = time.time()
-                                return parsed
-                        else:
-                            err_text = await resp.text()
-                            logger.warning(f"[CLAUDE API] Status {resp.status}: {err_text[:200]}")
-                            try:
-                                err_json = json.loads(err_text)
-                                api_err_msg = err_json.get("error", {}).get("message", f"HTTP {resp.status}")
-                            except Exception:
-                                api_err_msg = f"HTTP {resp.status}"
-                            fallback_response["source"] = f"Local Engine (Claude Error: {api_err_msg})"
-                            fallback_response["api_error"] = api_err_msg
-                            self._last_ai_analysis = fallback_response
-                            self._last_ai_analysis_time = time.time()
-                            return fallback_response
+                    last_api_err = ""
+                    for mod in candidate_models:
+                        payload = {
+                            "model": mod,
+                            "max_tokens": 800,
+                            "system": system_prompt,
+                            "messages": [{"role": "user", "content": user_message}]
+                        }
+                        async with session.post(self.claude_api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                content = data.get("content", [{}])[0].get("text", "")
+                                import re
+                                json_match = re.search(r"\{.*\}", content, re.DOTALL)
+                                if json_match:
+                                    parsed = json.loads(json_match.group(0))
+                                    self.claude_model = mod
+                                    parsed["source"] = f"Claude 3.5 Sonnet ({mod})"
+                                    parsed["trade_grams"] = trade_grams
+                                    parsed["total_charges"] = pair_charges
+                                    parsed["slippage_cushion"] = pair_slippage
+                                    parsed["multiplier_10g_scale"] = pair_mult
+                                    
+                                    # Calculate in-hand net profit
+                                    c_exit_gap = float(parsed.get("suggested_exit_gap", suggested_exit_gap))
+                                    c_gross = round(c_exit_gap * pair_mult, 2)
+                                    parsed["estimated_net_profit"] = max(0, round(c_gross - pair_charges - pair_slippage, 2))
+                                    
+                                    parsed["actionable_payload"] = {
+                                        "direction": parsed.get("recommended_direction", rec_dir),
+                                        "petal_symbol": parsed.get("petal_symbol", top_pair.get("petal_symbol")),
+                                        "mini_symbol": parsed.get("mini_symbol", top_pair.get("mini_symbol")),
+                                        "entry_diff": float(parsed.get("suggested_entry_diff", suggested_entry)),
+                                        "exit_gap": c_exit_gap,
+                                        "step": float(parsed.get("suggested_step", suggested_step)),
+                                        "lots": str(parsed.get("suggested_lots", "1, 2, 2"))
+                                    }
+                                    self._last_ai_analysis = parsed
+                                    self._last_ai_analysis_time = time.time()
+                                    return parsed
+                            else:
+                                err_text = await resp.text()
+                                try:
+                                    err_json = json.loads(err_text)
+                                    err_type = err_json.get("error", {}).get("type", "")
+                                    err_msg = err_json.get("error", {}).get("message", f"HTTP {resp.status}")
+                                except Exception:
+                                    err_type, err_msg = "", err_text[:200]
+                                
+                                # Check for invalid API key
+                                if resp.status == 401 or "authentication_error" in err_type:
+                                    last_api_err = "Invalid API Key (Anthropic rejected the key. Please verify sk-ant-...)"
+                                    break
+                                
+                                # Check for credit balance / quota issues
+                                if "credit" in err_msg.lower() or "balance" in err_msg.lower() or "quota" in err_msg.lower():
+                                    last_api_err = "Credit Balance is $0 (Please deposit credit at console.anthropic.com/settings/billing)"
+                                    break
+
+                                # If model not found or unavailable for key, try next model candidate
+                                if "not_found" in err_type or "model" in err_msg.lower() or resp.status == 404:
+                                    logger.info(f"[CLAUDE API] Model '{mod}' not found on this account tier. Trying next fallback...")
+                                    last_api_err = err_msg
+                                    continue
+                                
+                                last_api_err = err_msg
+                                break
+
+                    # If all model candidates failed
+                    if "model:" in str(last_api_err).lower() or "not_found" in str(last_api_err).lower():
+                        user_friendly_err = f"Account Tier / Model Access: Your Anthropic account balance may be $0 or lacks tier access for Sonnet. Deposit prepaid credit ($5) at console.anthropic.com/settings/billing."
+                    else:
+                        user_friendly_err = last_api_err or "Claude AI Model not available"
+
+                    fallback_response["source"] = f"Local Engine (Claude Error: {user_friendly_err[:50]})"
+                    fallback_response["api_error"] = user_friendly_err
+                    self._last_ai_analysis = fallback_response
+                    self._last_ai_analysis_time = time.time()
+                    return fallback_response
+
             except Exception as e:
                 logger.error(f"[CLAUDE API ERROR] {e}")
                 fallback_response["source"] = f"Local Engine (Connection Error: {str(e)[:40]})"
@@ -6806,23 +6943,143 @@ async def api_export_all_trades_csv(token: str = None, authorization: str = Head
 async def api_get_ai_dashboard_data(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
     matrix = ai_arbitrage_engine.get_multi_pair_matrix()
-    summary = ai_arbitrage_engine.get_opportunities_summary()
+    today_str = get_ist_time_str("%Y-%m-%d")
+    
+    # 1. Gather scanner recorded divergence opportunities
+    all_events = list(system_state.ai_opportunities_log)
+    
+    # 2a. Include active open position if currently live in the workstation
+    if getattr(system_state, "is_in_position", False):
+        p_sym = system_state.petal_symbol
+        m_sym = system_state.mini_symbol
+        ref_p = system_state.petal_entry_price * 10.0 if system_state.petal_entry_price < 10000 else system_state.petal_entry_price
+        ch_info = calculate_trade_pair_charges(p_sym, m_sym, ref_p if ref_p > 1000.0 else 72000.0)
+        cur_spread = system_state.depth_buy_spread if system_state.position_direction == "Expansion" else system_state.depth_sell_spread
+        e_spread = system_state.entry_spread
+        diff = (cur_spread - e_spread) if system_state.position_direction == "Expansion" else (e_spread - cur_spread)
+        all_events.append({
+            "id": "real_live_active_pos",
+            "timestamp": system_state.entry_time or get_ist_time_str("%H:%M:%S"),
+            "date": today_str,
+            "pair": f"{p_sym} vs {m_sym}",
+            "pair_key": f"{p_sym}_{m_sym}",
+            "petal_symbol": p_sym,
+            "mini_symbol": m_sym,
+            "trigger_spread": round(e_spread, 2),
+            "exit_spread": round(cur_spread, 2),
+            "rolling_mean": round(e_spread, 2),
+            "divergence_pts": round(abs(diff), 1),
+            "direction": system_state.position_direction or "Expansion",
+            "status": "Active Position (Real)",
+            "captured_pts": round(diff, 1),
+            "duration_seconds": 0,
+            "gross_profit": round(system_state.petal_pnl + system_state.mini_pnl, 2),
+            "charges": ch_info["total_charges"],
+            "slippage_cushion": ch_info["slippage_cushion"],
+            "net_profit": round(system_state.unrealized_pnl, 2),
+            "accuracy_score": 100.0 if system_state.unrealized_pnl > 0 else 0.0,
+            "grams": ch_info["grams"],
+            "is_real_trade": True
+        })
+
+    # 2b. Merge real live executed trades from today's workstation trading
+    for t in getattr(system_state, "trade_history", []):
+        t_date = t.get("date") or t.get("exit_date") or t.get("entry_date") or today_str
+        if t_date == today_str or today_str in str(t_date):
+            e_spread = float(t.get("entry_spread") or t.get("actual_entry_spread") or 0.0)
+            x_spread = float(t.get("actual_exit_spread") or t.get("exit_spread") or 0.0)
+            direction = t.get("direction", "Expansion")
+            captured = (x_spread - e_spread) if direction == "Expansion" else (e_spread - x_spread)
+            pnl_val = float(t.get("pnl", 0.0))
+            
+            t_id = f"real_{t.get('id')}"
+            if not any(x.get("id") == t_id for x in all_events):
+                p_sym = t.get("petal_symbol") or system_state.petal_symbol
+                m_sym = t.get("mini_symbol") or system_state.mini_symbol
+                ch_info = calculate_trade_pair_charges(p_sym, m_sym, 72000.0)
+                all_events.append({
+                    "id": t_id,
+                    "timestamp": t.get("exit_time") or t.get("entry_time") or "--",
+                    "date": t_date,
+                    "pair": f"{p_sym} vs {m_sym}",
+                    "pair_key": f"{p_sym}_{m_sym}",
+                    "petal_symbol": p_sym,
+                    "mini_symbol": m_sym,
+                    "trigger_spread": round(e_spread, 2),
+                    "exit_spread": round(x_spread, 2),
+                    "rolling_mean": round(e_spread, 2),
+                    "divergence_pts": round(abs(captured), 1),
+                    "direction": direction,
+                    "status": "Trade Executed (Real)",
+                    "captured_pts": round(captured, 1),
+                    "duration_seconds": 0,
+                    "gross_profit": round(float(t.get("gross_pnl", 0.0)), 2),
+                    "charges": round(float(t.get("charges", ch_info["total_charges"])), 2),
+                    "slippage_cushion": ch_info["slippage_cushion"],
+                    "net_profit": round(pnl_val, 2),
+                    "accuracy_score": 100.0 if pnl_val > 0 else 0.0,
+                    "grams": ch_info["grams"],
+                    "is_real_trade": True
+                })
+
+    # 2c. Merge closed trades from ta_lots_trades if any
+    for lot_t in getattr(system_state, "ta_lots_trades", []):
+        if lot_t.get("status") in ["Closed", "COMPLETED"]:
+            lt_id = f"real_lot_{lot_t.get('id')}"
+            if not any(x.get("id") == lt_id for x in all_events):
+                p_sym = lot_t.get("petal_symbol") or system_state.petal_symbol
+                m_sym = lot_t.get("mini_symbol") or system_state.mini_symbol
+                ch_info = calculate_trade_pair_charges(p_sym, m_sym, 72000.0)
+                pnl_val = float(lot_t.get("pnl", 0.0))
+                e_sp = float(lot_t.get("entry_spread", 0.0))
+                x_sp = float(lot_t.get("exit_spread", 0.0))
+                dir_val = lot_t.get("direction", "Expansion")
+                diff = (x_sp - e_sp) if dir_val == "Expansion" else (e_sp - x_sp)
+                all_events.append({
+                    "id": lt_id,
+                    "timestamp": lot_t.get("exit_time") or lot_t.get("entry_time") or "--",
+                    "date": lot_t.get("exit_date") or today_str,
+                    "pair": f"{p_sym} vs {m_sym}",
+                    "pair_key": f"{p_sym}_{m_sym}",
+                    "petal_symbol": p_sym,
+                    "mini_symbol": m_sym,
+                    "trigger_spread": round(e_sp, 2),
+                    "exit_spread": round(x_sp, 2),
+                    "rolling_mean": round(e_sp, 2),
+                    "divergence_pts": round(abs(diff), 1),
+                    "direction": dir_val,
+                    "status": "Trade Executed (Real)",
+                    "captured_pts": round(diff, 1),
+                    "duration_seconds": 0,
+                    "gross_profit": round(pnl_val + ch_info["total_charges"], 2),
+                    "charges": ch_info["total_charges"],
+                    "slippage_cushion": ch_info["slippage_cushion"],
+                    "net_profit": round(pnl_val, 2),
+                    "accuracy_score": 100.0 if pnl_val > 0 else 0.0,
+                    "grams": ch_info["grams"],
+                    "is_real_trade": True
+                })
+
+    all_events.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
+    summary = ai_arbitrage_engine.get_opportunities_summary_from_list(all_events)
     has_key = bool(ai_arbitrage_engine.get_api_key())
     
-    # If API key is present now, but cached analysis had "not set", invalidate stale cache
+    # If API key is present now, but cached analysis had "not set" or failed model error, invalidate stale cache
     if has_key and ai_arbitrage_engine._last_ai_analysis:
-        if "not set" in ai_arbitrage_engine._last_ai_analysis.get("source", "").lower():
+        src = ai_arbitrage_engine._last_ai_analysis.get("source", "").lower()
+        if "not set" in src or "claude-3-5-sonnet-20241022" in src or "error" in src:
             ai_arbitrage_engine._last_ai_analysis = None
 
     return {
         "status": "SUCCESS",
         "matrix": matrix,
-        "opportunities": system_state.ai_opportunities_log,
+        "opportunities": all_events,
         "summary": summary,
         "threshold": getattr(system_state, "ai_divergence_threshold", 80.0),
         "has_claude_api_key": has_key,
         "last_analysis": ai_arbitrage_engine._last_ai_analysis
     }
+
 
 class SetClaudeKeyPayload(BaseModel):
     api_key: str
