@@ -7113,6 +7113,38 @@ async def api_set_claude_key(payload: SetClaudeKeyPayload, token: str = None, au
     clean_key = payload.api_key.strip()
     if not clean_key:
         raise HTTPException(status_code=400, detail="API key cannot be empty")
+
+    if not clean_key.startswith("sk-ant-"):
+        raise HTTPException(status_code=400, detail="Invalid API key format. Anthropic Claude keys must start with 'sk-ant-'")
+
+    # Pre-flight check: Validate key directly against Anthropic API
+    validation_err = ""
+    models_found = []
+    try:
+        test_headers = {
+            "x-api-key": clean_key,
+            "anthropic-version": "2023-06-01"
+        }
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.anthropic.com/v1/models", headers=test_headers, timeout=aiohttp.ClientTimeout(total=6)) as test_resp:
+                if test_resp.status == 200:
+                    m_data = await test_resp.json()
+                    models_found = [x.get("id") for x in m_data.get("data", []) if x.get("id")]
+                elif test_resp.status == 401:
+                    t_err = await test_resp.text()
+                    try:
+                        j_err = json.loads(t_err)
+                        validation_err = j_err.get("error", {}).get("message", "HTTP 401 Unauthorized")
+                    except Exception:
+                        validation_err = "HTTP 401 Unauthorized"
+    except Exception as e:
+        logger.info(f"[CLAUDE VALIDATE] Preflight check note: {e}")
+
+    if validation_err:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Anthropic rejected this API key ({validation_err}). Please click 'Create Key' in console.anthropic.com and copy the newly generated secret key (starts with sk-ant-api03-...)."
+        )
     
     # Set in memory
     system_state.anthropic_api_key = clean_key
@@ -7146,7 +7178,8 @@ async def api_set_claude_key(payload: SetClaudeKeyPayload, token: str = None, au
     new_advisory = await ai_arbitrage_engine.generate_claude_advisory()
     return {
         "status": "SUCCESS",
-        "message": "Claude API Key saved successfully to server.",
+        "message": "Claude API Key validated & saved successfully to server.",
+        "models_found": models_found,
         "advisory": new_advisory
     }
 

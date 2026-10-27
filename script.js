@@ -4154,12 +4154,13 @@ function promptSetClaudeKey() {
     logLocalMessage("[AI HUB] Saving Claude API key to server...");
     postAction("ai/set-claude-key", { api_key: cleanKey }).then(res => {
         if (res && res.status === "SUCCESS") {
-            alert("✅ Claude API key saved successfully!\n\nAI Advisory updated directly with Claude 3.5 Sonnet.");
+            const modelsMsg = (res.models_found && res.models_found.length > 0) ? `\n\nActive Models: ${res.models_found.slice(0, 3).join(', ')}` : "";
+            alert(`✅ Claude API key validated & connected!${modelsMsg}\n\nAI Advisory updated live.`);
             window._hasClaudeApiKey = true;
             if (res.advisory) renderClaudeAdvisory(res.advisory);
             fetchAIHubData(true);
         } else {
-            alert("Error saving API key: " + (res.detail || "Server error"));
+            alert("API Key Error: " + (res.detail || res.message || "Server error"));
         }
     }).catch(err => {
         alert("Network error saving API key: " + err);
