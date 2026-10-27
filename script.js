@@ -4170,12 +4170,18 @@ function renderClaudeAdvisory(adv) {
     const reasoningEl = document.getElementById("ai-adv-reasoning");
     const profitEl = document.getElementById("ai-adv-net-profit");
 
+    const entryLabelEl = document.getElementById("ai-adv-entry-label");
+    const recDirection = adv.recommended_direction || "Expansion";
+
     if (srcEl) srcEl.innerText = adv.source || "Claude 3.5 Sonnet Analysis";
     if (summaryEl) summaryEl.innerText = adv.summary || "";
     if (pairEl) pairEl.innerText = adv.top_pair || "--";
     if (dirEl) {
-        dirEl.innerText = adv.recommended_direction || "Expansion";
-        dirEl.style.color = adv.recommended_direction === "Expansion" ? "#38bdf8" : "#f43f5e";
+        dirEl.innerText = recDirection;
+        dirEl.style.color = recDirection === "Expansion" ? "#38bdf8" : "#f43f5e";
+    }
+    if (entryLabelEl) {
+        entryLabelEl.innerText = recDirection === "Expansion" ? "Entry (Depth Buy):" : "Entry (Depth Sell):";
     }
     if (entryEl) entryEl.innerText = `${adv.suggested_entry_diff} pts`;
     if (exitEl) exitEl.innerText = `${adv.suggested_exit_gap} pts`;

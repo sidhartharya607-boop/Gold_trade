@@ -2341,7 +2341,7 @@ class AIArbitrageEngine:
                 "label": f"{self.state.petal_symbol} / {self.state.mini_symbol} (Active)"
             })
 
-        # Month master mappings
+        # 1. Month master direct mappings
         for m in getattr(self.state, "month_master", []):
             p = m.get("petal_symbol", "")
             mini = m.get("mini_symbol", "")
@@ -2351,6 +2351,42 @@ class AIArbitrageEngine:
                         "petal_symbol": p,
                         "mini_symbol": mini,
                         "label": f"{p} / {mini}"
+                    })
+
+        # 2. Extract ALL unique subscribed instruments across Month Master & Active pairs
+        all_unique_instruments = set()
+        if self.state.petal_symbol: all_unique_instruments.add(self.state.petal_symbol)
+        if self.state.mini_symbol: all_unique_instruments.add(self.state.mini_symbol)
+        for m in getattr(self.state, "month_master", []):
+            if m.get("petal_symbol"): all_unique_instruments.add(m["petal_symbol"])
+            if m.get("mini_symbol"): all_unique_instruments.add(m["mini_symbol"])
+
+        # 3. Generate all pairwise Cross-Combinations (e.g. Petal vs Ten, Petal vs Guinea, Ten vs Mini, etc.)
+        unique_list = sorted(list(all_unique_instruments))
+        for i in range(len(unique_list)):
+            for j in range(i + 1, len(unique_list)):
+                sym_a = unique_list[i]
+                sym_b = unique_list[j]
+                
+                # Check if this pair or reverse is already present
+                already_in = any(
+                    (x["petal_symbol"] == sym_a and x["mini_symbol"] == sym_b) or
+                    (x["petal_symbol"] == sym_b and x["mini_symbol"] == sym_a)
+                    for x in pairs_to_evaluate
+                )
+                if not already_in:
+                    spec_a = get_gold_contract_specs(sym_a)
+                    spec_b = get_gold_contract_specs(sym_b)
+                    # Order by lot size grams ascending (smaller contract as Leg 1)
+                    if spec_a.get("lot_size_grams", 1) <= spec_b.get("lot_size_grams", 100):
+                        leg1, leg2 = sym_a, sym_b
+                    else:
+                        leg1, leg2 = sym_b, sym_a
+
+                    pairs_to_evaluate.append({
+                        "petal_symbol": leg1,
+                        "mini_symbol": leg2,
+                        "label": f"{leg1} / {leg2} (Cross)"
                     })
 
         today_str = get_ist_time_str("%Y-%m-%d")
@@ -2490,20 +2526,42 @@ class AIArbitrageEngine:
         day_range = max(30.0, top_pair.get("day_range", 60.0))
         mean_spread = (top_pair.get("day_high", 0.0) + top_pair.get("day_low", 0.0)) / 2.0 if top_pair.get("day_range", 0) > 0 else top_pair.get("spread", 800.0)
         
+        # Determine Direction and Exact Depth Spread Trigger:
+        # For Expansion: We BUY Leg 1, SELL Leg 2 -> Entry is based on DEPTH BUY SPREAD
+        # For Contraction: We SELL Leg 1, BUY Leg 2 -> Entry is based on DEPTH SELL SPREAD
         if top_pair.get("spread", 0.0) <= mean_spread:
             rec_dir = "Expansion"
-            suggested_entry = round(top_pair.get("depth_buy_spread", top_pair.get("spread", 0.0)), 2)
+            suggested_entry = round(top_pair.get("depth_buy_spread", top_pair.get("spread", 0.0)), 1)
             suggested_exit_gap = round(max(35.0, min(120.0, day_range * 0.45)), 1)
+            depth_used_label = "Depth Buy Spread"
+            opposite_exit_label = "Depth Sell Spread"
+            expected_exit_target = round(suggested_entry + suggested_exit_gap, 1)
         else:
             rec_dir = "Contraction"
-            suggested_entry = round(top_pair.get("depth_sell_spread", top_pair.get("spread", 0.0)), 2)
+            suggested_entry = round(top_pair.get("depth_sell_spread", top_pair.get("spread", 0.0)), 1)
             suggested_exit_gap = round(max(35.0, min(120.0, day_range * 0.45)), 1)
+            depth_used_label = "Depth Sell Spread"
+            opposite_exit_label = "Depth Buy Spread"
+            expected_exit_target = round(suggested_entry - suggested_exit_gap, 1)
 
         suggested_step = round(max(15.0, suggested_exit_gap * 0.5), 1)
 
+        summary_msg = (
+            f"Top Opportunity: {top_pair.get('label')} | "
+            f"Direction: {rec_dir} | Entry {depth_used_label}: {suggested_entry} pts | "
+            f"Target Exit ({opposite_exit_label}): {expected_exit_target} pts (+{suggested_exit_gap} gap). "
+            f"Today's Channel: {top_pair.get('day_low')} to {top_pair.get('day_high')} ({day_range} pts range)."
+        )
+
+        reasoning_msg = (
+            f"Trade setup strictly evaluated using live {depth_used_label} ({suggested_entry} pts) from Order Book depth. "
+            f"For {rec_dir.upper()}, entry occurs at {depth_used_label} and squares off when {opposite_exit_label} hits {expected_exit_target} pts. "
+            f"Channel range today is {day_range} pts, giving ~{max(70.0, summary.get('win_rate_percent', 82.0))}% fill probability with ₹360 charges + 8 pt slippage deducted."
+        )
+
         fallback_response = {
             "source": "Local Statistical Engine",
-            "summary": f"Top Opportunity: {top_pair.get('petal_symbol')} vs {top_pair.get('mini_symbol')} (Spread: {top_pair.get('spread')}). Range today is {top_pair.get('day_range')} pts.",
+            "summary": summary_msg,
             "top_pair": f"{top_pair.get('petal_symbol')} vs {top_pair.get('mini_symbol')}",
             "petal_symbol": top_pair.get("petal_symbol"),
             "mini_symbol": top_pair.get("mini_symbol"),
@@ -2512,7 +2570,7 @@ class AIArbitrageEngine:
             "suggested_exit_gap": suggested_exit_gap,
             "suggested_step": suggested_step,
             "suggested_lots": "1, 2, 2",
-            "reasoning": f"Based on live channel (Floor: {top_pair.get('day_low')}, Ceiling: {top_pair.get('day_high')}), spread is currently at {top_pair.get('spread')}. An exit gap of {suggested_exit_gap} points offers an estimated ~{max(70.0, summary.get('win_rate_percent', 82.0))}% fill probability with ₹360 charges + slippage deducted.",
+            "reasoning": reasoning_msg,
             "risk_warning": f"Breakout threshold detected at {round(top_pair.get('day_low', 0) - 25.0, 1) if rec_dir == 'Expansion' else round(top_pair.get('day_high', 0) + 25.0, 1)}. Maintain safe stop-loss.",
             "actionable_payload": {
                 "direction": rec_dir,
