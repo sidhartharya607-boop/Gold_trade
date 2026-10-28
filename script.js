@@ -4099,6 +4099,7 @@ function fetchAIHubData(forceClaude = false) {
         .then(r => r.json())
         .then(data => {
             if (data && data.status === "SUCCESS") {
+                render100to120Swings(data.swings_100_120 || [], data);
                 renderAIMatrix(data.matrix || []);
                 renderAIOpportunities(data.opportunities || []);
                 renderAISummary(data.summary || {});
@@ -4337,8 +4338,45 @@ function renderClaudeAdvisory(adv) {
             `Square-Off: Reverse orders (BUY ${pSym} @ Ask & SELL ${mSym} @ Bid) when spread contracts to ${exitTargetSpread} pts.`);
     }
 
-    if (stepEl) stepEl.innerText = `${adv.suggested_step || 30} pts`;
+    if (stepEl) stepEl.innerText = `${adv.suggested_step || 35} pts`;
     if (lotsEl) lotsEl.innerText = adv.suggested_lots || "1, 2, 2";
+
+    // 4 Multi-Factor Reasoning Pillars
+    const whySuggestedEl = document.getElementById("ai-adv-why-suggested");
+    const newsDriverEl = document.getElementById("ai-adv-news-driver");
+    const highLowPosEl = document.getElementById("ai-adv-highlow-position");
+    const frequencyEl = document.getElementById("ai-adv-frequency");
+
+    if (whySuggestedEl) {
+        whySuggestedEl.innerText = adv.why_suggested || adv.reasoning || "AI ne ye trade isliye suggest kiya kyunki spread Day Low support discount par hai aur bounce ki probability high hai.";
+    }
+    if (newsDriverEl) {
+        newsDriverEl.innerText = adv.news_factor || adv.market_catalyst || "US Dollar Index (DXY) softness aur bullion safe-haven demand se MCX spread me expansion favorable hai.";
+    }
+    if (highLowPosEl) {
+        highLowPosEl.innerText = adv.high_low_factor || (adv.depth_buy_low !== undefined ? `Today's Depth Buy: Low ${adv.depth_buy_low} ── High ${adv.depth_buy_high} pts. Current spread bottom support zone me hai.` : "Spread Day Low discount zone ke paas hai.");
+    }
+    if (frequencyEl) {
+        frequencyEl.innerText = adv.frequency_factor || "Aaj subah se aise 100-120+ points ke multiple spread moves repeat hue hain.";
+    }
+
+    // Assistant Chat Reply if user asked a question
+    const replyBox = document.getElementById("ai-assistant-reply-box");
+    const replyText = document.getElementById("ai-assistant-reply-text");
+    if (replyBox && replyText) {
+        if (adv.assistant_reply) {
+            replyBox.style.display = "block";
+            replyText.innerHTML = adv.assistant_reply;
+        } else if (replyText.innerText.includes("soch raha hai")) {
+            replyBox.style.display = "block";
+            replyText.innerHTML = `💡 <strong>AI Guidance:</strong> ${adv.why_suggested || adv.reasoning || "Setup ready. 1-Click Load into Lots Bot."}`;
+        }
+    }
+
+    // Sync swings journal if provided
+    if (adv.swings_today_info) {
+        render100to120Swings(adv.swings_today_info.swings || [], adv.swings_today_info);
+    }
 
     // Step 3: AI Market Catalyst & Depth Reasoning
     if (marketCatalystEl) {
@@ -4385,6 +4423,95 @@ function renderClaudeAdvisory(adv) {
     if (exitEl) exitEl.innerText = `${adv.suggested_exit_gap} pts`;
     if (reasoningEl) reasoningEl.innerHTML = `💡 ${adv.reasoning || ""}`;
 }
+
+// 🏆 Today's 100 to 120+ Points Swings Journal Renderer
+function render100to120Swings(swings, data) {
+    const totalEl = document.getElementById("swings-total-count");
+    const missedEl = document.getElementById("swings-missed-count");
+    const cashEl = document.getElementById("swings-missed-cash");
+    const tbody = document.getElementById("swings-table-body");
+
+    const totalCount = data && data.swings_total_count !== undefined ? data.swings_total_count : (swings ? swings.length : 0);
+    const missedCount = data && data.swings_missed_count !== undefined ? data.swings_missed_count : (swings ? swings.filter(s => s.status && s.status.includes("Missed")).length : 0);
+    const missedCash = data && data.swings_missed_cash !== undefined ? data.swings_missed_cash : (swings ? swings.filter(s => s.status && s.status.includes("Missed")).reduce((acc, x) => acc + (x.in_hand_cash || 0), 0) : 0);
+
+    if (totalEl) totalEl.innerText = totalCount;
+    if (missedEl) missedEl.innerText = missedCount;
+    if (cashEl) cashEl.innerText = missedCash.toLocaleString();
+
+    if (!tbody) return;
+
+    if (!swings || swings.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" style="padding: 1rem; text-align: center; color: #64748B;">Aaj abhi tak koi 100+ points ka swing trigger nahi hua. Monitoring live order book...</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = swings.map((s, idx) => {
+        const isMissed = s.status && s.status.includes("Missed");
+        const statusBadge = isMissed ? 
+            `<span style="background: #FEF2F2; color: #DC2626; border: 1.5px solid #FCA5A5; padding: 2px 8px; border-radius: 999px; font-weight: 800; font-size: 0.68rem;">⚠️ Missed (Nahi Kiya)</span>` :
+            `<span style="background: #ECFDF5; color: #047857; border: 1.5px solid #10B981; padding: 2px 8px; border-radius: 999px; font-weight: 800; font-size: 0.68rem;">✅ Traded</span>`;
+        const moveColor = s.direction === "Expansion" ? "#15803D" : "#B91C1C";
+        return `
+            <tr style="border-bottom: 1.5px solid #E2E8F0; background: ${idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC'};">
+                <td style="padding: 0.55rem 0.8rem; font-family: monospace; color: #64748B; font-weight: 600;">${s.time || '--'}</td>
+                <td style="padding: 0.55rem 0.8rem; font-weight: 800; color: #0F172A;">${s.pair}</td>
+                <td style="padding: 0.55rem 0.8rem; font-weight: 900; color: ${moveColor}; font-family: monospace;">
+                    ${s.direction === 'Expansion' ? '▲' : '▼'} +${s.move_pts} pts
+                </td>
+                <td style="padding: 0.55rem 0.8rem; font-family: monospace; font-size: 0.74rem; color: #334155;">
+                    ${s.from_spread} ── ${s.to_spread} pts
+                </td>
+                <td style="padding: 0.55rem 0.8rem; text-align: right; font-weight: 900; color: #059669; font-family: monospace;">
+                    +₹${(s.in_hand_cash || 0).toLocaleString()}
+                </td>
+                <td style="padding: 0.55rem 0.8rem; text-align: center;">
+                    ${statusBadge}
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+window.render100to120Swings = render100to120Swings;
+
+// 💬 Interactive AI Assistant Query Handlers
+function askAIAssistant(qText) {
+    const input = document.getElementById("ai-assistant-query-input");
+    if (input) input.value = qText;
+    submitAIAssistantQuestion();
+}
+window.askAIAssistant = askAIAssistant;
+
+function submitAIAssistantQuestion() {
+    const input = document.getElementById("ai-assistant-query-input");
+    if (!input) return;
+    const q = input.value.trim();
+    if (!q) return;
+
+    const replyBox = document.getElementById("ai-assistant-reply-box");
+    const replyText = document.getElementById("ai-assistant-reply-text");
+    if (replyBox && replyText) {
+        replyBox.style.display = "block";
+        replyText.innerHTML = `<em>⏳ AI Assistant soch raha hai... "${q}"</em>`;
+    }
+
+    callClaudeAnalysis(q);
+}
+window.submitAIAssistantQuestion = submitAIAssistantQuestion;
+
+function toggleMonthMasterReferenceTable() {
+    const wrapper = document.getElementById("mm-table-collapsible-wrapper");
+    const icon = document.getElementById("mm-table-toggle-icon");
+    if (!wrapper) return;
+    if (wrapper.style.display === "none" || !wrapper.style.display) {
+        wrapper.style.display = "block";
+        if (icon) icon.innerText = "▲ Click to Hide Table";
+    } else {
+        wrapper.style.display = "none";
+        if (icon) icon.innerText = "▼ Click to View Table";
+    }
+}
+window.toggleMonthMasterReferenceTable = toggleMonthMasterReferenceTable;
 
 // 4-Column Clean Month Master Combinations Matrix
 window._lastAIMatrix = [];

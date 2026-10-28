@@ -1430,200 +1430,258 @@
                 </div>
             </div>
 
-            <!-- Modal Body (Scrollable, Clean Light Layout) -->
-            <div class="modal-body" style="overflow-y: auto; padding: 1rem 0; display: flex; flex-direction: column; gap: 1rem; flex: 1;">
+            <!-- Modal Body (Minimal, Clutter-Free Assistant Layout) -->
+            <div class="modal-body" style="overflow-y: auto; padding: 0.85rem 0; display: flex; flex-direction: column; gap: 1rem; flex: 1;">
                 
-                <!-- Dynamic Scanner Control Bar -->
-                <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 0.75rem 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem;">
-                    <div style="display: flex; align-items: center; gap: 0.85rem;">
-                        <span style="font-size: 0.82rem; font-weight: 700; color: #1E293B;">⚡ Dynamic Divergence Threshold:</span>
-                        <input type="range" id="ai-threshold-slider" min="30" max="200" step="5" value="80" oninput="onAIThresholdSliderChange(this.value)" style="width: 140px; cursor: pointer; accent-color: #8B5CF6;">
-                        <span id="ai-threshold-val-badge" class="font-mono" style="background: #F3E8FF; color: #6B21A8; border: 1.5px solid #D8B4FE; padding: 2px 8px; border-radius: 5px; font-weight: 800; font-size: 0.85rem;">80.0 pts</span>
+                <!-- CARD 1: 🏆 TODAY'S 100 TO 120+ POINTS SWINGS JOURNAL (Missed vs Traded) -->
+                <div style="background: #FFFFFF; border: 2px solid #E2E8F0; border-radius: 12px; padding: 1.1rem; box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <h4 style="margin: 0; font-size: 1rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.45rem;">
+                                <span>🏆 Aaj Ke 100–120+ Points Big Moves Tracker</span>
+                                <span style="font-size: 0.72rem; color: #1D4ED8; font-weight: 800; background: #EFF6FF; border: 1px solid #BFDBFE; padding: 2px 8px; border-radius: 999px;">OPPORTUNITY JOURNAL</span>
+                            </h4>
+                            <p style="margin: 3px 0 0 0; font-size: 0.76rem; color: #64748B;">
+                                Aaj market me aise kitne 100-120+ points ke spread swings aaye jo trade ho sakte the aur aapne miss kiye.
+                            </p>
+                        </div>
                     </div>
-                    <div style="font-size: 0.74rem; color: #64748B; font-weight: 500;">
-                        <span>Rule: Divergence $\ge$ Threshold par Opportunity Log hogi (Not static)</span>
+
+                    <!-- 3 Minimal Highlight KPI Cards -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-bottom: 0.85rem;">
+                        <div style="background: #F0FDF4; border: 1.5px solid #86EFAC; border-radius: 8px; padding: 0.65rem 0.9rem;">
+                            <span style="font-size: 0.7rem; color: #166534; font-weight: 700; text-transform: uppercase;">Total 100-120+ Pts Moves:</span>
+                            <div style="font-size: 1.35rem; font-weight: 900; color: #15803D; margin-top: 2px;">
+                                <span id="swings-total-count">0</span> <span style="font-size: 0.82rem; font-weight: 700;">Trades Today</span>
+                            </div>
+                        </div>
+                        <div style="background: #FEF2F2; border: 1.5px solid #FCA5A5; border-radius: 8px; padding: 0.65rem 0.9rem;">
+                            <span style="font-size: 0.7rem; color: #991B1B; font-weight: 700; text-transform: uppercase;">Aapne Miss Kiye (Nahi Kiye):</span>
+                            <div style="font-size: 1.35rem; font-weight: 900; color: #DC2626; margin-top: 2px;">
+                                <span id="swings-missed-count">0</span> <span style="font-size: 0.82rem; font-weight: 700;">Trades Missed</span>
+                            </div>
+                        </div>
+                        <div style="background: #EFF6FF; border: 1.5px solid #93C5FD; border-radius: 8px; padding: 0.65rem 0.9rem;">
+                            <span style="font-size: 0.7rem; color: #1E40AF; font-weight: 700; text-transform: uppercase;">In-Hand Cash Jo Ban Sakta Tha:</span>
+                            <div style="font-size: 1.35rem; font-weight: 900; color: #059669; margin-top: 2px;" class="font-mono">
+                                +₹<span id="swings-missed-cash">0</span> <span style="font-size: 0.76rem; font-weight: 700; color: #047857;">Net Cash</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Clean Swings List Table -->
+                    <div style="overflow-x: auto; max-height: 220px; overflow-y: auto; background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 8px;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: left;">
+                            <thead style="position: sticky; top: 0; z-index: 2; background: #F8FAFC; border-bottom: 2px solid #CBD5E1; color: #334155; font-weight: 800;">
+                                <tr>
+                                    <th style="padding: 0.6rem 0.8rem; width: 12%;">Time</th>
+                                    <th style="padding: 0.6rem 0.8rem; width: 22%;">Month Master Pair</th>
+                                    <th style="padding: 0.6rem 0.8rem; width: 16%;">Move (Points)</th>
+                                    <th style="padding: 0.6rem 0.8rem; width: 18%;">Spread Range</th>
+                                    <th style="padding: 0.6rem 0.8rem; width: 14%; text-align: right;">In-Hand Net</th>
+                                    <th style="padding: 0.6rem 0.8rem; width: 18%; text-align: center;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="swings-table-body">
+                                <tr>
+                                    <td colspan="6" style="padding: 1rem; text-align: center; color: #64748B;">Loading today's 100-120+ points swings...</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
-                <!-- TOP SECTION: Claude AI Order Book Sentinel Card -->
+                <!-- CARD 2: 🎯 LIVE 100–120 PTS AI ASSISTANT SUGGESTION & 4-FACTOR REASONING -->
                 <div id="ai-advisory-card" style="background: linear-gradient(135deg, #FAF5FF 0%, #FFFFFF 100%); border: 2.5px solid #A855F7; border-radius: 12px; padding: 1.15rem; box-shadow: 0 4px 18px rgba(168, 85, 247, 0.12);">
                     
                     <!-- Header Info Bar -->
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.85rem; margin-bottom: 0.85rem; flex-wrap: wrap;">
                         <div>
                             <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
-                                <span style="font-size: 1.25rem;">👁️</span>
-                                <strong style="font-size: 0.98rem; color: #1E293B; font-weight: 800;" id="ai-adv-source">Claude AI Order Book Sentinel</strong>
-                                <span id="ai-engine-badge" style="font-size: 0.68rem; background: #ECFDF5; color: #047857; border: 1.5px solid #10B981; border-radius: 999px; padding: 2px 8px; font-weight: 800;">MONITORING DEPTH LIVE</span>
-                                <span id="ai-adv-pair-badge" style="font-size: 0.74rem; background: #EFF6FF; color: #1D4ED8; border: 1.5px solid #93C5FD; border-radius: 6px; padding: 2px 8px; font-weight: 800;">GOLDPETAL vs GOLDMINI</span>
+                                <span style="font-size: 1.35rem;">🎯</span>
+                                <strong style="font-size: 1.05rem; color: #0F172A; font-weight: 900;">AI Trade Suggestion (100–120 Pts Target)</strong>
+                                <span id="ai-adv-pair-badge" style="font-size: 0.78rem; background: #EFF6FF; color: #1D4ED8; border: 1.5px solid #93C5FD; border-radius: 6px; padding: 2px 8px; font-weight: 800;">GOLDPETAL vs GOLDMINI</span>
+                                <span id="ai-adv-direction-pill" style="font-size: 0.72rem; background: #16A34A; color: #FFFFFF; padding: 2px 9px; border-radius: 4px; font-weight: 800;">🟢 BUY SPREAD</span>
                             </div>
-                            <p id="ai-adv-summary" style="margin: 0.45rem 0 0 0; font-size: 0.84rem; color: #334155; font-weight: 600; line-height: 1.45;">
-                                AI continuously monitors Depth Buy &amp; Depth Sell spreads on your behalf across Month Master pairs.
+                            <p id="ai-adv-summary" style="margin: 0.35rem 0 0 0; font-size: 0.84rem; color: #334155; font-weight: 600;">
+                                AI Assistant ne 100-120 points ke profit swing ke liye ye setup identify kiya hai.
                             </p>
                         </div>
-                        <div id="ai-adv-profit-badge" style="text-align: right; background: #ECFDF5; border: 2px solid #10B981; border-radius: 8px; padding: 0.45rem 0.9rem; min-width: 170px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);">
-                            <span style="font-size: 0.68rem; color: #047857; font-weight: 700; display: block; text-transform: uppercase;">Expected In-Hand Net Cash:</span>
-                            <strong id="ai-adv-net-profit" class="font-mono" style="color: #059669; font-size: 1.25rem; font-weight: 900;">+₹520 In-Hand</strong>
-                            <span id="ai-adv-profit-subtext" style="font-size: 0.64rem; color: #065F46; display: block; font-weight: 600;">(Net after MCX Taxes &amp; Slippage)</span>
+                        <div id="ai-adv-profit-badge" style="text-align: right; background: #ECFDF5; border: 2px solid #10B981; border-radius: 8px; padding: 0.45rem 0.95rem; min-width: 175px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);">
+                            <span style="font-size: 0.68rem; color: #047857; font-weight: 800; display: block; text-transform: uppercase;">Expected In-Hand Net Cash:</span>
+                            <strong id="ai-adv-net-profit" class="font-mono" style="color: #059669; font-size: 1.3rem; font-weight: 900;">+₹1,100 In-Hand</strong>
+                            <span id="ai-adv-profit-subtext" style="font-size: 0.65rem; color: #065F46; display: block; font-weight: 600;">(Net after MCX Taxes &amp; Slippage)</span>
                         </div>
                     </div>
 
-                    <!-- 2 Big Visual Action Boxes (Depth Entry & Depth Exit) -->
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem; margin-bottom: 0.85rem;">
-                        <!-- Box 1: 🟢 EXACT DEPTH ENTRY -->
-                        <div style="background: #F0FDF4; border: 2px solid #86EFAC; border-radius: 10px; padding: 0.85rem 1rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
-                                <span style="font-size: 0.74rem; font-weight: 800; color: #166534; text-transform: uppercase; letter-spacing: 0.03em;">
-                                    🟢 STEP 1: EXACT ENTRY (At Market Depth)
-                                </span>
-                                <span id="ai-adv-direction-pill" style="font-size: 0.68rem; background: #16A34A; color: #FFFFFF; padding: 1px 7px; border-radius: 4px; font-weight: 800;">EXPANSION</span>
+                    <!-- 4 MULTI-FACTOR REASONING PILLARS (Clean 2x2 Grid) -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem; margin-bottom: 0.85rem;">
+                        
+                        <!-- Pillar 1: Why AI Suggested This -->
+                        <div style="background: #FFFFFF; border: 1.5px solid #D8B4FE; border-left: 4.5px solid #9333EA; border-radius: 8px; padding: 0.75rem 0.9rem;">
+                            <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.3rem;">
+                                <span>💡</span>
+                                <strong style="font-size: 0.78rem; text-transform: uppercase; color: #6B21A8; letter-spacing: 0.03em;">AI Ne Kyu Suggest Kiya (The Reason):</strong>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.83rem;">
-                                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                                    <span style="background: #DCFCE7; color: #15803D; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem; border: 1px solid #86EFAC;">DEPTH BUY</span>
-                                    <strong id="ai-entry-buy-str" style="color: #0F172A; font-size: 0.85rem;">Loading contract...</strong>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
-                                    <span style="background: #FEE2E2; color: #B91C1C; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem; border: 1px solid #FCA5A5;">DEPTH SELL</span>
-                                    <strong id="ai-entry-sell-str" style="color: #0F172A; font-size: 0.85rem;">Loading contract...</strong>
-                                </div>
-                                <div style="margin-top: 0.25rem; font-size: 0.78rem; color: #15803D; font-weight: 700; border-top: 1px dashed #86EFAC; padding-top: 0.35rem; display: flex; justify-content: space-between;">
-                                    <span>Entry Spread: <strong id="ai-entry-spread-val" class="font-mono" style="font-weight: 900; color: #047857; font-size: 0.95rem;">-- pts</strong></span>
-                                    <span style="color: #64748B; font-weight: normal; font-size: 0.72rem;">(From live order book depth)</span>
-                                </div>
-                                <!-- Separate Depth Buy and Depth Sell Ranges Display -->
-                                <div style="margin-top: 0.35rem; font-size: 0.72rem; background: #FFFFFF; border: 1px solid #BBF7D0; border-radius: 6px; padding: 4px 8px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem;">
-                                    <span style="color: #15803D; font-weight: 700;">🟢 Depth BUY Range: <strong id="ai-entry-buy-range" class="font-mono">Low -- ── High --</strong></span>
-                                    <span style="color: #B91C1C; font-weight: 700;">🔴 Depth SELL Range: <strong id="ai-entry-sell-range" class="font-mono">Low -- ── High --</strong></span>
-                                </div>
+                            <div id="ai-adv-why-suggested" style="font-size: 0.81rem; color: #0F172A; font-weight: 600; line-height: 1.45;">
+                                AI is analyzing live depth order book divergence and support levels...
                             </div>
                         </div>
 
-                        <!-- Box 2: 🔴 EXACT DEPTH EXIT -->
-                        <div style="background: #EFF6FF; border: 2px solid #93C5FD; border-radius: 10px; padding: 0.85rem 1rem;">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
-                                <span style="font-size: 0.74rem; font-weight: 800; color: #1E40AF; text-transform: uppercase; letter-spacing: 0.03em;">
-                                    🔴 STEP 2: EXACT EXIT (Target Spread &amp; Square-Off)
-                                </span>
-                                <span id="ai-adv-exit-gap-pill" style="font-size: 0.68rem; background: #2563EB; color: #FFFFFF; padding: 1px 7px; border-radius: 4px; font-weight: 800;">+60 pts Target</span>
+                        <!-- Pillar 2: Market News & Macro Drivers -->
+                        <div style="background: #FFFFFF; border: 1.5px solid #BAE6FD; border-left: 4.5px solid #0284C7; border-radius: 8px; padding: 0.75rem 0.9rem;">
+                            <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.3rem;">
+                                <span>📰</span>
+                                <strong style="font-size: 0.78rem; text-transform: uppercase; color: #0369A1; letter-spacing: 0.03em;">Market News &amp; Macro Driver:</strong>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.83rem;">
-                                <div style="font-size: 0.82rem; color: #1E293B; font-weight: 700;">
-                                    Target Exit Spread: <strong id="ai-exit-spread-val" class="font-mono" style="color: #1D4ED8; font-size: 0.98rem;">-- pts</strong>
-                                </div>
-                                <div id="ai-exit-action-str" style="font-size: 0.78rem; color: #334155; font-weight: 600;">
-                                    Square Off: Reverse orders when spread reaches target.
-                                </div>
-                                <div style="margin-top: 0.25rem; font-size: 0.76rem; color: #475569; border-top: 1px dashed #93C5FD; padding-top: 0.35rem; display: flex; justify-content: space-between;">
-                                    <span>Averaging Step: <strong id="ai-adv-step">30 pts</strong></span>
-                                    <span>Lots Ladder: <strong id="ai-adv-lots">1, 2, 2</strong></span>
-                                </div>
+                            <div id="ai-adv-news-driver" style="font-size: 0.81rem; color: #334155; line-height: 1.45;">
+                                US Dollar Index (DXY) softness aur bullion safe-haven demand se MCX spread me expansion favorable hai.
                             </div>
                         </div>
+
+                        <!-- Pillar 3: Today's High/Low Position -->
+                        <div style="background: #FFFFFF; border: 1.5px solid #BBF7D0; border-left: 4.5px solid #16A34A; border-radius: 8px; padding: 0.75rem 0.9rem;">
+                            <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.3rem;">
+                                <span>📈</span>
+                                <strong style="font-size: 0.78rem; text-transform: uppercase; color: #15803D; letter-spacing: 0.03em;">Today's High / Low Position:</strong>
+                            </div>
+                            <div id="ai-adv-highlow-position" style="font-size: 0.81rem; color: #334155; line-height: 1.45;">
+                                Current spread Day Low support discount ke bilkul paas hai, jahan se bounce lene ka probability high hai.
+                            </div>
+                        </div>
+
+                        <!-- Pillar 4: Recurrence Frequency -->
+                        <div style="background: #FFFFFF; border: 1.5px solid #FED7AA; border-left: 4.5px solid #EA580C; border-radius: 8px; padding: 0.75rem 0.9rem;">
+                            <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.3rem;">
+                                <span>🔁</span>
+                                <strong style="font-size: 0.78rem; text-transform: uppercase; color: #C2410C; letter-spacing: 0.03em;">Kitni Baar Aisa Hua Aaj (Frequency):</strong>
+                            </div>
+                            <div id="ai-adv-frequency" style="font-size: 0.81rem; color: #334155; line-height: 1.45;">
+                                Aaj subah se aise 100-120+ points ke spread moves repeat ho rahe hain.
+                            </div>
+                        </div>
+
                     </div>
 
-                    <!-- Box 3: 📰 AI MARKET CATALYST & DEPTH REASONING -->
-                    <div style="background: #FFFFFF; border: 1.5px solid #E9D5FF; border-left: 4.5px solid #A855F7; border-radius: 8px; padding: 0.75rem 0.95rem; margin-bottom: 0.85rem; font-size: 0.81rem; color: #334155; line-height: 1.45;">
-                        <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem;">
-                            <strong style="color: #6B21A8; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.02em;">📰 AI Market Catalyst &amp; Order Book Depth Reasoning (Why this is profitable):</strong>
+                    <!-- Step-by-Step Execution Plan & 1-Click Button -->
+                    <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 10px; padding: 0.85rem 1rem; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.85rem;">
+                        <div style="display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.82rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <span style="font-weight: 800; color: #166534; background: #DCFCE7; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem;">STEP 1: ENTRY</span>
+                                <span id="ai-entry-buy-str" style="color: #0F172A; font-weight: 700;">Loading...</span> &amp; 
+                                <span id="ai-entry-sell-str" style="color: #0F172A; font-weight: 700;">Loading...</span>
+                                <span style="color: #64748B;">@ Spread: <strong id="ai-entry-spread-val" class="font-mono" style="color: #047857; font-size: 0.92rem;">-- pts</strong></span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <span style="font-weight: 800; color: #1E40AF; background: #EFF6FF; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem;">STEP 2: EXIT</span>
+                                <span>Target Exit Spread: <strong id="ai-exit-spread-val" class="font-mono" style="color: #1D4ED8; font-size: 0.95rem;">-- pts</strong></span>
+                                <span id="ai-adv-exit-gap-pill" style="background: #2563EB; color: #fff; font-size: 0.68rem; padding: 1px 7px; border-radius: 4px; font-weight: 800;">+110 pts Target</span>
+                                <span style="color: #64748B; font-size: 0.75rem;">(Step: <strong id="ai-adv-step">35 pts</strong> | Lots: <strong id="ai-adv-lots">1, 2, 2</strong>)</span>
+                            </div>
                         </div>
-                        <div id="ai-adv-market-catalyst" style="color: #1E293B; font-weight: 500;">
-                            Live Order Book Depth Analysis: AI is monitoring Depth Buy and Depth Sell spreads on your behalf. Checking order book depth absorption and channel divergence.
-                        </div>
+
+                        <!-- 1-Click Load CTA -->
+                        <button type="button" id="btn-ai-1click-apply" onclick="applyAISuggestionToBot()" class="update-button" style="width: auto; padding: 0.65rem 1.7rem; font-size: 0.92rem; font-weight: 800; background: linear-gradient(135deg, #9333EA, #4F46E5); border: none; border-radius: 8px; box-shadow: 0 4px 14px rgba(147, 51, 234, 0.35); cursor: pointer; color: #fff; display: flex; align-items: center; gap: 0.5rem; white-space: nowrap;">
+                            <span>🚀 1-Click: Load 100-120 Pts Setup into Lots Bot</span>
+                        </button>
                     </div>
 
                     <!-- Hidden legacy anchors for JS backward compatibility -->
+                    <span id="ai-adv-source" style="display: none;"></span>
+                    <span id="ai-engine-badge" style="display: none;"></span>
+                    <span id="ai-adv-market-catalyst" style="display: none;"></span>
+                    <span id="ai-entry-buy-range" style="display: none;"></span>
+                    <span id="ai-entry-sell-range" style="display: none;"></span>
+                    <span id="ai-exit-action-str" style="display: none;"></span>
                     <span id="ai-adv-pair" style="display: none;"></span>
                     <span id="ai-adv-direction" style="display: none;"></span>
                     <span id="ai-adv-entry" style="display: none;"></span>
                     <span id="ai-adv-exit-gap" style="display: none;"></span>
                     <span id="ai-adv-reasoning" style="display: none;"></span>
                     <span id="ai-adv-entry-label" style="display: none;"></span>
+                    <span id="ai-adv-step-hidden" style="display: none;"></span>
+                    <span id="ai-adv-lots-hidden" style="display: none;"></span>
+                </div>
 
-                    <!-- Footer: 1-Click Action -->
-                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.85rem;">
-                        <button type="button" id="btn-ai-1click-apply" onclick="applyAISuggestionToBot()" class="update-button" style="width: auto; padding: 0.65rem 1.8rem; font-size: 0.92rem; font-weight: 800; background: linear-gradient(135deg, #9333EA, #4F46E5); border: none; border-radius: 8px; box-shadow: 0 4px 14px rgba(147, 51, 234, 0.35); cursor: pointer; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
-                            <span>🚀 1-Click: Load into Lots Bot &amp; Execute</span>
+                <!-- CARD 3: 💬 ASK AI ASSISTANT (Interactive Co-Pilot & Direct Guidance) -->
+                <div style="background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 12px; padding: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.4rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 1.25rem;">💬</span>
+                            <strong style="font-size: 0.95rem; color: #0F172A; font-weight: 800;">AI Assistant Se Poocho (Har Cheez Par Guidance)</strong>
+                        </div>
+                        <span style="font-size: 0.72rem; color: #64748B;">News, Timing, Stoploss ya Profit Target poochiye</span>
+                    </div>
+
+                    <!-- Quick Prompt Chips -->
+                    <div style="display: flex; gap: 0.45rem; margin-bottom: 0.65rem; flex-wrap: wrap;">
+                        <button type="button" onclick="askAIAssistant('Aaj ki news ka MCX Gold spread par kya asar hai?')" style="font-size: 0.74rem; background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; border-radius: 999px; padding: 3px 10px; cursor: pointer; font-weight: 700;">
+                            📰 Aaj Ki News Ka Asar?
+                        </button>
+                        <button type="button" onclick="askAIAssistant('Kya abhi 100 to 120 points ka target safe hai?')" style="font-size: 0.74rem; background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; border-radius: 999px; padding: 3px 10px; cursor: pointer; font-weight: 700;">
+                            🎯 100 Pts Target Safe Hai?
+                        </button>
+                        <button type="button" onclick="askAIAssistant('Is trade me safe stoploss kahan lagana chaiye?')" style="font-size: 0.74rem; background: #FEF2F2; color: #DC2626; border: 1px solid #FECACA; border-radius: 999px; padding: 3px 10px; cursor: pointer; font-weight: 700;">
+                            🛑 Safe Stoploss Kahan Lagayein?
+                        </button>
+                        <button type="button" onclick="askAIAssistant('Next 100+ points entry kab tak ban sakti hai?')" style="font-size: 0.74rem; background: #FAF5FF; color: #7E22CE; border: 1px solid #E9D5FF; border-radius: 999px; padding: 3px 10px; cursor: pointer; font-weight: 700;">
+                            ⏱️ Timing / Next Entry?
                         </button>
                     </div>
-                </div>
 
-                <!-- MIDDLE SECTION: Month Master Combinations & Live Depth Ranges (Dead Simple 4-Column Table) -->
-                <div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
-                        <div>
-                            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.4rem;">
-                                <span>📊 Month Master Combinations &amp; Live Depth Spreads</span>
-                                <span style="font-size: 0.72rem; color: #7C3AED; font-weight: 700; background: #F3E8FF; padding: 2px 7px; border-radius: 4px;">Clean View (Buy vs Sell Range)</span>
-                            </h4>
-                            <p style="margin: 2px 0 0 0; font-size: 0.72rem; color: #64748B;">
-                                Depth Buy ka Low-High alag aur Depth Sell ka Low-High alag — Bina kisi confusion ke direct rate dekhein.
-                            </p>
-                        </div>
+                    <!-- Input and Ask Button -->
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <input type="text" id="ai-assistant-query-input" placeholder="Apna sawal likhein (e.g., Abhi buy karna safe hai? Stoploss kya rakhein?)..." style="flex: 1; padding: 0.55rem 0.85rem; font-size: 0.84rem; border: 1.5px solid #CBD5E1; border-radius: 8px; outline: none; background: #F8FAFC;" onkeydown="if(event.key === 'Enter') submitAIAssistantQuestion()">
+                        <button type="button" id="btn-ask-ai-assistant" onclick="submitAIAssistantQuestion()" style="padding: 0.55rem 1.25rem; font-size: 0.84rem; font-weight: 800; background: #1E293B; color: #FFFFFF; border: none; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; white-space: nowrap;">
+                            <span>Poocho</span> 🚀
+                        </button>
                     </div>
 
-                    <div style="overflow-x: auto; background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
-                            <thead>
-                                <tr style="background: #F1F5F9; border-bottom: 2px solid #CBD5E1; color: #334155; font-weight: 800;">
-                                    <th style="padding: 0.7rem 0.9rem; width: 26%;">Month Master Pair</th>
-                                    <th style="padding: 0.7rem 0.9rem; width: 28%;">🟢 Depth BUY (Kharidne Ka Rate &amp; Aaj Ka Range)</th>
-                                    <th style="padding: 0.7rem 0.9rem; width: 28%;">🔴 Depth SELL (Bechne Ka Rate &amp; Aaj Ka Range)</th>
-                                    <th style="padding: 0.7rem 0.9rem; text-align: center; width: 18%;">AI Trade Signal &amp; Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ai-matrix-tbody">
-                                <tr>
-                                    <td colspan="4" style="padding: 1.25rem; text-align: center; color: #64748B;">Loading Month Master combinations...</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <!-- Assistant Response Box -->
+                    <div id="ai-assistant-reply-box" style="display: none; margin-top: 0.75rem; background: #F8FAFC; border: 1.5px solid #CBD5E1; border-left: 4px solid #10B981; border-radius: 8px; padding: 0.85rem 1rem; font-size: 0.84rem; color: #0F172A; line-height: 1.5;">
+                        <div id="ai-assistant-reply-text">Assistant reply will appear here...</div>
                     </div>
                 </div>
 
-                <!-- BOTTOM SECTION: Today's AI Suggested Trades (Aaj Subah Se AI Ne Kya Suggest Kiya) -->
-                <div>
-                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem;">
-                        <div>
-                            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.4rem;">
-                                <span>📋 Today's AI Suggested Trades</span>
-                                <span style="font-size: 0.72rem; color: #7C3AED; font-weight: 700; background: #F3E8FF; padding: 2px 7px; border-radius: 4px;">Aaj Subah Se AI Ke Trade Setups</span>
-                            </h4>
-                            <p style="margin: 2px 0 0 0; font-size: 0.72rem; color: #64748B;">
-                                AI continuously monitors Depth Buy &amp; Depth Sell spreads on your behalf across Month Master combinations.
-                            </p>
+                <!-- COLLAPSIBLE REFERENCE: Month Master Combinations & Live Depth Spreads -->
+                <div style="background: #F8FAFC; border: 1.5px solid #E2E8F0; border-radius: 10px; overflow: hidden;">
+                    <div onclick="toggleMonthMasterReferenceTable()" style="display: flex; justify-content: space-between; align-items: center; padding: 0.7rem 1rem; cursor: pointer; user-select: none;">
+                        <div style="display: flex; align-items: center; gap: 0.45rem;">
+                            <span style="font-size: 0.95rem;">📊</span>
+                            <strong style="font-size: 0.86rem; color: #334155;">Month Master Combinations &amp; Live Depth Spreads (Reference)</strong>
                         </div>
-                        
-                        <!-- Summary Stats Pill -->
-                        <div id="ai-opp-summary-pill" style="display: flex; align-items: center; gap: 0.85rem; background: #F8FAFC; border: 1.5px solid #E2E8F0; padding: 0.35rem 0.75rem; border-radius: 8px; font-size: 0.75rem; color: #334155;">
-                            <span>Total Setups: <strong id="ai-stat-total" style="color: #0F172A; font-weight: 800;">0</strong></span>
-                            <span>Win Rate: <strong id="ai-stat-winrate" style="color: #059669; font-weight: 800;">0.0%</strong></span>
-                            <span>Today's Net: <strong id="ai-stat-profit" class="font-mono" style="color: #059669; font-weight: 800;">₹0</strong></span>
-                            <button type="button" onclick="clearAIOpportunities()" title="Clear today's log" style="background: none; border: none; color: #EF4444; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem;">🗑️</button>
-                        </div>
+                        <span id="mm-table-toggle-icon" style="font-size: 0.78rem; color: #64748B; font-weight: 700;">▼ Click to View / Hide Table</span>
                     </div>
 
-                    <div style="overflow-x: auto; max-height: 280px; overflow-y: auto; background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.76rem; text-align: left;">
-                            <thead style="position: sticky; top: 0; z-index: 2;">
-                                <tr style="background: #F1F5F9; border-bottom: 1.5px solid #CBD5E1; color: #334155; font-weight: 800;">
-                                    <th style="padding: 0.6rem 0.75rem;">Time</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Month Master Pair</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Signal</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Exact Depth Entry Orders</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Exit Target</th>
-                                    <th style="padding: 0.6rem 0.6rem; text-align: right;">Net Cash In-Hand</th>
-                                    <th style="padding: 0.6rem 0.75rem;">AI Market Reason / Catalyst</th>
-                                    <th style="padding: 0.6rem 0.75rem; text-align: center;">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ai-opportunities-tbody">
-                                <tr>
-                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">Loading today's AI trade setups...</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <div id="mm-table-collapsible-wrapper" style="display: none; padding: 0 0.85rem 0.85rem 0.85rem;">
+                        <div style="overflow-x: auto; background: #FFFFFF; border: 1.5px solid #CBD5E1; border-radius: 8px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: left;">
+                                <thead>
+                                    <tr style="background: #F1F5F9; border-bottom: 2px solid #CBD5E1; color: #334155; font-weight: 800;">
+                                        <th style="padding: 0.6rem 0.8rem; width: 26%;">Month Master Pair</th>
+                                        <th style="padding: 0.6rem 0.8rem; width: 28%;">🟢 Depth BUY (Rate &amp; Range)</th>
+                                        <th style="padding: 0.6rem 0.8rem; width: 28%;">🔴 Depth SELL (Rate &amp; Range)</th>
+                                        <th style="padding: 0.6rem 0.8rem; text-align: center; width: 18%;">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ai-matrix-tbody">
+                                    <tr>
+                                        <td colspan="4" style="padding: 1rem; text-align: center; color: #64748B;">Loading Month Master combinations...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
+                </div>
+
+                <!-- Hidden legacy containers for threshold and opportunities backward compatibility -->
+                <div style="display: none;">
+                    <input type="range" id="ai-threshold-slider" min="30" max="200" step="5" value="80">
+                    <span id="ai-threshold-val-badge">80.0 pts</span>
+                    <strong id="ai-stat-total">0</strong>
+                    <strong id="ai-stat-winrate">0.0%</strong>
+                    <strong id="ai-stat-profit">₹0</strong>
+                    <table style="display: none;"><tbody id="ai-opportunities-tbody"></tbody></table>
                 </div>
 
             </div>
