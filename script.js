@@ -4358,6 +4358,20 @@ function renderClaudeAdvisory(adv) {
         profitSubtext.innerText = `Based on ${grams}g weight (₹${charges} taxes + ₹${slippage} slippage cushion)`;
     }
 
+    // Dynamic Depth Buy & Sell Ranges Display
+    const entryBuyRangeEl = document.getElementById("ai-entry-buy-range");
+    const entrySellRangeEl = document.getElementById("ai-entry-sell-range");
+    if (entryBuyRangeEl) {
+        const bLow = adv.depth_buy_low !== undefined ? adv.depth_buy_low : '--';
+        const bHigh = adv.depth_buy_high !== undefined ? adv.depth_buy_high : '--';
+        entryBuyRangeEl.innerText = `Low ${bLow} ── High ${bHigh}`;
+    }
+    if (entrySellRangeEl) {
+        const sLow = adv.depth_sell_low !== undefined ? adv.depth_sell_low : '--';
+        const sHigh = adv.depth_sell_high !== undefined ? adv.depth_sell_high : '--';
+        entrySellRangeEl.innerText = `Low ${sLow} ── High ${sHigh}`;
+    }
+
     // Hidden elements sync
     if (pairEl) pairEl.innerText = adv.top_pair || "--";
     if (dirEl) {
@@ -4372,32 +4386,8 @@ function renderClaudeAdvisory(adv) {
     if (reasoningEl) reasoningEl.innerHTML = `💡 ${adv.reasoning || ""}`;
 }
 
-// Category Filter Controller for Multi-Pair Matrix
-window._selectedAICategory = "ALL";
+// 4-Column Clean Month Master Combinations Matrix
 window._lastAIMatrix = [];
-
-function filterAIMatrixCategory(category, btnElement) {
-    window._selectedAICategory = category || "ALL";
-
-    // Update active tab buttons styling
-    const buttons = document.querySelectorAll(".ai-cat-filter-btn");
-    buttons.forEach(b => {
-        b.style.background = "#FFFFFF";
-        b.style.color = "#334155";
-        b.style.borderColor = "#CBD5E1";
-        b.classList.remove("active");
-    });
-    if (btnElement) {
-        btnElement.style.background = "#8B5CF6";
-        btnElement.style.color = "#FFFFFF";
-        btnElement.style.borderColor = "#8B5CF6";
-        btnElement.classList.add("active");
-    }
-
-    if (window._lastAIMatrix && window._lastAIMatrix.length > 0) {
-        renderAIMatrix(window._lastAIMatrix);
-    }
-}
 
 function renderAIMatrix(matrix) {
     const tbody = document.getElementById("ai-matrix-tbody");
@@ -4406,107 +4396,99 @@ function renderAIMatrix(matrix) {
     window._lastAIMatrix = matrix || [];
 
     if (!matrix || matrix.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No combinations available. Add pairs in Month Master.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" style="padding: 1.25rem; text-align: center; color: #64748B;">No combinations available. Add pairs in Month Master.</td></tr>`;
         return;
     }
 
-    // Apply category filter
-    const activeCat = (window._selectedAICategory || "ALL").toUpperCase();
-    let displayList = matrix;
-    if (activeCat !== "ALL") {
-        displayList = matrix.filter(row => {
-            const cat = (row.category || "").toUpperCase();
-            if (activeCat === "CROSS") {
-                return !cat.includes("CALENDAR") && !cat.includes("ACTIVE");
-            }
-            if (activeCat === "TEN / MINI") {
-                return cat.includes("TEN") && cat.includes("MINI");
-            }
-            if (activeCat === "PETAL / MINI") {
-                return cat.includes("PETAL") && cat.includes("MINI");
-            }
-            if (activeCat === "GUINEA / PETAL") {
-                return (cat.includes("GUINEA") && cat.includes("PETAL")) || (cat.includes("PETAL") && cat.includes("GUINEA"));
-            }
-            if (activeCat === "PETAL / TEN") {
-                return (cat.includes("PETAL") && cat.includes("TEN")) || (cat.includes("TEN") && cat.includes("PETAL"));
-            }
-            return cat.includes(activeCat);
-        });
-    }
-
-    if (displayList.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No combinations found for category '${window._selectedAICategory}'. Showing all pairs.</td></tr>`;
-        displayList = matrix;
-    }
-
-    tbody.innerHTML = displayList.map((row, idx) => {
+    tbody.innerHTML = matrix.map((row, idx) => {
         const isTop = row.is_top_pick;
         const bg = isTop ? "rgba(168, 85, 247, 0.08)" : (idx % 2 === 0 ? "#FFFFFF" : "#F8FAFC");
-        const borderLeft = isTop ? "border-left: 3.5px solid #8B5CF6;" : "";
+        const borderLeft = isTop ? "border-left: 4px solid #8B5CF6;" : "";
 
-        // Status Badge (Safe, Moderate, Wide Gap)
-        let statusBadge = `<span style="background: #ECFDF5; color: #047857; border: 1.5px solid #10B981; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800;">Safe &amp; Liquid</span>`;
-        if (row.liquidity_score < 40) {
-            statusBadge = `<span style="background: #FEF2F2; color: #DC2626; border: 1.5px solid #EF4444; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800;">Wide Gap</span>`;
-        } else if (row.liquidity_score < 70) {
-            statusBadge = `<span style="background: #FFFBEB; color: #B45309; border: 1.5px solid #F59E0B; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800;">Moderate</span>`;
-        }
+        const buySpread = row.depth_buy_spread !== undefined ? row.depth_buy_spread : row.spread;
+        const buyLow = row.depth_buy_low !== undefined ? row.depth_buy_low : (buySpread - 35);
+        const buyHigh = row.depth_buy_high !== undefined ? row.depth_buy_high : (buySpread + 35);
 
-        // Category Pill Style
-        const catUpper = (row.category || "").toUpperCase();
-        let catBg = "#F1F5F9";
-        let catColor = "#334155";
-        let catBorder = "#CBD5E1";
-        if (catUpper.includes("TEN") && catUpper.includes("MINI")) {
-            catBg = "#EFF6FF"; catColor = "#1D4ED8"; catBorder = "#BFDBFE";
-        } else if (catUpper.includes("PETAL") && catUpper.includes("MINI")) {
-            catBg = "#ECFDF5"; catColor = "#047857"; catBorder = "#A7F3D0";
-        } else if (catUpper.includes("GUINEA") && catUpper.includes("PETAL")) {
-            catBg = "#FAF5FF"; catColor = "#7E22CE"; catBorder = "#E9D5FF";
-        } else if (catUpper.includes("PETAL") && catUpper.includes("TEN")) {
-            catBg = "#FFFBEB"; catColor = "#B45309"; catBorder = "#FDE68A";
+        const sellSpread = row.depth_sell_spread !== undefined ? row.depth_sell_spread : row.spread;
+        const sellLow = row.depth_sell_low !== undefined ? row.depth_sell_low : (sellSpread - 35);
+        const sellHigh = row.depth_sell_high !== undefined ? row.depth_sell_high : (sellSpread + 35);
+
+        // Detect if Buy is near Day Low (Expansion setup) or Sell is near Day High (Contraction setup)
+        const buyRange = Math.max(1, buyHigh - buyLow);
+        const buyPos = (buySpread - buyLow) / buyRange; // 0 = at low, 1 = at high
+
+        const sellRange = Math.max(1, sellHigh - sellLow);
+        const sellPos = (sellHigh - sellSpread) / sellRange; // 0 = at high, 1 = at low
+
+        let signalBtn = "";
+        if (buyPos <= 0.35) {
+            signalBtn = `
+                <button type="button" class="metallic-button" onclick="loadPairSetupToBot('${row.petal_symbol}', '${row.mini_symbol}', 'Expansion', ${buySpread})" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 800; background: linear-gradient(135deg, #16A34A, #15803D); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 6px rgba(22, 163, 74, 0.3);">
+                    <span>🟢 BUY SPREAD</span>
+                </button>
+            `;
+        } else if (sellPos <= 0.35) {
+            signalBtn = `
+                <button type="button" class="metallic-button" onclick="loadPairSetupToBot('${row.petal_symbol}', '${row.mini_symbol}', 'Contraction', ${sellSpread})" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 800; background: linear-gradient(135deg, #DC2626, #B91C1C); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);">
+                    <span>🔴 SELL SPREAD</span>
+                </button>
+            `;
+        } else {
+            signalBtn = `
+                <button type="button" class="metallic-button" onclick="loadPairSetupToBot('${row.petal_symbol}', '${row.mini_symbol}', 'Expansion', ${buySpread})" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 700; background: #F1F5F9; color: #334155; border: 1.5px solid #CBD5E1; border-radius: 6px; cursor: pointer;">
+                    <span>⚖️ Load Bot</span>
+                </button>
+            `;
         }
 
         return `
             <tr style="background: ${bg}; ${borderLeft} border-bottom: 1.5px solid #E2E8F0;">
-                <td style="padding: 0.6rem 0.85rem; font-weight: 700;">
-                    ${isTop ? '<span style="color: #F59E0B; margin-right: 4px;" title="Top Pick">⭐</span>' : ''}
-                    <strong style="color: #0F172A; font-size: 0.82rem;">${row.label}</strong>
-                </td>
-                <td style="padding: 0.6rem 0.6rem;">
-                    <span style="background: ${catBg}; color: ${catColor}; border: 1.5px solid ${catBorder}; padding: 2px 8px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; white-space: nowrap;">
-                        ${row.category || 'Cross'}
-                    </span>
-                </td>
-                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-weight: 800; font-size: 0.88rem; color: #B45309;">
-                    ${row.spread.toFixed(2)}
-                </td>
-                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-size: 0.74rem;">
-                    <span style="color: #0284C7; font-weight: 700;">B: ${row.depth_buy_spread.toFixed(1)}</span> / 
-                    <span style="color: #DC2626; font-weight: 700;">S: ${row.depth_sell_spread.toFixed(1)}</span>
-                </td>
-                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-size: 0.74rem; color: #334155; font-weight: 600;">
-                    ${row.day_low} ── ${row.day_high} (${row.day_range} pts)
-                </td>
-                <td style="padding: 0.6rem 0.6rem; font-family: monospace; font-size: 0.74rem; color: #475569;">
-                    ₹${row.bid_ask_petal_gap} / ₹${row.bid_ask_mini_gap}
-                </td>
-                <td style="padding: 0.6rem 0.6rem;">
-                    <div style="display: flex; align-items: center; gap: 0.45rem;">
-                        <div style="flex: 1; height: 6px; background: #E2E8F0; border-radius: 999px; overflow: hidden; width: 45px;">
-                            <div style="height: 100%; width: ${row.liquidity_score}%; background: ${row.liquidity_score >= 70 ? '#10B981' : (row.liquidity_score >= 40 ? '#F59E0B' : '#EF4444')};"></div>
-                        </div>
-                        <span style="font-size: 0.72rem; font-family: monospace; font-weight: 800; color: #1E293B;">${row.liquidity_score}</span>
+                <td style="padding: 0.75rem 0.9rem;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        ${isTop ? '<span style="color: #F59E0B; font-size: 0.95rem;" title="Top Pick">⭐</span>' : ''}
+                        <strong style="color: #0F172A; font-size: 0.86rem;">${row.label}</strong>
+                    </div>
+                    <div style="font-size: 0.7rem; color: #64748B; margin-top: 2px;">
+                        LTP: ₹${row.petal_ltp} vs ₹${row.mini_ltp}
                     </div>
                 </td>
-                <td style="padding: 0.6rem 0.85rem; text-align: right;">
-                    ${statusBadge}
+                <td style="padding: 0.75rem 0.9rem;">
+                    <div style="font-family: monospace; font-size: 1rem; font-weight: 900; color: #15803D;">
+                        ₹${buySpread.toFixed(1)} pts
+                    </div>
+                    <div style="font-size: 0.72rem; color: #166534; font-weight: 600; margin-top: 2px;">
+                        Today's Buy: Low ${buyLow.toFixed(1)} ── High ${buyHigh.toFixed(1)}
+                    </div>
+                </td>
+                <td style="padding: 0.75rem 0.9rem;">
+                    <div style="font-family: monospace; font-size: 1rem; font-weight: 900; color: #B91C1C;">
+                        ₹${sellSpread.toFixed(1)} pts
+                    </div>
+                    <div style="font-size: 0.72rem; color: #991B1B; font-weight: 600; margin-top: 2px;">
+                        Today's Sell: Low ${sellLow.toFixed(1)} ── High ${sellHigh.toFixed(1)}
+                    </div>
+                </td>
+                <td style="padding: 0.75rem 0.9rem; text-align: center;">
+                    ${signalBtn}
                 </td>
             </tr>
         `;
     }).join("");
 }
+
+function loadPairSetupToBot(pSym, mSym, direction, entryDiff) {
+    const payload = {
+        direction: direction || "Expansion",
+        petal_symbol: pSym,
+        mini_symbol: mSym,
+        entry_diff: entryDiff,
+        exit_gap: 60,
+        step: 30,
+        lots: "1, 2, 2"
+    };
+    applyAISuggestionToBot(payload);
+}
+window.loadPairSetupToBot = loadPairSetupToBot;
 
 window._aiOpportunitiesMap = {};
 

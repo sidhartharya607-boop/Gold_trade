@@ -2727,6 +2727,24 @@ class AIArbitrageEngine:
             day_low = stats_rec.get("low_spread") or cur_spread
             day_range = round(day_high - day_low, 2) if (day_high and day_low) else 0.0
 
+            # Explicit Depth Buy Range (Today's Low and High for Depth BUY)
+            buy_high = stats_rec.get("high_depth_buy_spread")
+            buy_low = stats_rec.get("low_depth_buy_spread")
+            if buy_high is None or buy_high == 0:
+                buy_high = round(buy_spread + 35.0, 1)
+            if buy_low is None or buy_low == 0:
+                buy_low = round(buy_spread - 35.0, 1)
+            buy_range = round(buy_high - buy_low, 1)
+
+            # Explicit Depth Sell Range (Today's Low and High for Depth SELL)
+            sell_high = stats_rec.get("high_depth_sell_spread")
+            sell_low = stats_rec.get("low_depth_sell_spread")
+            if sell_high is None or sell_high == 0:
+                sell_high = round(sell_spread + 35.0, 1)
+            if sell_low is None or sell_low == 0:
+                sell_low = round(sell_spread - 35.0, 1)
+            sell_range = round(sell_high - sell_low, 1)
+
             liquidity_score = 100
             if bid_ask_petal_gap > p_spec["bid_ask_limit"]:
                 liquidity_score -= 35
@@ -2752,8 +2770,14 @@ class AIArbitrageEngine:
                 "petal_10g": round(p_10g, 2),
                 "mini_10g": round(m_10g, 2),
                 "spread": cur_spread,
-                "depth_buy_spread": buy_spread,
-                "depth_sell_spread": sell_spread,
+                "depth_buy_spread": round(buy_spread, 1),
+                "depth_buy_high": round(buy_high, 1),
+                "depth_buy_low": round(buy_low, 1),
+                "depth_buy_range": buy_range,
+                "depth_sell_spread": round(sell_spread, 1),
+                "depth_sell_high": round(sell_high, 1),
+                "depth_sell_low": round(sell_low, 1),
+                "depth_sell_range": sell_range,
                 "day_high": day_high,
                 "day_low": day_low,
                 "day_range": day_range,
@@ -2924,6 +2948,12 @@ class AIArbitrageEngine:
             "depth_sell_contract": depth_sell_contract,
             "depth_sell_price": depth_sell_price,
             "depth_sell_lots": depth_sell_lots,
+            "depth_buy_spread": round(top_pair.get("depth_buy_spread", suggested_entry), 1),
+            "depth_buy_low": round(top_pair.get("depth_buy_low", suggested_entry - 35.0), 1),
+            "depth_buy_high": round(top_pair.get("depth_buy_high", suggested_entry + 35.0), 1),
+            "depth_sell_spread": round(top_pair.get("depth_sell_spread", suggested_entry), 1),
+            "depth_sell_low": round(top_pair.get("depth_sell_low", suggested_entry - 35.0), 1),
+            "depth_sell_high": round(top_pair.get("depth_sell_high", suggested_entry + 35.0), 1),
             "reasoning": reasoning_msg,
             "risk_warning": f"Breakout threshold detected at {round(top_pair.get('day_low', 0) - 25.0, 1) if rec_dir == 'Expansion' else round(top_pair.get('day_high', 0) + 25.0, 1)}. Maintain safe stop-loss.",
             "trade_grams": trade_grams,
@@ -3066,6 +3096,12 @@ class AIArbitrageEngine:
                                     parsed["depth_sell_contract"] = depth_sell_contract
                                     parsed["depth_sell_price"] = depth_sell_price
                                     parsed["depth_sell_lots"] = depth_sell_lots
+                                    parsed["depth_buy_spread"] = fallback_response["depth_buy_spread"]
+                                    parsed["depth_buy_low"] = fallback_response["depth_buy_low"]
+                                    parsed["depth_buy_high"] = fallback_response["depth_buy_high"]
+                                    parsed["depth_sell_spread"] = fallback_response["depth_sell_spread"]
+                                    parsed["depth_sell_low"] = fallback_response["depth_sell_low"]
+                                    parsed["depth_sell_high"] = fallback_response["depth_sell_high"]
                                     
                                     # Calculate in-hand net profit
                                     c_exit_gap = float(parsed.get("suggested_exit_gap", suggested_exit_gap))
@@ -4427,9 +4463,9 @@ def extract_month_from_symbol(symbol: str) -> str:
             return m
     return "UNKNOWN"
 
-def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp: float, m_ltp: float):
+def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp: float, m_ltp: float, buy_spread: float = None, sell_spread: float = None):
     """
-    Tracks daily High and Low for Spread, Petal Price, and Mini Price.
+    Tracks daily High and Low for Spread, Depth Buy Spread, Depth Sell Spread, Petal Price, and Mini Price.
     Persists to daily_spread_stats.json.
     """
     if not p_sym or not m_sym:
@@ -4459,6 +4495,10 @@ def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp
                 "month_group": f"{p_sym} / {m_sym}",
                 "high_spread": None,
                 "low_spread": None,
+                "high_depth_buy_spread": None,
+                "low_depth_buy_spread": None,
+                "high_depth_sell_spread": None,
+                "low_depth_sell_spread": None,
                 "last_spread": None,
                 "petal_high": None,
                 "petal_low": None,
@@ -4489,13 +4529,33 @@ def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp
 
         # High and Low tracking (excluding HOLD & SUSPENDED)
         if sess_stat not in ["HOLD", "SUSPENDED"]:
-            # Spread High / Low
+            # Generic Spread High / Low
             if rec.get("high_spread") is None or cur_spread > rec["high_spread"]:
                 rec["high_spread"] = cur_spread
                 h_changed = True
             if rec.get("low_spread") is None or cur_spread < rec["low_spread"]:
                 rec["low_spread"] = cur_spread
                 h_changed = True
+
+            # Explicit Depth Buy Spread High / Low (What you pay to BUY the spread)
+            if buy_spread is not None:
+                cur_b = round(buy_spread, 2)
+                if rec.get("high_depth_buy_spread") is None or cur_b > rec["high_depth_buy_spread"]:
+                    rec["high_depth_buy_spread"] = cur_b
+                    h_changed = True
+                if rec.get("low_depth_buy_spread") is None or cur_b < rec["low_depth_buy_spread"]:
+                    rec["low_depth_buy_spread"] = cur_b
+                    h_changed = True
+
+            # Explicit Depth Sell Spread High / Low (What you receive to SELL the spread)
+            if sell_spread is not None:
+                cur_s = round(sell_spread, 2)
+                if rec.get("high_depth_sell_spread") is None or cur_s > rec["high_depth_sell_spread"]:
+                    rec["high_depth_sell_spread"] = cur_s
+                    h_changed = True
+                if rec.get("low_depth_sell_spread") is None or cur_s < rec["low_depth_sell_spread"]:
+                    rec["low_depth_sell_spread"] = cur_s
+                    h_changed = True
 
             # Petal Price High / Low
             if cur_p is not None and cur_p > 0:
@@ -4587,7 +4647,9 @@ async def process_market_data(data: dict):
             system_state.mini_symbol,
             spread,
             petal_ltp,
-            mini_ltp
+            mini_ltp,
+            buy_spread=system_state.depth_buy_spread,
+            sell_spread=system_state.depth_sell_spread
         )
         ai_arbitrage_engine.process_tick(
             system_state.petal_symbol,
@@ -4922,7 +4984,7 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
 
             # Record Daily High / Low statistics for Spread and Prices (Petal & Mini)
             if mapping.get("capture_data", True):
-                update_daily_high_low_stats(p_sym, m_sym, mm_spread, p_ltp, m_ltp)
+                update_daily_high_low_stats(p_sym, m_sym, mm_spread, p_ltp, m_ltp, buy_spread=mm_buy_spread, sell_spread=mm_sell_spread)
                 ai_arbitrage_engine.process_tick(p_sym, m_sym, mm_spread, mm_buy_spread, mm_sell_spread)
             
             res.append({

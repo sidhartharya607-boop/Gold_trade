@@ -1491,6 +1491,11 @@
                                     <span>Entry Spread: <strong id="ai-entry-spread-val" class="font-mono" style="font-weight: 900; color: #047857; font-size: 0.95rem;">-- pts</strong></span>
                                     <span style="color: #64748B; font-weight: normal; font-size: 0.72rem;">(From live order book depth)</span>
                                 </div>
+                                <!-- Separate Depth Buy and Depth Sell Ranges Display -->
+                                <div style="margin-top: 0.35rem; font-size: 0.72rem; background: #FFFFFF; border: 1px solid #BBF7D0; border-radius: 6px; padding: 4px 8px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.3rem;">
+                                    <span style="color: #15803D; font-weight: 700;">🟢 Depth BUY Range: <strong id="ai-entry-buy-range" class="font-mono">Low -- ── High --</strong></span>
+                                    <span style="color: #B91C1C; font-weight: 700;">🔴 Depth SELL Range: <strong id="ai-entry-sell-range" class="font-mono">Low -- ── High --</strong></span>
+                                </div>
                             </div>
                         </div>
 
@@ -1537,49 +1542,39 @@
 
                     <!-- Footer: 1-Click Action -->
                     <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.85rem;">
-                        <button type="button" id="btn-ai-1click-apply" onclick="applyAISuggestionToBot()" class="update-button" style="width: auto; padding: 0.6rem 1.6rem; font-size: 0.88rem; font-weight: 800; background: linear-gradient(135deg, #9333EA, #4F46E5); border: none; border-radius: 8px; box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3); cursor: pointer; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
-                            <span>🚀 1-Click Load into Lots Bot</span>
+                        <button type="button" id="btn-ai-1click-apply" onclick="applyAISuggestionToBot()" class="update-button" style="width: auto; padding: 0.65rem 1.8rem; font-size: 0.92rem; font-weight: 800; background: linear-gradient(135deg, #9333EA, #4F46E5); border: none; border-radius: 8px; box-shadow: 0 4px 14px rgba(147, 51, 234, 0.35); cursor: pointer; color: #fff; display: flex; align-items: center; gap: 0.5rem;">
+                            <span>🚀 1-Click: Load into Lots Bot &amp; Execute</span>
                         </button>
                     </div>
                 </div>
 
-                <!-- MIDDLE SECTION: Month Master Combinations & Live Depth Spreads -->
+                <!-- MIDDLE SECTION: Month Master Combinations & Live Depth Ranges (Dead Simple 4-Column Table) -->
                 <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div>
                             <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.4rem;">
                                 <span>📊 Month Master Combinations &amp; Live Depth Spreads</span>
-                                <span style="font-size: 0.7rem; color: #64748B; font-weight: normal;">(Normalized 10g Scale)</span>
+                                <span style="font-size: 0.72rem; color: #7C3AED; font-weight: 700; background: #F3E8FF; padding: 2px 7px; border-radius: 4px;">Clean View (Buy vs Sell Range)</span>
                             </h4>
-                        </div>
-                        
-                        <!-- Category Filter Tabs -->
-                        <div id="ai-matrix-category-filters" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-                            <button type="button" class="ai-cat-filter-btn active" onclick="filterAIMatrixCategory('ALL', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #8B5CF6; background: #8B5CF6; color: #fff; cursor: pointer;">⭐ Month Master Pairs</button>
-                            <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('TEN / MINI', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">🔹 TEN / MINI</button>
-                            <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('PETAL / MINI', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">🟢 PETAL / MINI</button>
-                            <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('GUINEA / PETAL', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">🟣 GUINEA / PETAL</button>
-                            <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('CROSS', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">⚡ All Cross</button>
+                            <p style="margin: 2px 0 0 0; font-size: 0.72rem; color: #64748B;">
+                                Depth Buy ka Low-High alag aur Depth Sell ka Low-High alag — Bina kisi confusion ke direct rate dekhein.
+                            </p>
                         </div>
                     </div>
 
                     <div style="overflow-x: auto; background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: left;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left;">
                             <thead>
-                                <tr style="background: #F1F5F9; border-bottom: 1.5px solid #CBD5E1; color: #334155; font-weight: 800;">
-                                    <th style="padding: 0.65rem 0.85rem;">Month Master Pair</th>
-                                    <th style="padding: 0.65rem 0.6rem;">Type</th>
-                                    <th style="padding: 0.65rem 0.6rem;">Live Spread</th>
-                                    <th style="padding: 0.65rem 0.6rem;">Depth Buy / Sell</th>
-                                    <th style="padding: 0.65rem 0.6rem;">Today's Range (H/L)</th>
-                                    <th style="padding: 0.65rem 0.6rem;">Slippage Gap</th>
-                                    <th style="padding: 0.65rem 0.6rem;">Liquidity</th>
-                                    <th style="padding: 0.65rem 0.85rem; text-align: right;">AI Status</th>
+                                <tr style="background: #F1F5F9; border-bottom: 2px solid #CBD5E1; color: #334155; font-weight: 800;">
+                                    <th style="padding: 0.7rem 0.9rem; width: 26%;">Month Master Pair</th>
+                                    <th style="padding: 0.7rem 0.9rem; width: 28%;">🟢 Depth BUY (Kharidne Ka Rate &amp; Aaj Ka Range)</th>
+                                    <th style="padding: 0.7rem 0.9rem; width: 28%;">🔴 Depth SELL (Bechne Ka Rate &amp; Aaj Ka Range)</th>
+                                    <th style="padding: 0.7rem 0.9rem; text-align: center; width: 18%;">AI Trade Signal &amp; Action</th>
                                 </tr>
                             </thead>
                             <tbody id="ai-matrix-tbody">
                                 <tr>
-                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">Loading live Month Master combinations...</td>
+                                    <td colspan="4" style="padding: 1.25rem; text-align: center; color: #64748B;">Loading Month Master combinations...</td>
                                 </tr>
                             </tbody>
                         </table>
