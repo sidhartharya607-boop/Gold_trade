@@ -1445,80 +1445,120 @@
                     </div>
                 </div>
 
-                <!-- TOP SECTION: Claude AI Advisory & Recommendation Card (Ultra-Clear Light Theme) -->
-                <div id="ai-advisory-card" style="background: linear-gradient(135deg, #FAF5FF 0%, #FFFFFF 100%); border: 2px solid #C084FC; border-radius: 12px; padding: 1.15rem; box-shadow: 0 4px 18px rgba(168, 85, 247, 0.1);">
-                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.85rem; margin-bottom: 0.85rem;">
+                <!-- TOP SECTION: Claude AI Order Book Sentinel Card -->
+                <div id="ai-advisory-card" style="background: linear-gradient(135deg, #FAF5FF 0%, #FFFFFF 100%); border: 2.5px solid #A855F7; border-radius: 12px; padding: 1.15rem; box-shadow: 0 4px 18px rgba(168, 85, 247, 0.12);">
+                    
+                    <!-- Header Info Bar -->
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.85rem; margin-bottom: 0.85rem; flex-wrap: wrap;">
                         <div>
                             <div style="display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;">
-                                <span style="font-size: 1.1rem;">💡</span>
-                                <strong style="font-size: 0.95rem; color: #1E293B; font-weight: 800;" id="ai-adv-source">Claude 3.5 Sonnet Analysis</strong>
-                                <span id="ai-engine-badge" style="font-size: 0.68rem; background: #EFF6FF; color: #1D4ED8; border: 1px solid #93C5FD; border-radius: 4px; padding: 2px 7px; font-weight: 700;">ADVISORY ONLY</span>
+                                <span style="font-size: 1.25rem;">👁️</span>
+                                <strong style="font-size: 0.98rem; color: #1E293B; font-weight: 800;" id="ai-adv-source">Claude AI Order Book Sentinel</strong>
+                                <span id="ai-engine-badge" style="font-size: 0.68rem; background: #ECFDF5; color: #047857; border: 1.5px solid #10B981; border-radius: 999px; padding: 2px 8px; font-weight: 800;">MONITORING DEPTH LIVE</span>
+                                <span id="ai-adv-pair-badge" style="font-size: 0.74rem; background: #EFF6FF; color: #1D4ED8; border: 1.5px solid #93C5FD; border-radius: 6px; padding: 2px 8px; font-weight: 800;">GOLDPETAL vs GOLDMINI</span>
                             </div>
-                            <p id="ai-adv-summary" style="margin: 0.45rem 0 0 0; font-size: 0.84rem; color: #1E293B; font-weight: 600; line-height: 1.45;">Analyzing current MCX Gold spread opportunities across combinations...</p>
+                            <p id="ai-adv-summary" style="margin: 0.45rem 0 0 0; font-size: 0.84rem; color: #334155; font-weight: 600; line-height: 1.45;">
+                                AI continuously monitors Depth Buy &amp; Depth Sell spreads on your behalf across Month Master pairs.
+                            </p>
                         </div>
-                        <div id="ai-adv-profit-badge" style="text-align: right; background: #ECFDF5; border: 1.5px solid #10B981; border-radius: 8px; padding: 0.4rem 0.8rem; min-width: 150px; box-shadow: 0 2px 6px rgba(16, 185, 129, 0.1);">
-                            <span style="font-size: 0.68rem; color: #047857; font-weight: 700; display: block;">Expected Net/Lot:</span>
-                            <strong id="ai-adv-net-profit" class="font-mono" style="color: #059669; font-size: 1.15rem; font-weight: 800;">+₹640 In-Hand</strong>
-                            <span style="font-size: 0.62rem; color: #065F46; display: block;">(After ₹360 Tax &amp; Slippage)</span>
-                        </div>
-                    </div>
-
-                    <!-- Recommended Setup Parameters Grid (High Contrast Bright Cards) -->
-                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 0.6rem; background: #FFFFFF; padding: 0.85rem; border-radius: 10px; border: 1.5px solid #E2E8F0; box-shadow: 0 2px 6px rgba(0,0,0,0.03); margin-bottom: 0.95rem;">
-                        <div style="background: #F8FAFC; padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid #E2E8F0;">
-                            <span style="font-size: 0.68rem; color: #64748B; font-weight: 600; display: block;">Recommended Pair:</span>
-                            <strong id="ai-adv-pair" class="font-mono" style="font-size: 0.85rem; color: #0F172A; font-weight: 800; word-break: break-all;">--</strong>
-                        </div>
-                        <div style="background: #F8FAFC; padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid #E2E8F0;">
-                            <span style="font-size: 0.68rem; color: #64748B; font-weight: 600; display: block;">Direction:</span>
-                            <strong id="ai-adv-direction" class="font-mono" style="font-size: 0.95rem; color: #0284C7; font-weight: 900;">--</strong>
-                        </div>
-                        <div style="background: #FFFBEB; padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid #FDE68A;">
-                            <span id="ai-adv-entry-label" style="font-size: 0.68rem; color: #B45309; font-weight: 700; display: block;">Entry (Depth Buy):</span>
-                            <strong id="ai-adv-entry" class="font-mono" style="font-size: 0.95rem; color: #D97706; font-weight: 900;">--</strong>
-                        </div>
-                        <div style="background: #ECFDF5; padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid #A7F3D0;">
-                            <span style="font-size: 0.68rem; color: #047857; font-weight: 700; display: block;">Realistic Exit Gap:</span>
-                            <strong id="ai-adv-exit-gap" class="font-mono" style="font-size: 0.95rem; color: #059669; font-weight: 900;">--</strong>
-                        </div>
-                        <div style="background: #F8FAFC; padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid #E2E8F0;">
-                            <span style="font-size: 0.68rem; color: #64748B; font-weight: 600; display: block;">Averaging Step:</span>
-                            <strong id="ai-adv-step" class="font-mono" style="font-size: 0.9rem; color: #334155; font-weight: 800;">--</strong>
-                        </div>
-                        <div style="background: #F8FAFC; padding: 0.5rem 0.65rem; border-radius: 6px; border: 1px solid #E2E8F0;">
-                            <span style="font-size: 0.68rem; color: #64748B; font-weight: 600; display: block;">Safe Lots Ladder:</span>
-                            <strong id="ai-adv-lots" class="font-mono" style="font-size: 0.9rem; color: #334155; font-weight: 800;">1, 2, 2</strong>
+                        <div id="ai-adv-profit-badge" style="text-align: right; background: #ECFDF5; border: 2px solid #10B981; border-radius: 8px; padding: 0.45rem 0.9rem; min-width: 170px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);">
+                            <span style="font-size: 0.68rem; color: #047857; font-weight: 700; display: block; text-transform: uppercase;">Expected In-Hand Net Cash:</span>
+                            <strong id="ai-adv-net-profit" class="font-mono" style="color: #059669; font-size: 1.25rem; font-weight: 900;">+₹520 In-Hand</strong>
+                            <span id="ai-adv-profit-subtext" style="font-size: 0.64rem; color: #065F46; display: block; font-weight: 600;">(Net after MCX Taxes &amp; Slippage)</span>
                         </div>
                     </div>
 
-                    <!-- Reasoning & 1-Click Action Footer -->
-                    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.85rem;">
-                        <div id="ai-adv-reasoning" style="font-size: 0.8rem; color: #334155; font-weight: 500; max-width: 68%; line-height: 1.45;">
-                            💡 Based on live channel and liquidity depth. Click below to load these parameters into your Lots Bot setup.
+                    <!-- 2 Big Visual Action Boxes (Depth Entry & Depth Exit) -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.85rem; margin-bottom: 0.85rem;">
+                        <!-- Box 1: 🟢 EXACT DEPTH ENTRY -->
+                        <div style="background: #F0FDF4; border: 2px solid #86EFAC; border-radius: 10px; padding: 0.85rem 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                                <span style="font-size: 0.74rem; font-weight: 800; color: #166534; text-transform: uppercase; letter-spacing: 0.03em;">
+                                    🟢 STEP 1: EXACT ENTRY (At Market Depth)
+                                </span>
+                                <span id="ai-adv-direction-pill" style="font-size: 0.68rem; background: #16A34A; color: #FFFFFF; padding: 1px 7px; border-radius: 4px; font-weight: 800;">EXPANSION</span>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.83rem;">
+                                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                                    <span style="background: #DCFCE7; color: #15803D; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem; border: 1px solid #86EFAC;">DEPTH BUY</span>
+                                    <strong id="ai-entry-buy-str" style="color: #0F172A; font-size: 0.85rem;">Loading contract...</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;">
+                                    <span style="background: #FEE2E2; color: #B91C1C; font-weight: 800; padding: 2px 7px; border-radius: 4px; font-size: 0.72rem; border: 1px solid #FCA5A5;">DEPTH SELL</span>
+                                    <strong id="ai-entry-sell-str" style="color: #0F172A; font-size: 0.85rem;">Loading contract...</strong>
+                                </div>
+                                <div style="margin-top: 0.25rem; font-size: 0.78rem; color: #15803D; font-weight: 700; border-top: 1px dashed #86EFAC; padding-top: 0.35rem; display: flex; justify-content: space-between;">
+                                    <span>Entry Spread: <strong id="ai-entry-spread-val" class="font-mono" style="font-weight: 900; color: #047857; font-size: 0.95rem;">-- pts</strong></span>
+                                    <span style="color: #64748B; font-weight: normal; font-size: 0.72rem;">(From live order book depth)</span>
+                                </div>
+                            </div>
                         </div>
-                        <button type="button" id="btn-ai-1click-apply" onclick="applyAISuggestionToBot()" class="update-button" style="width: auto; padding: 0.55rem 1.4rem; font-size: 0.85rem; font-weight: 800; background: linear-gradient(135deg, #9333EA, #4F46E5); border: none; border-radius: 8px; box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3); cursor: pointer; color: #fff;">
-                            🚀 1-Click Load into Lots Bot
+
+                        <!-- Box 2: 🔴 EXACT DEPTH EXIT -->
+                        <div style="background: #EFF6FF; border: 2px solid #93C5FD; border-radius: 10px; padding: 0.85rem 1rem;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
+                                <span style="font-size: 0.74rem; font-weight: 800; color: #1E40AF; text-transform: uppercase; letter-spacing: 0.03em;">
+                                    🔴 STEP 2: EXACT EXIT (Target Spread &amp; Square-Off)
+                                </span>
+                                <span id="ai-adv-exit-gap-pill" style="font-size: 0.68rem; background: #2563EB; color: #FFFFFF; padding: 1px 7px; border-radius: 4px; font-weight: 800;">+60 pts Target</span>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.83rem;">
+                                <div style="font-size: 0.82rem; color: #1E293B; font-weight: 700;">
+                                    Target Exit Spread: <strong id="ai-exit-spread-val" class="font-mono" style="color: #1D4ED8; font-size: 0.98rem;">-- pts</strong>
+                                </div>
+                                <div id="ai-exit-action-str" style="font-size: 0.78rem; color: #334155; font-weight: 600;">
+                                    Square Off: Reverse orders when spread reaches target.
+                                </div>
+                                <div style="margin-top: 0.25rem; font-size: 0.76rem; color: #475569; border-top: 1px dashed #93C5FD; padding-top: 0.35rem; display: flex; justify-content: space-between;">
+                                    <span>Averaging Step: <strong id="ai-adv-step">30 pts</strong></span>
+                                    <span>Lots Ladder: <strong id="ai-adv-lots">1, 2, 2</strong></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Box 3: 📰 AI MARKET CATALYST & DEPTH REASONING -->
+                    <div style="background: #FFFFFF; border: 1.5px solid #E9D5FF; border-left: 4.5px solid #A855F7; border-radius: 8px; padding: 0.75rem 0.95rem; margin-bottom: 0.85rem; font-size: 0.81rem; color: #334155; line-height: 1.45;">
+                        <div style="display: flex; align-items: center; gap: 0.45rem; margin-bottom: 0.25rem;">
+                            <strong style="color: #6B21A8; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.02em;">📰 AI Market Catalyst &amp; Order Book Depth Reasoning (Why this is profitable):</strong>
+                        </div>
+                        <div id="ai-adv-market-catalyst" style="color: #1E293B; font-weight: 500;">
+                            Live Order Book Depth Analysis: AI is monitoring Depth Buy and Depth Sell spreads on your behalf. Checking order book depth absorption and channel divergence.
+                        </div>
+                    </div>
+
+                    <!-- Hidden legacy anchors for JS backward compatibility -->
+                    <span id="ai-adv-pair" style="display: none;"></span>
+                    <span id="ai-adv-direction" style="display: none;"></span>
+                    <span id="ai-adv-entry" style="display: none;"></span>
+                    <span id="ai-adv-exit-gap" style="display: none;"></span>
+                    <span id="ai-adv-reasoning" style="display: none;"></span>
+                    <span id="ai-adv-entry-label" style="display: none;"></span>
+
+                    <!-- Footer: 1-Click Action -->
+                    <div style="display: flex; justify-content: flex-end; align-items: center; gap: 0.85rem;">
+                        <button type="button" id="btn-ai-1click-apply" onclick="applyAISuggestionToBot()" class="update-button" style="width: auto; padding: 0.6rem 1.6rem; font-size: 0.88rem; font-weight: 800; background: linear-gradient(135deg, #9333EA, #4F46E5); border: none; border-radius: 8px; box-shadow: 0 4px 14px rgba(147, 51, 234, 0.3); cursor: pointer; color: #fff; display: flex; align-items: center; gap: 0.45rem;">
+                            <span>🚀 1-Click Load into Lots Bot</span>
                         </button>
                     </div>
                 </div>
 
-                <!-- MIDDLE SECTION: Multi-Pair Opportunity Matrix with Category Tabs -->
+                <!-- MIDDLE SECTION: Month Master Combinations & Live Depth Spreads -->
                 <div>
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.65rem; flex-wrap: wrap; gap: 0.5rem;">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
                             <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.4rem;">
-                                <span>📊 Multi-Combination Matrix</span>
+                                <span>📊 Month Master Combinations &amp; Live Depth Spreads</span>
                                 <span style="font-size: 0.7rem; color: #64748B; font-weight: normal;">(Normalized 10g Scale)</span>
                             </h4>
                         </div>
                         
-                        <!-- Category Filter Tabs (TEN/MINI, PETAL/MINI, GUINEA/PETAL, etc.) -->
+                        <!-- Category Filter Tabs -->
                         <div id="ai-matrix-category-filters" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">
-                            <button type="button" class="ai-cat-filter-btn active" onclick="filterAIMatrixCategory('ALL', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #8B5CF6; background: #8B5CF6; color: #fff; cursor: pointer;">All Pairs</button>
+                            <button type="button" class="ai-cat-filter-btn active" onclick="filterAIMatrixCategory('ALL', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #8B5CF6; background: #8B5CF6; color: #fff; cursor: pointer;">⭐ Month Master Pairs</button>
                             <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('TEN / MINI', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">🔹 TEN / MINI</button>
                             <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('PETAL / MINI', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">🟢 PETAL / MINI</button>
                             <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('GUINEA / PETAL', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">🟣 GUINEA / PETAL</button>
-                            <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('PETAL / TEN', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">🔸 PETAL / TEN</button>
                             <button type="button" class="ai-cat-filter-btn" onclick="filterAIMatrixCategory('CROSS', this)" style="padding: 3px 9px; font-size: 0.72rem; font-weight: 700; border-radius: 6px; border: 1.5px solid #CBD5E1; background: #FFFFFF; color: #334155; cursor: pointer;">⚡ All Cross</button>
                         </div>
                     </div>
@@ -1527,59 +1567,64 @@
                         <table style="width: 100%; border-collapse: collapse; font-size: 0.78rem; text-align: left;">
                             <thead>
                                 <tr style="background: #F1F5F9; border-bottom: 1.5px solid #CBD5E1; color: #334155; font-weight: 800;">
-                                    <th style="padding: 0.65rem 0.85rem;">Combination Pair</th>
+                                    <th style="padding: 0.65rem 0.85rem;">Month Master Pair</th>
                                     <th style="padding: 0.65rem 0.6rem;">Type</th>
                                     <th style="padding: 0.65rem 0.6rem;">Live Spread</th>
                                     <th style="padding: 0.65rem 0.6rem;">Depth Buy / Sell</th>
                                     <th style="padding: 0.65rem 0.6rem;">Today's Range (H/L)</th>
                                     <th style="padding: 0.65rem 0.6rem;">Slippage Gap</th>
                                     <th style="padding: 0.65rem 0.6rem;">Liquidity</th>
-                                    <th style="padding: 0.65rem 0.85rem; text-align: right;">Status</th>
+                                    <th style="padding: 0.65rem 0.85rem; text-align: right;">AI Status</th>
                                 </tr>
                             </thead>
                             <tbody id="ai-matrix-tbody">
                                 <tr>
-                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">Loading live combination matrix...</td>
+                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">Loading live Month Master combinations...</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <!-- BOTTOM SECTION: Today's Dynamic Opportunities & Accuracy Tracker ("What-If" Log) -->
+                <!-- BOTTOM SECTION: Today's AI Suggested Trades (Aaj Subah Se AI Ne Kya Suggest Kiya) -->
                 <div>
                     <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.65rem;">
-                        <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.4rem;">
-                            <span>🎯 Today's Opportunity &amp; Accuracy Log</span>
-                            <span style="font-size: 0.7rem; color: #64748B; font-weight: normal;">(Actual Workstation Trades &amp; Scanner Divergence Log)</span>
-                        </h4>
+                        <div>
+                            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0F172A; display: flex; align-items: center; gap: 0.4rem;">
+                                <span>📋 Today's AI Suggested Trades</span>
+                                <span style="font-size: 0.72rem; color: #7C3AED; font-weight: 700; background: #F3E8FF; padding: 2px 7px; border-radius: 4px;">Aaj Subah Se AI Ke Trade Setups</span>
+                            </h4>
+                            <p style="margin: 2px 0 0 0; font-size: 0.72rem; color: #64748B;">
+                                AI continuously monitors Depth Buy &amp; Depth Sell spreads on your behalf across Month Master combinations.
+                            </p>
+                        </div>
                         
                         <!-- Summary Stats Pill -->
                         <div id="ai-opp-summary-pill" style="display: flex; align-items: center; gap: 0.85rem; background: #F8FAFC; border: 1.5px solid #E2E8F0; padding: 0.35rem 0.75rem; border-radius: 8px; font-size: 0.75rem; color: #334155;">
-                            <span>Total Events: <strong id="ai-stat-total" style="color: #0F172A; font-weight: 800;">0</strong></span>
+                            <span>Total Setups: <strong id="ai-stat-total" style="color: #0F172A; font-weight: 800;">0</strong></span>
                             <span>Win Rate: <strong id="ai-stat-winrate" style="color: #059669; font-weight: 800;">0.0%</strong></span>
-                            <span>Net P&amp;L: <strong id="ai-stat-profit" class="font-mono" style="color: #059669; font-weight: 800;">₹0</strong></span>
+                            <span>Today's Net: <strong id="ai-stat-profit" class="font-mono" style="color: #059669; font-weight: 800;">₹0</strong></span>
                             <button type="button" onclick="clearAIOpportunities()" title="Clear today's log" style="background: none; border: none; color: #EF4444; cursor: pointer; font-size: 0.8rem; padding: 0 0.3rem;">🗑️</button>
                         </div>
                     </div>
 
-                    <div style="overflow-x: auto; max-height: 240px; overflow-y: auto; background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+                    <div style="overflow-x: auto; max-height: 280px; overflow-y: auto; background: #FFFFFF; border: 1.5px solid #E2E8F0; border-radius: 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
                         <table style="width: 100%; border-collapse: collapse; font-size: 0.76rem; text-align: left;">
                             <thead style="position: sticky; top: 0; z-index: 2;">
                                 <tr style="background: #F1F5F9; border-bottom: 1.5px solid #CBD5E1; color: #334155; font-weight: 800;">
                                     <th style="padding: 0.6rem 0.75rem;">Time</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Pair &amp; Weight</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Trigger Spread</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Divergence</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Direction</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Outcome / Trade</th>
-                                    <th style="padding: 0.6rem 0.6rem;">Accuracy %</th>
-                                    <th style="padding: 0.6rem 0.75rem; text-align: right;">Net P&amp;L (Real / Sim)</th>
+                                    <th style="padding: 0.6rem 0.6rem;">Month Master Pair</th>
+                                    <th style="padding: 0.6rem 0.6rem;">Signal</th>
+                                    <th style="padding: 0.6rem 0.6rem;">Exact Depth Entry Orders</th>
+                                    <th style="padding: 0.6rem 0.6rem;">Exit Target</th>
+                                    <th style="padding: 0.6rem 0.6rem; text-align: right;">Net Cash In-Hand</th>
+                                    <th style="padding: 0.6rem 0.75rem;">AI Market Reason / Catalyst</th>
+                                    <th style="padding: 0.6rem 0.75rem; text-align: center;">Action</th>
                                 </tr>
                             </thead>
                             <tbody id="ai-opportunities-tbody">
                                 <tr>
-                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No trades or divergence events logged today yet. Scanner automatically tracks live trades and spread events.</td>
+                                    <td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">Loading today's AI trade setups...</td>
                                 </tr>
                             </tbody>
                         </table>
