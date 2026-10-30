@@ -2594,6 +2594,108 @@ body {
     to { transform: rotate(360deg); }
 }
 
+/* AI Assistant page */
+.ai-tab-btn {
+    padding: 0.65rem 0.85rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #64748B;
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.ai-tab-btn.active {
+    color: #1E293B;
+    border-bottom-color: #4F46E5;
+}
+.ai-tab-badge {
+    background: #DC2626;
+    color: #FFFFFF;
+    font-size: 0.65rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-left: 3px;
+}
+.ai-card {
+    background: #FFFFFF;
+    border: 1.5px solid #CBD5E1;
+    border-radius: 12px;
+    padding: 1rem;
+}
+.ai-card-title {
+    font-size: 0.95rem;
+}
+.ai-muted {
+    margin: 2px 0 0.6rem 0;
+    font-size: 0.78rem;
+    color: #64748B;
+}
+.ai-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+    text-align: left;
+}
+.ai-table thead tr {
+    background: #F1F5F9;
+    color: #334155;
+}
+.ai-table th {
+    padding: 0.5rem 0.6rem;
+}
+.ai-table td {
+    padding: 0.5rem 0.6rem;
+    border-top: 1px solid #E2E8F0;
+    vertical-align: top;
+}
+.ai-empty {
+    text-align: center;
+    color: #64748B;
+    padding: 0.9rem !important;
+}
+.ai-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.6rem;
+    margin: 0.7rem 0;
+}
+.ai-kpi {
+    background: #F8FAFC;
+    border: 1.5px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 0.5rem 0.7rem;
+}
+.ai-kpi span {
+    display: block;
+    font-size: 0.68rem;
+    color: #64748B;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+.ai-kpi strong {
+    font-size: 1.05rem;
+    font-family: monospace;
+}
+.ai-chip {
+    font-size: 0.74rem;
+    background: #F8FAFC;
+    color: #334155;
+    border: 1px solid #CBD5E1;
+    border-radius: 999px;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-weight: 700;
+}
+.ai-pill {
+    font-size: 0.72rem;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 5px;
+    white-space: nowrap;
+}
+
 @keyframes aiModalFadeIn {
     from {
         opacity: 0;

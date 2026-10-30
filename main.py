@@ -2308,6 +2308,14 @@ class AIArbitrageEngine:
     DEFAULT_STEP_PTS = 35.0
     DEFAULT_LOTS = "1, 2, 2"
     EXPIRY_BLOCK_DAYS = 5        # expiry se itne (ya kam) din pehle us month ka suggestion band
+    MARGIN_PER_LOT = 50000.0     # wahi margin jo terminal ka 'Used Margin' maanta hai
+    MAX_OPEN_LOTS_PER_PAIR = 10  # risk check: ek month me isse zyada lots par warning
+    STUCK_ADVERSE_PTS = 50.0     # monitor: spread entry se itna ulta jaaye to alert
+    STUCK_DAYS = 3               # monitor: itne din se khuli aur profit nahi to alert
+    NEAR_TARGET_PTS = 20.0       # monitor: target itna paas ho to alert
+    SNAPSHOT_SECONDS = 60        # backtest ke liye har pair ka snapshot har 60 sec
+    ALERT_CHECK_SECONDS = 30     # background alert check har 30 sec
+    HISTORY_DIR = os.path.join(BASE_DIR, "ai_spread_history")
     CLAUDE_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5"]
 
     def __init__(self, state: TradingSystem):
@@ -2317,6 +2325,10 @@ class AIArbitrageEngine:
         self.claude_api_url = "https://api.anthropic.com/v1/messages"
         self._last_ai_analysis = None
         self._last_ai_analysis_time = 0.0
+        self._last_snapshot = {}       # pair_key -> last snapshot time
+        self._alerts = []              # newest first
+        self._alert_seq = 0
+        self._alert_keys_sent = set()
 
     def get_api_key(self) -> str:
         # 1. Check in-memory system_state
@@ -2388,6 +2400,7 @@ class AIArbitrageEngine:
         if now_ts - self._last_tick_processed.get(pair_key, 0) < 1.0:
             return
         self._last_tick_processed[pair_key] = now_ts
+        self.record_spread_snapshot(petal_sym, mini_sym, buy_spread, sell_spread)
 
         rolling_mean = self.calculate_rolling_mean(pair_key, spread)
         divergence = abs(spread - rolling_mean)
@@ -2799,7 +2812,9 @@ class AIArbitrageEngine:
                     "suggestions_per_pair": [
                         {k: s[k] for k in ("pair", "decision", "reason", "facts", "plan", "is_best")}
                         for s in suggestions
-                    ]
+                    ],
+                    "open_trades": self.get_open_trades_monitor()["trades"],
+                    "today_journal_summary": self.get_daily_journal(get_ist_time_str("%Y-%m-%d"))["summary"]
                 }
                 reply, model, err = await self._ask_claude(api_key, context, user_query)
                 if reply:
@@ -2811,6 +2826,431 @@ class AIArbitrageEngine:
         self._last_ai_analysis = result
         self._last_ai_analysis_time = time.time()
         return result
+
+    # ----------------- 5. Risk check (form bharne se pehle) -----------------
+    def _open_positions(self) -> list:
+        """Saari khuli positions ek format me: Main, Manual, Trade Automation, Lots Bot. Sirf padhta hai, kuch badalta nahi."""
+        st = self.state
+        out = []
+        if st.is_in_position:
+            out.append({
+                "id": "main", "source": "Main Position",
+                "petal_symbol": st.petal_symbol, "mini_symbol": st.mini_symbol,
+                "direction": st.position_direction, "quantity": st.trade_quantity,
+                "entry_spread": st.entry_spread, "exit_gap": None,
+                "entry_date": getattr(st, "entry_date", "--"), "entry_time": getattr(st, "entry_time", "--"),
+                "unrealized_pnl": st.unrealized_pnl
+            })
+        sources = [
+            ("manual", "Manual", st.manual_trades),
+            ("ta", "Trade Automation", st.ta_trades),
+            ("lots", "Lots Bot", getattr(st, "ta_lots_trades", [])),
+        ]
+        for prefix, label, trades in sources:
+            for t in trades:
+                if t.get("status") != "Open":
+                    continue
+                out.append({
+                    "id": f"{prefix}_{t.get('id')}",
+                    "source": f"{label} #{t.get('id')}" + (f" (Order {t.get('order_index')})" if prefix == "lots" else ""),
+                    "petal_symbol": t.get("petal_symbol") or st.petal_symbol,
+                    "mini_symbol": t.get("mini_symbol") or st.mini_symbol,
+                    "direction": t.get("direction"),
+                    "quantity": t.get("quantity", 1),
+                    "entry_spread": t.get("entry_spread"),
+                    "exit_gap": t.get("exit_gap"),
+                    "entry_date": t.get("entry_date", "--"),
+                    "entry_time": t.get("entry_time", "--"),
+                    "unrealized_pnl": t.get("unrealized_pnl", 0.0)
+                })
+        return out
+
+    def risk_check(self, row: dict, plan: dict) -> dict:
+        """Suggestion ko form me bharne se pehle: margin, lots, same month ki khuli position, expiry."""
+        try:
+            lots_list = [int(x.strip()) for x in str(plan["lots"]).split(",") if x.strip()]
+        except ValueError:
+            lots_list = []
+        total_lots = sum(lots_list)
+        margin_needed = total_lots * self.MARGIN_PER_LOT
+        available = round(self.state.available_balance, 2)
+
+        same_pair = [p for p in self._open_positions()
+                     if p["petal_symbol"] == row["petal_symbol"] and p["mini_symbol"] == row["mini_symbol"]]
+        open_lots = sum(int(p.get("quantity") or 0) for p in same_pair)
+        same_dir = [p for p in same_pair if p["direction"] == plan["direction"]]
+        opposite = [p for p in same_pair if p["direction"] != plan["direction"]]
+
+        warnings = []
+        if margin_needed > available:
+            warnings.append(f"Margin kam hai: saare {total_lots} lots ke liye ~₹{margin_needed:,.0f} chahiye, available ₹{available:,.0f} hai.")
+        if open_lots + total_lots > self.MAX_OPEN_LOTS_PER_PAIR:
+            warnings.append(f"Is month me pehle se {open_lots} lots khule hain; {total_lots} aur lene par {open_lots + total_lots} ho jayenge (limit {self.MAX_OPEN_LOTS_PER_PAIR}).")
+        if same_dir:
+            warnings.append(f"Is month me pehle se {len(same_dir)} {plan['direction']} position(s) khuli hain ({sum(int(p['quantity'] or 0) for p in same_dir)} lots).")
+        if opposite:
+            warnings.append(f"Is month me ulti direction ki {len(opposite)} position(s) khuli hain. Nayi entry unse takra sakti hai.")
+        days = row.get("days_to_expiry")
+        if days is not None and days <= self.EXPIRY_BLOCK_DAYS * 2:
+            warnings.append(f"Expiry {days} din me hai. Target na aaya to rollover ya expiry se pehle exit karna padega.")
+
+        return {
+            "total_lots": total_lots,
+            "margin_needed": margin_needed,
+            "available_balance": available,
+            "open_lots_same_pair": open_lots,
+            "warnings": warnings
+        }
+
+    # ----------------- 6. Open trade monitor -----------------
+    def get_open_trades_monitor(self) -> dict:
+        rows = {}
+        trades = []
+        for pos in self._open_positions():
+            key = (pos["petal_symbol"], pos["mini_symbol"])
+            if key not in rows:
+                rows[key] = self.build_pair_row(*key)
+            row = rows[key]
+            direction = pos["direction"]
+            entry = pos["entry_spread"]
+            gap = pos["exit_gap"]
+
+            # Exit hamesha ulti depth side par hota hai
+            exit_now = row["depth_sell_spread"] if direction == "Expansion" else row["depth_buy_spread"]
+            target = None
+            if entry is not None and gap is not None:
+                target = round(entry + gap, 2) if direction == "Expansion" else round(entry - gap, 2)
+
+            moved = to_target = progress = None
+            if exit_now is not None and entry is not None:
+                moved = round(exit_now - entry if direction == "Expansion" else entry - exit_now, 1)
+                if target is not None:
+                    to_target = round(target - exit_now if direction == "Expansion" else exit_now - target, 1)
+                    progress = round(moved / gap * 100.0, 0) if gap else None
+
+            days_held = None
+            try:
+                days_held = (get_ist_time().date() - datetime.strptime(str(pos["entry_date"]), "%Y-%m-%d").date()).days
+            except ValueError:
+                pass
+
+            alerts = []
+            days = row["days_to_expiry"]
+            if days is not None and days <= self.EXPIRY_BLOCK_DAYS:
+                alerts.append({"type": "EXPIRY", "text": f"Expiry {row['expiry_date']} ({days} din) - position abhi khuli hai. Rollover ya exit plan karein."})
+            if moved is not None and moved <= -self.STUCK_ADVERSE_PTS:
+                alerts.append({"type": "ADVERSE", "text": f"Spread entry se {abs(moved):.0f} pts ulta gaya hai."})
+            elif days_held is not None and days_held >= self.STUCK_DAYS and (moved is None or moved <= 0):
+                alerts.append({"type": "STUCK", "text": f"{days_held} din se khuli hai aur abhi tak profit me nahi hai."})
+            if to_target is not None and 0 < to_target <= self.NEAR_TARGET_PTS:
+                alerts.append({"type": "NEAR_TARGET", "text": f"Target sirf {to_target:.0f} pts door hai."})
+
+            if not row["has_live_data"] or exit_now is None:
+                status = "NO_DATA"
+            elif alerts and alerts[0]["type"] in ("EXPIRY", "ADVERSE", "STUCK"):
+                status = alerts[0]["type"]
+            elif moved is not None and moved > 0:
+                status = "PROFIT"
+            else:
+                status = "LOSS"
+
+            trades.append({
+                "id": pos["id"],
+                "source": pos["source"],
+                "pair": row["label"],
+                "direction": direction,
+                "quantity": pos["quantity"],
+                "entry_date": pos["entry_date"],
+                "entry_time": pos["entry_time"],
+                "days_held": days_held,
+                "entry_spread": round(entry, 2) if entry is not None else None,
+                "exit_spread_now": exit_now,
+                "target_spread": target,
+                "moved_pts": moved,
+                "to_target_pts": to_target,
+                "progress_pct": progress,
+                "unrealized_pnl": round(pos["unrealized_pnl"] or 0.0, 2),
+                "expiry_date": row["expiry_date"],
+                "days_to_expiry": days,
+                "buy_pos_pct": row["buy_pos_pct"],
+                "sell_pos_pct": row["sell_pos_pct"],
+                "status": status,
+                "alerts": alerts
+            })
+
+        order = {"EXPIRY": 0, "ADVERSE": 1, "STUCK": 2, "LOSS": 3, "NO_DATA": 4, "PROFIT": 5}
+        trades.sort(key=lambda t: order.get(t["status"], 9))
+        return {
+            "trades": trades,
+            "total_open": len(trades),
+            "total_lots": sum(int(t["quantity"] or 0) for t in trades),
+            "total_unrealized": round(sum(t["unrealized_pnl"] for t in trades), 2),
+            "alert_count": sum(len(t["alerts"]) for t in trades),
+            "rules": (
+                f"Alert tab: expiry {self.EXPIRY_BLOCK_DAYS} din ya kam | spread entry se {self.STUCK_ADVERSE_PTS:.0f}+ pts ulta | "
+                f"{self.STUCK_DAYS}+ din se khuli aur profit nahi | target {self.NEAR_TARGET_PTS:.0f} pts ke andar. "
+                f"Exit spread = Expansion me Depth Sell, Contraction me Depth Buy."
+            )
+        }
+
+    # ----------------- 7. Daily trade journal -----------------
+    def get_daily_journal(self, date_str: str) -> dict:
+        history = [t for t in self.state.trade_history if str(t.get("date", ""))[:10] == date_str]
+        done = [t for t in history if t.get("status") == "COMPLETED"]
+        failed = [t for t in history if t.get("status") in ("FAILED", "CANCELLED")]
+
+        rows = []
+        for t in done:
+            entry = t.get("actual_entry_spread") or t.get("entry_spread") or 0.0
+            exit_ = t.get("actual_exit_spread") or t.get("exit_spread") or 0.0
+            pts = (exit_ - entry) if t.get("direction") == "Expansion" else (entry - exit_)
+            net = float(t.get("pnl", 0.0) or 0.0)
+            charges = float(t.get("charges", 0.0) or 0.0)
+            gross = float(t.get("gross_pnl", net + charges) or 0.0)
+            rows.append({
+                "entry_time": t.get("entry_time", "--"),
+                "exit_time": t.get("exit_time", "--"),
+                "source": t.get("reason", "--"),
+                "pair": f"{t['petal_symbol']} / {t['mini_symbol']}" if t.get("petal_symbol") and t.get("mini_symbol") else "--",
+                "direction": t.get("direction", "--"),
+                "entry_spread": round(entry, 2),
+                "exit_spread": round(exit_, 2),
+                "points": round(pts, 1),
+                "gross": round(gross, 2),
+                "charges": round(charges, 2),
+                "net": round(net, 2)
+            })
+
+        wins = [r for r in rows if r["net"] > 0]
+        losses = [r for r in rows if r["net"] <= 0]
+        by_source = {}
+        for r in rows:
+            b = by_source.setdefault(r["source"], {"trades": 0, "net": 0.0})
+            b["trades"] += 1
+            b["net"] = round(b["net"] + r["net"], 2)
+
+        is_today = date_str == get_ist_time_str("%Y-%m-%d")
+        signals = self.get_opportunities_summary_from_list(
+            [o for o in self.state.ai_opportunities_log if o.get("date") == date_str]
+        ) if is_today else None
+        monitor = self.get_open_trades_monitor() if is_today else None
+
+        summary = {
+            "date": date_str,
+            "trades": len(rows),
+            "wins": len(wins),
+            "losses": len(losses),
+            "win_rate_percent": round(len(wins) / len(rows) * 100.0, 1) if rows else None,
+            "gross": round(sum(r["gross"] for r in rows), 2),
+            "charges": round(sum(r["charges"] for r in rows), 2),
+            "net": round(sum(r["net"] for r in rows), 2),
+            "best": max(rows, key=lambda r: r["net"]) if rows else None,
+            "worst": min(rows, key=lambda r: r["net"]) if rows else None,
+            "failed_attempts": len(failed),
+            "by_source": by_source,
+            "open_positions": monitor["total_open"] if monitor else None,
+            "open_unrealized": monitor["total_unrealized"] if monitor else None,
+            "scanner": signals
+        }
+        dates = sorted({str(t.get("date", ""))[:10] for t in self.state.trade_history if t.get("date")}, reverse=True)
+        return {
+            "summary": summary,
+            "trades": rows,
+            "failed": [{"time": t.get("entry_time") if t.get("entry_time") != "--" else t.get("exit_time"),
+                        "direction": t.get("direction"), "reason": t.get("reason")} for t in failed],
+            "available_dates": dates[:60],
+            "note": "Trade usi din me dikhta hai jis din uski entry hui thi (trade history ki 'date')."
+        }
+
+    # ----------------- 8. Spread history recording + Backtest -----------------
+    def _is_live_feed(self) -> bool:
+        """Simulation mode me record nahi karte - warna backtest nakli data par chalega."""
+        return getattr(self.state, "broker", "") in ("AngelOne", "Dhan", "Groww") and bool(getattr(self.state, "api_connected", False))
+
+    def record_spread_snapshot(self, petal_sym: str, mini_sym: str, buy_spread: float, sell_spread: float):
+        """Har pair ka har minute ek snapshot disk par (ai_spread_history/YYYY-MM-DD.jsonl). Backtest isi par chalta hai."""
+        if buy_spread is None or sell_spread is None or not buy_spread or not sell_spread:
+            return
+        if not self._is_live_feed() or get_market_session_status() != "OPEN":
+            return
+        pair_key = f"{petal_sym}_{mini_sym}"
+        now_ts = time.time()
+        if now_ts - self._last_snapshot.get(pair_key, 0) < self.SNAPSHOT_SECONDS:
+            return
+        self._last_snapshot[pair_key] = now_ts
+        try:
+            os.makedirs(self.HISTORY_DIR, exist_ok=True)
+            line = json.dumps({
+                "ts": int(now_ts), "t": get_ist_time_str("%H:%M"),
+                "p": petal_sym, "m": mini_sym,
+                "b": round(buy_spread, 2), "s": round(sell_spread, 2),
+                "mltp": round(self.state.symbol_ltps.get(mini_sym, 0.0) or 0.0, 2)
+            })
+            with open(os.path.join(self.HISTORY_DIR, f"{get_ist_time_str('%Y-%m-%d')}.jsonl"), "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception as e:
+            logger.info(f"[AI HISTORY] snapshot save failed: {e}")
+
+    def run_backtest(self, days: int = 30) -> dict:
+        """
+        Saved spread history par WAHI rule chalata hai jo live suggestion deta hai
+        (aaj ka range, 30% zone, 110 target, expiry block). Har snapshot par sirf utna data use hota hai
+        jitna us waqt tak pata tha. Simplification: har pair me ek waqt par ek hi position, 1 unit, averaging ladder nahi.
+        """
+        files = []
+        if os.path.isdir(self.HISTORY_DIR):
+            files = sorted(f for f in os.listdir(self.HISTORY_DIR) if f.endswith(".jsonl"))[-max(1, days):]
+        snaps_by_pair = {}
+        for fname in files:
+            date_str = fname[:-6]
+            try:
+                with open(os.path.join(self.HISTORY_DIR, fname), "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            s = json.loads(line)
+                        except ValueError:
+                            continue
+                        snaps_by_pair.setdefault((s["p"], s["m"]), []).append((date_str, s))
+            except OSError:
+                continue
+
+        target_pts = self.DEFAULT_TARGET_PTS
+        closed, still_open = [], []
+        for (p_sym, m_sym), snaps in snaps_by_pair.items():
+            snaps.sort(key=lambda x: x[1]["ts"])
+            expiries = [d for d in (get_contract_expiry_date(p_sym), get_contract_expiry_date(m_sym)) if d]
+            first_expiry = min(expiries) if expiries else None
+            pos = None
+            cur_day = None
+            b_lo = b_hi = s_lo = s_hi = None
+            for date_str, s in snaps:
+                b, sl = s["b"], s["s"]
+                if date_str != cur_day:
+                    cur_day = date_str
+                    b_lo = b_hi = b
+                    s_lo = s_hi = sl
+                b_lo, b_hi = min(b_lo, b), max(b_hi, b)
+                s_lo, s_hi = min(s_lo, sl), max(s_hi, sl)
+                day = datetime.strptime(date_str, "%Y-%m-%d").date()
+                days_left = (first_expiry - day).days if first_expiry else None
+                ch = calculate_trade_pair_charges(p_sym, m_sym, s.get("mltp") or 0.0)
+
+                if pos:
+                    exit_now = sl if pos["direction"] == "Expansion" else b
+                    hit = exit_now >= pos["target"] if pos["direction"] == "Expansion" else exit_now <= pos["target"]
+                    expired = days_left is not None and days_left <= 0
+                    if hit or expired:
+                        pts = (exit_now - pos["entry"]) if pos["direction"] == "Expansion" else (pos["entry"] - exit_now)
+                        net = round(pts * ch["multiplier_10g_scale"] - ch["total_charges"] - ch["slippage_cushion"], 2)
+                        closed.append(dict(pos, exit=exit_now, exit_at=f"{date_str} {s['t']}", points=round(pts, 1), net=net,
+                                           result="Target" if hit else "Expiry exit",
+                                           hold_minutes=int((s["ts"] - pos["ts"]) / 60)))
+                        pos = None
+                    continue
+
+                row = {
+                    "has_live_data": True,
+                    "depth_buy_spread": b, "depth_sell_spread": sl,
+                    "depth_buy_low": b_lo, "depth_buy_high": b_hi,
+                    "depth_sell_low": s_lo, "depth_sell_high": s_hi,
+                    "buy_pos_pct": self._range_position(b, b_lo, b_hi),
+                    "sell_pos_pct": self._range_position(sl, s_lo, s_hi),
+                    "days_to_expiry": days_left,
+                    "expiry_date": first_expiry.strftime("%d %b %Y") if first_expiry else None
+                }
+                decision, _ = self._evaluate_pair(row)
+                if decision in ("Expansion", "Contraction"):
+                    entry = b if decision == "Expansion" else sl
+                    pos = {
+                        "pair": f"{p_sym} / {m_sym}", "direction": decision, "entry": entry,
+                        "target": entry + target_pts if decision == "Expansion" else entry - target_pts,
+                        "entry_at": f"{date_str} {s['t']}", "ts": s["ts"]
+                    }
+            if pos:
+                last_date, last = snaps[-1]
+                exit_now = last["s"] if pos["direction"] == "Expansion" else last["b"]
+                pts = (exit_now - pos["entry"]) if pos["direction"] == "Expansion" else (pos["entry"] - exit_now)
+                still_open.append(dict(pos, exit=exit_now, points=round(pts, 1), result="Abhi khuli (data khatam)"))
+
+        closed.sort(key=lambda t: t["ts"])
+        equity = peak = max_dd = 0.0
+        for t in closed:
+            equity += t["net"]
+            peak = max(peak, equity)
+            max_dd = max(max_dd, peak - equity)
+        wins = [t for t in closed if t["net"] > 0]
+        by_pair = {}
+        for t in closed:
+            b = by_pair.setdefault(t["pair"], {"trades": 0, "net": 0.0, "wins": 0})
+            b["trades"] += 1
+            b["net"] = round(b["net"] + t["net"], 2)
+            b["wins"] += 1 if t["net"] > 0 else 0
+
+        return {
+            "days_of_data": len(files),
+            "first_day": files[0][:-6] if files else None,
+            "last_day": files[-1][:-6] if files else None,
+            "snapshots": sum(len(v) for v in snaps_by_pair.values()),
+            "trades": len(closed),
+            "wins": len(wins),
+            "losses": len(closed) - len(wins),
+            "win_rate_percent": round(len(wins) / len(closed) * 100.0, 1) if closed else None,
+            "net": round(sum(t["net"] for t in closed), 2),
+            "avg_net": round(sum(t["net"] for t in closed) / len(closed), 2) if closed else None,
+            "max_drawdown": round(max_dd, 2),
+            "avg_hold_minutes": int(sum(t["hold_minutes"] for t in closed) / len(closed)) if closed else None,
+            "by_pair": by_pair,
+            "closed_trades": [{k: v for k, v in t.items() if k != "ts"} for t in closed[-100:]],
+            "open_at_end": [{k: v for k, v in t.items() if k != "ts"} for t in still_open],
+            "note": (
+                "Data har minute ka snapshot hai (sirf live broker feed, market OPEN time). "
+                f"Rule wahi hai jo live suggestion ka hai; target {target_pts:.0f} pts, 1 unit, ek pair me ek waqt par ek position, "
+                "averaging ladder simulate nahi hoti. Charges + slippage cushion kaat ke Net."
+            )
+        }
+
+    # ----------------- 9. Alerts (background) -----------------
+    def _push_alert(self, key: str, level: str, text: str):
+        """Ek alert din me ek hi baar (same key)."""
+        day_key = f"{get_ist_time_str('%Y-%m-%d')}|{key}"
+        if day_key in self._alert_keys_sent:
+            return
+        self._alert_keys_sent.add(day_key)
+        self._alert_seq += 1
+        self._alerts.insert(0, {
+            "id": self._alert_seq,
+            "time": get_ist_time_str("%H:%M:%S"),
+            "level": level,
+            "text": text
+        })
+        del self._alerts[100:]
+        self.state.log(f"[AI ALERT] {text}")
+
+    def check_alerts(self):
+        if get_market_session_status() == "SUSPENDED":
+            return
+        for s in self.build_suggestions():
+            if s["plan"]:
+                label = "BUY SPREAD" if s["decision"] == "Expansion" else "SELL SPREAD"
+                self._push_alert(
+                    f"signal|{s['pair']}|{s['decision']}", "signal",
+                    f"{s['pair']}: {label} signal @ {s['plan']['entry_spread']} (target {s['plan']['target_spread']}, net ~₹{s['plan']['est_net_profit']:,.0f})"
+                )
+        for t in self.get_open_trades_monitor()["trades"]:
+            for a in t["alerts"]:
+                self._push_alert(f"trade|{t['id']}|{a['type']}", "warning" if a["type"] != "NEAR_TARGET" else "info",
+                                 f"{t['source']} ({t['pair']}): {a['text']}")
+
+    async def alert_loop(self):
+        while True:
+            await asyncio.sleep(self.ALERT_CHECK_SECONDS)
+            try:
+                self.check_alerts()
+            except Exception as e:
+                logger.error(f"[AI ALERT LOOP] {e}")
+
+    def get_alerts(self, after_id: int = 0) -> list:
+        return [a for a in self._alerts if a["id"] > after_id]
 
     # ----------------- 4. Claude -----------------
     async def _ask_claude(self, api_key: str, context: dict, question: str) -> tuple:
@@ -5231,6 +5671,7 @@ async def startup_event():
     system_state.init_angelone_client()
     asyncio.create_task(search_active_mcx_tokens())
     asyncio.create_task(live_mcx_ticker_task())
+    asyncio.create_task(ai_arbitrage_engine.alert_loop())
     system_state.log("Live MCX market tick simulator running.")
 
 # ----------------- REST and WebSocket Endpoints -----------------
@@ -7060,6 +7501,33 @@ async def api_clear_opportunities(token: str = None, authorization: str = Header
     system_state.ai_opportunities_log = []
     system_state.save_ai_opportunities()
     return {"status": "SUCCESS", "message": "Today's opportunity log cleared."}
+
+@app.get("/api/ai/monitor")
+async def api_ai_monitor(token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    return {"status": "SUCCESS", **ai_arbitrage_engine.get_open_trades_monitor()}
+
+@app.get("/api/ai/journal")
+async def api_ai_journal(date: str = None, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    date_str = date or get_ist_time_str("%Y-%m-%d")
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Date format YYYY-MM-DD hona chahiye")
+    return {"status": "SUCCESS", **ai_arbitrage_engine.get_daily_journal(date_str)}
+
+@app.get("/api/ai/backtest")
+async def api_ai_backtest(days: int = 30, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    days = max(1, min(365, days))
+    result = await asyncio.get_running_loop().run_in_executor(None, ai_arbitrage_engine.run_backtest, days)
+    return {"status": "SUCCESS", **result}
+
+@app.get("/api/ai/alerts")
+async def api_ai_alerts(after: int = 0, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    return {"status": "SUCCESS", "alerts": ai_arbitrage_engine.get_alerts(after)}
 
 # Serving static dashboard files
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))

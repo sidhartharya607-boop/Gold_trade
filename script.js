@@ -4049,11 +4049,16 @@ if (mbotStartBtn) {
 }
 
 // =========================================================================
-// 🧠 AI ASSISTANT CLIENT (Minimal)
-// 1. /api/ai/dashboard-data  -> pairs table + scanner signals
-// 2. /api/ai/analyze-claude  -> "Abhi kya karein" (local rules); sawaal ho to Claude ka jawab bhi
+// 🧠 AI ASSISTANT CLIENT
+// /api/ai/dashboard-data  -> scanner signals
+// /api/ai/analyze-claude  -> har month ka suggestion (local rules); sawaal ho to Claude ka jawab bhi
+// /api/ai/monitor         -> khuli positions ka haal
+// /api/ai/journal         -> din ka trade journal
+// /api/ai/backtest        -> saved spread history par rule ka backtest
+// /api/ai/alerts          -> server ke background alerts (har 30 sec poll)
 // =========================================================================
 window._aiSuggestions = [];
+window._aiActiveTab = "suggest";
 
 function aiEsc(v) {
     return String(v === null || v === undefined ? "--" : v)
@@ -4069,8 +4074,47 @@ function openAIHubModal() {
     if (modal) {
         modal.style.display = "flex";
         document.body.style.overflow = "hidden";  // full page view - peeche ka page scroll na ho
+        switchAITab(window._aiActiveTab || "suggest");
         fetchAIHubData();
     }
+}
+
+function switchAITab(name) {
+    window._aiActiveTab = name;
+    document.querySelectorAll(".ai-tab-panel").forEach(p => {
+        p.style.display = p.id === `ai-tab-${name}` ? "block" : "none";
+    });
+    document.querySelectorAll(".ai-tab-btn").forEach(b => {
+        b.classList.toggle("active", b.dataset.tab === name);
+    });
+    if (name === "journal") fetchAIJournal();
+    if (name === "alerts") {
+        window._aiAlertsUnseen = 0;
+        updateAIAlertBadge();
+        renderAIAlerts();
+    }
+}
+window.switchAITab = switchAITab;
+
+function aiGet(path) {
+    const httpProtocol = window.location.protocol;
+    const sep = path.includes("?") ? "&" : "?";
+    const tokenParam = getAuthTokenParam().replace(/^\?/, "");
+    return fetch(`${httpProtocol}//${host}/api/${path}${tokenParam ? sep + tokenParam : ""}`).then(r => r.json());
+}
+
+function aiMoney(v) {
+    if (v === null || v === undefined) return "--";
+    const n = Number(v);
+    return `${n >= 0 ? "+" : "−"}₹${Math.abs(Math.round(n)).toLocaleString()}`;
+}
+
+function aiMoneyColor(v) {
+    return Number(v) > 0 ? "#059669" : (Number(v) < 0 ? "#DC2626" : "#334155");
+}
+
+function aiKpi(label, value, color) {
+    return `<div class="ai-kpi"><span>${aiEsc(label)}</span><strong style="color: ${color || '#0F172A'};">${value}</strong></div>`;
 }
 
 function closeAIHubModal() {
@@ -4114,7 +4158,252 @@ function fetchAIHubData() {
 
     // Suggestion hamesha local rules se (fast, free). Claude sirf sawaal poochne par.
     callClaudeAnalysis("");
+    fetchAIMonitor();
+    if (window._aiActiveTab === "journal") fetchAIJournal();
 }
+
+// ---------- Open trade monitor ----------
+const AI_MONITOR_STATUS = {
+    "EXPIRY": ["⛔ Expiry paas", "#FEF3C7", "#92400E"],
+    "ADVERSE": ["🔻 Ulta gaya", "#FEE2E2", "#B91C1C"],
+    "STUCK": ["⏳ Fasa hua", "#FFEDD5", "#C2410C"],
+    "LOSS": ["Loss me", "#F1F5F9", "#B91C1C"],
+    "PROFIT": ["Profit me", "#DCFCE7", "#15803D"],
+    "NO_DATA": ["Data nahi", "#F1F5F9", "#64748B"]
+};
+
+function fetchAIMonitor() {
+    aiGet("ai/monitor").then(data => {
+        if (data && data.status === "SUCCESS") renderAIMonitor(data);
+    }).catch(err => console.error("AI monitor error:", err));
+}
+
+function renderAIMonitor(data) {
+    const badge = document.getElementById("ai-monitor-badge");
+    if (badge) {
+        badge.innerText = data.alert_count;
+        badge.style.display = data.alert_count > 0 ? "inline" : "none";
+    }
+    const summaryEl = document.getElementById("ai-monitor-summary");
+    if (summaryEl) {
+        summaryEl.innerHTML = data.total_open
+            ? `${data.total_open} positions khuli hain (${data.total_lots} lots) | Kul unrealized: <strong style="color: ${aiMoneyColor(data.total_unrealized)};">${aiMoney(data.total_unrealized)}</strong> | Alerts: ${data.alert_count}`
+            : "Abhi koi position khuli nahi hai.";
+    }
+    const rulesEl = document.getElementById("ai-monitor-rules");
+    if (rulesEl) rulesEl.innerText = data.rules || "";
+    const tbody = document.getElementById("ai-monitor-tbody");
+    if (!tbody) return;
+    if (!data.trades.length) {
+        tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">Koi khuli position nahi.</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = data.trades.map(t => {
+        const st = AI_MONITOR_STATUS[t.status] || AI_MONITOR_STATUS["NO_DATA"];
+        const moved = t.moved_pts === null ? "--" : `${t.moved_pts > 0 ? "+" : ""}${t.moved_pts} pts`;
+        const target = t.target_spread === null
+            ? `<span style="color: #64748B;">Target set nahi</span>`
+            : `${aiNum(t.target_spread)}<br><span style="color: #64748B;">${t.to_target_pts === null ? "--" : (t.to_target_pts <= 0 ? "Target cross" : t.to_target_pts + " pts door")}${t.progress_pct === null ? "" : ` · ${t.progress_pct}%`}</span>`;
+        const alerts = (t.alerts || []).map(a => `<div style="color: ${a.type === 'NEAR_TARGET' ? '#1D4ED8' : '#B45309'}; font-weight: 600;">⚠️ ${aiEsc(a.text)}</div>`).join("");
+        return `<tr>
+            <td>${aiEsc(t.source)}<br><span style="color: #64748B; font-size: 0.7rem;">${aiEsc(t.entry_date)} ${aiEsc(t.entry_time)}${t.days_held ? ` · ${t.days_held} din` : ""}</span></td>
+            <td style="font-weight: 700;">${aiEsc(t.pair)}</td>
+            <td>${aiEsc(t.direction)} · ${aiEsc(t.quantity)}</td>
+            <td style="font-family: monospace;">${aiNum(t.entry_spread)} → ${aiNum(t.exit_spread_now)}<br><span style="color: ${Number(t.moved_pts) > 0 ? '#059669' : '#DC2626'};">${moved}</span></td>
+            <td style="font-family: monospace;">${target}</td>
+            <td style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(t.unrealized_pnl)};">${aiMoney(t.unrealized_pnl)}</td>
+            <td style="white-space: nowrap;">${t.expiry_date ? `${aiEsc(t.expiry_date)}<br><span style="color: #64748B; font-size: 0.7rem;">${t.days_to_expiry} din</span>` : "--"}</td>
+            <td><span class="ai-pill" style="background: ${st[1]}; color: ${st[2]};">${st[0]}</span>${alerts}</td>
+        </tr>`;
+    }).join("");
+}
+
+// ---------- Daily journal ----------
+function fetchAIJournal() {
+    const input = document.getElementById("ai-journal-date");
+    if (input && !input.value) input.value = new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+    const date = input ? input.value : "";
+    aiGet(`ai/journal?date=${encodeURIComponent(date)}`).then(data => {
+        if (data && data.status === "SUCCESS") renderAIJournal(data);
+    }).catch(err => console.error("AI journal error:", err));
+}
+window.fetchAIJournal = fetchAIJournal;
+
+function renderAIJournal(data) {
+    const s = data.summary;
+    const kpis = document.getElementById("ai-journal-kpis");
+    if (kpis) {
+        kpis.innerHTML = [
+            aiKpi("Trades", s.trades),
+            aiKpi("Jeete / Haare", `${s.wins} / ${s.losses}`),
+            aiKpi("Win rate", s.win_rate_percent === null ? "--" : `${s.win_rate_percent}%`),
+            aiKpi("Gross", aiMoney(s.gross), aiMoneyColor(s.gross)),
+            aiKpi("Charges", `₹${Math.round(s.charges).toLocaleString()}`),
+            aiKpi("Net", aiMoney(s.net), aiMoneyColor(s.net))
+        ].join("");
+    }
+    const extra = [];
+    if (s.best) extra.push(`🏆 Sabse achha: ${aiEsc(s.best.direction)} ${aiEsc(s.best.entry_time)}–${aiEsc(s.best.exit_time)}, ${s.best.points} pts, ${aiMoney(s.best.net)}`);
+    if (s.worst && s.trades > 1) extra.push(`📉 Sabse kharab: ${aiEsc(s.worst.direction)} ${aiEsc(s.worst.entry_time)}–${aiEsc(s.worst.exit_time)}, ${s.worst.points} pts, ${aiMoney(s.worst.net)}`);
+    const src = Object.entries(s.by_source || {}).map(([k, v]) => `${aiEsc(k)}: ${v.trades} trades, ${aiMoney(v.net)}`);
+    if (src.length) extra.push(`Kahan se: ${src.join(" | ")}`);
+    if (s.failed_attempts) extra.push(`❌ Fail / cancel hui koshish: ${s.failed_attempts} (${(data.failed || []).map(f => aiEsc(f.reason)).join("; ")})`);
+    if (s.open_positions !== null && s.open_positions !== undefined) extra.push(`📈 Abhi khuli positions: ${s.open_positions}, unrealized ${aiMoney(s.open_unrealized)}`);
+    if (s.scanner) extra.push(`📡 Scanner: ${s.scanner.total_opportunities} signals, ${s.scanner.reverted_count} success, ${s.scanner.stopped_count} stopped`);
+    const extraEl = document.getElementById("ai-journal-extra");
+    if (extraEl) extraEl.innerHTML = extra.map(x => `<div>${x}</div>`).join("");
+
+    const tbody = document.getElementById("ai-journal-tbody");
+    if (tbody) {
+        tbody.innerHTML = data.trades.length ? data.trades.map(r => `<tr>
+            <td style="font-family: monospace;">${aiEsc(r.entry_time)} → ${aiEsc(r.exit_time)}</td>
+            <td>${aiEsc(r.source)}${r.pair !== "--" ? `<br><span style="color: #64748B; font-size: 0.7rem;">${aiEsc(r.pair)}</span>` : ""}</td>
+            <td>${aiEsc(r.direction)}</td>
+            <td style="font-family: monospace;">${aiNum(r.entry_spread)} → ${aiNum(r.exit_spread)}</td>
+            <td style="font-family: monospace; color: ${aiMoneyColor(r.points)};">${r.points > 0 ? "+" : ""}${r.points}</td>
+            <td style="font-family: monospace;">${aiMoney(r.gross)}</td>
+            <td style="font-family: monospace;">₹${Math.round(r.charges).toLocaleString()}</td>
+            <td style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(r.net)};">${aiMoney(r.net)}</td>
+        </tr>`).join("") : `<tr><td colspan="8" class="ai-empty">Is din koi trade complete nahi hua.</td></tr>`;
+    }
+    const noteEl = document.getElementById("ai-journal-note");
+    if (noteEl) noteEl.innerText = data.note + (data.available_dates.length ? ` Trade wale din: ${data.available_dates.slice(0, 10).join(", ")}` : "");
+}
+
+// ---------- Backtest ----------
+function runAIBacktest() {
+    const days = (document.getElementById("ai-backtest-days") || {}).value || 30;
+    const tbody = document.getElementById("ai-backtest-tbody");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">⏳ Backtest chal raha hai...</td></tr>`;
+    aiGet(`ai/backtest?days=${days}`).then(data => {
+        if (data && data.status === "SUCCESS") renderAIBacktest(data);
+    }).catch(err => console.error("AI backtest error:", err));
+}
+window.runAIBacktest = runAIBacktest;
+
+function renderAIBacktest(d) {
+    const kpis = document.getElementById("ai-backtest-kpis");
+    const extraEl = document.getElementById("ai-backtest-extra");
+    const tbody = document.getElementById("ai-backtest-tbody");
+    const noteEl = document.getElementById("ai-backtest-note");
+    if (noteEl) noteEl.innerText = d.note || "";
+    if (!d.days_of_data) {
+        if (kpis) kpis.innerHTML = "";
+        if (extraEl) extraEl.innerHTML = `<div>Abhi koi saved data nahi hai. Server live broker feed par market OPEN time me har minute spread save karta hai. Kuch din baad yahan result aayega.</div>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">Data jama ho raha hai.</td></tr>`;
+        return;
+    }
+    if (kpis) {
+        kpis.innerHTML = [
+            aiKpi("Data", `${d.days_of_data} din`),
+            aiKpi("Trades", d.trades),
+            aiKpi("Jeete / Haare", `${d.wins} / ${d.losses}`),
+            aiKpi("Win rate", d.win_rate_percent === null ? "--" : `${d.win_rate_percent}%`),
+            aiKpi("Net (band trades)", aiMoney(d.net), aiMoneyColor(d.net)),
+            aiKpi("Max drawdown", `₹${Math.round(d.max_drawdown).toLocaleString()}`, d.max_drawdown > 0 ? "#DC2626" : null),
+            aiKpi("Avg hold", d.avg_hold_minutes === null ? "--" : `${d.avg_hold_minutes} min`)
+        ].join("");
+    }
+    const extra = [`Data: ${aiEsc(d.first_day)} se ${aiEsc(d.last_day)} (${d.snapshots} snapshots)`];
+    const pairs = Object.entries(d.by_pair || {}).map(([k, v]) => `${aiEsc(k)}: ${v.trades} trades, ${v.wins} jeete, ${aiMoney(v.net)}`);
+    if (pairs.length) extra.push(`Month-wise: ${pairs.join(" | ")}`);
+    (d.open_at_end || []).forEach(o => extra.push(`<span style="color: #B45309; font-weight: 600;">⚠️ Data khatam hone tak khuli: ${aiEsc(o.pair)} ${aiEsc(o.direction)} @ ${aiNum(o.entry)} (${aiEsc(o.entry_at)}), abhi ${o.points > 0 ? "+" : ""}${o.points} pts. Yeh Net me shamil nahi.</span>`));
+    if (extraEl) extraEl.innerHTML = extra.map(x => `<div>${x}</div>`).join("");
+    if (tbody) {
+        tbody.innerHTML = d.closed_trades.length ? d.closed_trades.slice().reverse().map(t => `<tr>
+            <td style="font-family: monospace;">${aiEsc(t.entry_at)}</td>
+            <td style="font-family: monospace;">${aiEsc(t.exit_at)}</td>
+            <td>${aiEsc(t.pair)}</td>
+            <td>${aiEsc(t.direction)}</td>
+            <td style="font-family: monospace;">${aiNum(t.entry)} → ${aiNum(t.exit)}</td>
+            <td style="font-family: monospace;">${t.points > 0 ? "+" : ""}${t.points}</td>
+            <td style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(t.net)};">${aiMoney(t.net)}</td>
+            <td>${aiEsc(t.result)}</td>
+        </tr>`).join("") : `<tr><td colspan="8" class="ai-empty">Is data me rule ne koi trade complete nahi kiya.</td></tr>`;
+    }
+}
+
+// ---------- Alerts (poore terminal me chalta hai, AI page band ho tab bhi) ----------
+window._aiAlerts = [];
+window._aiAlertLastId = 0;
+window._aiAlertsUnseen = 0;
+
+function updateAIAlertBadge() {
+    const badge = document.getElementById("ai-alerts-badge");
+    if (badge) {
+        badge.innerText = window._aiAlertsUnseen;
+        badge.style.display = window._aiAlertsUnseen > 0 ? "inline" : "none";
+    }
+}
+
+function renderAIAlerts() {
+    const list = document.getElementById("ai-alerts-list");
+    if (!list) return;
+    const colors = { signal: "#4F46E5", warning: "#B45309", info: "#1D4ED8" };
+    list.innerHTML = window._aiAlerts.length ? window._aiAlerts.map(a => `
+        <div style="border-left: 4px solid ${colors[a.level] || '#64748B'}; background: #F8FAFC; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.82rem;">
+            <span style="font-family: monospace; color: #64748B;">${aiEsc(a.time)}</span> &nbsp;${aiEsc(a.text)}
+        </div>`).join("") : `<div class="ai-empty">Aaj abhi tak koi alert nahi.</div>`;
+}
+
+function showAIAlertToast(alerts) {
+    const toast = document.getElementById("ai-alert-toast");
+    if (!toast || !alerts.length) return;
+    toast.innerHTML = `<strong>🔔 AI Alert${alerts.length > 1 ? ` (${alerts.length})` : ""}</strong><br>${aiEsc(alerts[0].text)}<br><span style="font-size: 0.7rem; color: #CBD5E1;">Click karein - Alerts dekhein</span>`;
+    toast.style.display = "block";
+    clearTimeout(window._aiToastTimer);
+    window._aiToastTimer = setTimeout(() => { toast.style.display = "none"; }, 12000);
+}
+
+function pollAIAlerts() {
+    aiGet(`ai/alerts?after=${window._aiAlertLastId}`).then(data => {
+        if (!data || data.status !== "SUCCESS" || !data.alerts.length) return;
+        const fresh = data.alerts;
+        const isFirstLoad = window._aiAlertLastId === 0;
+        window._aiAlertLastId = Math.max(window._aiAlertLastId, ...fresh.map(a => a.id));
+        window._aiAlerts = fresh.concat(window._aiAlerts).slice(0, 100);
+        renderAIAlerts();
+        if (isFirstLoad) return;  // page khulte hi purane alerts par popup nahi
+        window._aiAlertsUnseen += fresh.length;
+        updateAIAlertBadge();
+        showAIAlertToast(fresh);
+        if ("Notification" in window && Notification.permission === "granted") {
+            fresh.slice(0, 3).forEach(a => {
+                try { new Notification("Gold Trade - AI Alert", { body: a.text, icon: "/icon.svg", tag: `ai-alert-${a.id}` }); } catch (e) {}
+            });
+        }
+    }).catch(() => {});
+}
+
+function enableAINotifications() {
+    if (!("Notification" in window)) {
+        alert("Is browser me notification support nahi hai.");
+        return;
+    }
+    Notification.requestPermission().then(p => {
+        updateAINotifyButton();
+        if (p === "granted") new Notification("Gold Trade - AI Alerts on", { body: "Naye signal / position alerts yahan aayenge (jab tak terminal khula hai).", icon: "/icon.svg" });
+        else alert("Notification permission nahi mili. Browser settings se allow karein.");
+    });
+}
+window.enableAINotifications = enableAINotifications;
+
+function updateAINotifyButton() {
+    const btn = document.getElementById("ai-notify-btn");
+    if (btn && "Notification" in window && Notification.permission === "granted") {
+        btn.innerText = "🔔 Notification on hai";
+        btn.disabled = true;
+        btn.style.cursor = "default";
+    }
+}
+
+updateAINotifyButton();
+pollAIAlerts();
+setInterval(pollAIAlerts, 30000);
+setInterval(() => {
+    const modal = document.getElementById("ai-hub-modal");
+    if (modal && modal.style.display !== "none") fetchAIMonitor();
+}, 30000);
 
 function promptSetClaudeKey() {
     const existing = window._hasClaudeApiKey ? "••••••••••••••••" : "";
@@ -4219,7 +4508,7 @@ function renderAISuggestions(suggestions) {
         const st = AI_DECISION_STYLES[s.decision] || AI_DECISION_STYLES["WAIT"];
         const plan = s.plan;
         const planCell = plan
-            ? `${aiNum(plan.entry_spread)} → ${aiNum(plan.target_spread)}<br><strong style="color: ${plan.est_net_profit >= 0 ? '#059669' : '#DC2626'};">Net ₹${Number(plan.est_net_profit).toLocaleString()}</strong>${(plan.warnings || []).length ? ' <span title="Warning hai - detail dekhein">⚠️</span>' : ''}`
+            ? `${aiNum(plan.entry_spread)} → ${aiNum(plan.target_spread)}<br><strong style="color: ${plan.est_net_profit >= 0 ? '#059669' : '#DC2626'};">Net ₹${Number(plan.est_net_profit).toLocaleString()}</strong>${((plan.warnings || []).length || ((plan.risk || {}).warnings || []).length) ? ' <span title="Warning hai - detail dekhein">⚠️</span>' : ''}`
             : "--";
         const btn = plan
             ? `<button type="button" onclick="event.stopPropagation(); applyAISuggestionToBot(${idx})" style="padding: 4px 10px; font-size: 0.74rem; font-weight: 800; background: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">Form me bharo</button>`
@@ -4231,6 +4520,12 @@ function renderAISuggestions(suggestions) {
             detailParts.push(`<div><strong>Bot settings:</strong> Step ${plan.step} pts | Lots ${aiEsc(plan.lots)}</div>`);
             detailParts.push(`<div><strong>Target hit hua to (1 unit):</strong> Gross ₹${Number(plan.gross_profit).toLocaleString()} − Charges ₹${plan.charges} − Slippage ₹${plan.slippage_cushion} = Net ₹${Number(plan.est_net_profit).toLocaleString()} (${plan.grams}g)</div>`);
             (plan.warnings || []).forEach(w => detailParts.push(`<div style="color: #B45309; font-weight: 600;">⚠️ ${aiEsc(w)}</div>`));
+            const risk = plan.risk;
+            if (risk) {
+                detailParts.push(`<div style="margin-top: 0.35rem;"><strong>Risk check:</strong> ${risk.total_lots} lots × ₹50,000 = margin ~₹${Math.round(risk.margin_needed).toLocaleString()} | Available ₹${Math.round(risk.available_balance).toLocaleString()} | Is month me pehle se ${risk.open_lots_same_pair} lots khule</div>`);
+                if (risk.warnings.length) risk.warnings.forEach(w => detailParts.push(`<div style="color: #B91C1C; font-weight: 600;">🛑 ${aiEsc(w)}</div>`));
+                else detailParts.push(`<div style="color: #15803D; font-weight: 600;">✅ Risk check me koi problem nahi mili.</div>`);
+            }
         }
         detailParts.push(`<ul style="margin: 0.4rem 0 0 0; padding-left: 1.1rem; font-family: monospace; color: #475569;">${(s.facts || []).map(f => `<li>${aiEsc(f)}</li>`).join("")}</ul>`);
 
@@ -4292,6 +4587,13 @@ function applyAISuggestionToBot(idx) {
     if (!payload) {
         alert("Is month me abhi koi suggestion nahi hai (decision WAIT hai).");
         return;
+    }
+
+    // Risk check: koi problem ho to pehle dikhao, user ke OK ke bina form mat bharo
+    const riskWarnings = (s.plan.risk && s.plan.risk.warnings) || [];
+    if (riskWarnings.length) {
+        const ok = confirm(`⚠️ Risk check (${s.pair}):\n\n• ${riskWarnings.join("\n• ")}\n\nPhir bhi Lots Bot form bharna hai?`);
+        if (!ok) return;
     }
 
     // Lots Bot me sahi pair dhoondo. Na mile to kuch mat bharo - galat pair par load hona khatarnak hai.

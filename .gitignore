@@ -24,3 +24,6 @@ __pycache__/
 # IDE configurations
 .vscode/
 .idea/
+
+# AI Assistant spread history (backtest data)
+ai_spread_history/
