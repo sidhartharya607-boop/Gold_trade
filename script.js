@@ -4049,16 +4049,26 @@ if (mbotStartBtn) {
 }
 
 // =========================================================================
-// 🧠 AI ARBITRAGE INTELLIGENCE HUB & CLAUDE 3.5 COPILOT CLIENT
+// 🧠 AI ASSISTANT CLIENT (Minimal)
+// 1. /api/ai/dashboard-data  -> pairs table + scanner signals
+// 2. /api/ai/analyze-claude  -> "Abhi kya karein" (local rules); sawaal ho to Claude ka jawab bhi
 // =========================================================================
-let _aiThresholdDebounceTimer = null;
 window._lastAIActionablePayload = null;
+
+function aiEsc(v) {
+    return String(v === null || v === undefined ? "--" : v)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function aiNum(v) {
+    return (v === null || v === undefined) ? "--" : Number(v).toFixed(1);
+}
 
 function openAIHubModal() {
     const modal = document.getElementById("ai-hub-modal");
     if (modal) {
         modal.style.display = "flex";
-        fetchAIHubData(false);
+        fetchAIHubData();
     }
 }
 
@@ -4067,28 +4077,7 @@ function closeAIHubModal() {
     if (modal) modal.style.display = "none";
 }
 
-function onAIThresholdSliderChange(val) {
-    const badge = document.getElementById("ai-threshold-val-badge");
-    if (badge) badge.innerText = `${parseFloat(val).toFixed(1)} pts`;
-
-    clearTimeout(_aiThresholdDebounceTimer);
-    _aiThresholdDebounceTimer = setTimeout(() => {
-        postAction("ai/set-threshold", { threshold: parseFloat(val) }).then(res => {
-            if (res && res.status === "SUCCESS") {
-                logLocalMessage(`[AI SCANNER] Divergence threshold updated to ${res.threshold} pts.`);
-            }
-        });
-    }, 400);
-}
-
-function clearAIOpportunities() {
-    if (!confirm("Are you sure you want to clear today's AI opportunity log?")) return;
-    postAction("ai/clear-opportunities", {}).then(() => {
-        fetchAIHubData(false);
-    });
-}
-
-function fetchAIHubData(forceClaude = false) {
+function fetchAIHubData() {
     const spinner = document.getElementById("ai-refresh-spinner");
     if (spinner) spinner.style.animation = "spin 1s linear infinite";
 
@@ -4098,49 +4087,27 @@ function fetchAIHubData(forceClaude = false) {
     fetch(url)
         .then(r => r.json())
         .then(data => {
-            if (data && data.status === "SUCCESS") {
-                render100to120Swings(data.swings_100_120 || [], data);
-                renderAIMatrix(data.matrix || []);
-                renderAIOpportunities(data.opportunities || []);
-                renderAISummary(data.summary || {});
+            if (!data || data.status !== "SUCCESS") return;
+            window._hasClaudeApiKey = !!data.has_claude_api_key;
+            renderAIMatrix(data.matrix || []);
+            renderAISignals(data.signals || [], data.summary || {}, data.threshold);
 
-                // Update threshold slider if user is not currently dragging it
-                const slider = document.getElementById("ai-threshold-slider");
-                const badge = document.getElementById("ai-threshold-val-badge");
-                if (slider && document.activeElement !== slider && data.threshold) {
-                    slider.value = data.threshold;
-                    if (badge) badge.innerText = `${parseFloat(data.threshold).toFixed(1)} pts`;
-                }
-
-                // Update badges
-                const oppCount = (data.opportunities || []).length;
-                const topAiBadge = document.getElementById("header-ai-opp-badge");
-                const mobileAiBadge = document.getElementById("mobile-ai-badge");
-                if (topAiBadge) topAiBadge.innerText = oppCount;
-                if (mobileAiBadge) {
-                    mobileAiBadge.innerText = oppCount;
-                    mobileAiBadge.style.display = oppCount > 0 ? "inline-block" : "none";
-                }
-
-                // Check if cached analysis is stale (was generated before API key was set or encountered previous error)
-                const lastSource = (data.last_analysis && data.last_analysis.source) || "";
-                const isStaleFallback = lastSource.includes("not set") || lastSource.includes("Fallback") || lastSource.includes("Error") || lastSource.includes("Statistical");
-                const shouldCallClaude = forceClaude || !data.last_analysis || (data.has_claude_api_key && isStaleFallback);
-                window._hasClaudeApiKey = !!data.has_claude_api_key;
-
-                if (shouldCallClaude) {
-                    callClaudeAnalysis();
-                } else if (data.last_analysis) {
-                    renderClaudeAdvisory(data.last_analysis);
-                }
+            const count = (data.signals || []).length;
+            const topAiBadge = document.getElementById("header-ai-opp-badge");
+            const mobileAiBadge = document.getElementById("mobile-ai-badge");
+            if (topAiBadge) topAiBadge.innerText = count;
+            if (mobileAiBadge) {
+                mobileAiBadge.innerText = count;
+                mobileAiBadge.style.display = count > 0 ? "inline-block" : "none";
             }
         })
-        .catch(err => {
-            console.error("Error fetching AI dashboard data:", err);
-        })
+        .catch(err => console.error("Error fetching AI dashboard data:", err))
         .finally(() => {
             if (spinner) spinner.style.animation = "";
         });
+
+    // Suggestion hamesha local rules se (fast, free). Claude sirf sawaal poochne par.
+    callClaudeAnalysis("");
 }
 
 function promptSetClaudeKey() {
@@ -4152,329 +4119,84 @@ function promptSetClaudeKey() {
         alert("Invalid format! Anthropic Claude API key must start with 'sk-ant-'");
         return;
     }
-    logLocalMessage("[AI HUB] Saving Claude API key to server...");
     postAction("ai/set-claude-key", { api_key: cleanKey }).then(res => {
         if (res && res.status === "SUCCESS") {
-            const modelsMsg = (res.models_found && res.models_found.length > 0) ? `\n\nActive Models: ${res.models_found.slice(0, 3).join(', ')}` : "";
-            alert(`✅ Claude API key validated & connected!${modelsMsg}\n\nAI Advisory updated live.`);
+            alert("✅ Claude API key save ho gayi.");
             window._hasClaudeApiKey = true;
-            if (res.advisory) renderClaudeAdvisory(res.advisory);
-            fetchAIHubData(true);
+            fetchAIHubData();
         } else {
-            alert("API Key Error: " + (res.detail || res.message || "Server error"));
+            alert("API Key Error: " + ((res && (res.detail || res.message)) || "Server error"));
         }
-    }).catch(err => {
-        alert("Network error saving API key: " + err);
-    });
+    }).catch(err => alert("Network error saving API key: " + err));
 }
 
 function callClaudeAnalysis(userQuery = "") {
-    const advSummaryEl = document.getElementById("ai-adv-summary");
-    if (advSummaryEl) advSummaryEl.innerText = "Connecting to Claude AI... Calculating optimal entry & exit parameters...";
-
-    const statusIndicator = document.getElementById("ai-status-indicator");
-    if (statusIndicator) {
-        statusIndicator.innerHTML = `
-            <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #EFF6FF; color: #1D4ED8; border: 2px solid #3B82F6; display: inline-flex; align-items: center; gap: 7px;">
-                <span style="width: 8px; height: 8px; background: #3B82F6; border-radius: 50%;"></span>
-                ⏳ CONNECTING TO CLAUDE AI...
-            </span>
-        `;
-    }
-
     postAction("ai/analyze-claude", { query: userQuery }).then(res => {
         if (res && res.status === "SUCCESS" && res.advisory) {
-            renderClaudeAdvisory(res.advisory);
+            renderClaudeAdvisory(res.advisory, userQuery);
         }
-    }).catch(err => {
-        console.error("Claude analysis network error:", err);
-    });
+    }).catch(err => console.error("AI analysis network error:", err));
 }
 
-function renderClaudeAdvisory(adv) {
-    window._lastAIActionablePayload = adv.actionable_payload || {
-        direction: adv.recommended_direction || "Expansion",
-        petal_symbol: adv.petal_symbol || "",
-        mini_symbol: adv.mini_symbol || "",
-        entry_diff: adv.suggested_entry_diff || 900,
-        exit_gap: adv.suggested_exit_gap || 60,
-        step: adv.suggested_step || 30,
-        lots: adv.suggested_lots || "1, 2, 2"
-    };
+function renderClaudeAdvisory(adv, userQuery = "") {
+    const plan = adv.plan || null;
+    window._lastAIActionablePayload = plan ? plan.actionable_payload : null;
 
-    const statusIndicator = document.getElementById("ai-status-indicator");
-    const engineBadge = document.getElementById("ai-engine-badge");
-    const srcEl = document.getElementById("ai-adv-source");
-    const summaryEl = document.getElementById("ai-adv-summary");
-    const pairBadgeEl = document.getElementById("ai-adv-pair-badge");
-    const dirPillEl = document.getElementById("ai-adv-direction-pill");
-    const exitGapPillEl = document.getElementById("ai-adv-exit-gap-pill");
+    const sourceLine = document.getElementById("ai-source-line");
+    if (sourceLine) {
+        const keyTxt = window._hasClaudeApiKey ? "Claude key: set" : "Claude key: set nahi";
+        sourceLine.innerText = `Source: ${adv.source || "--"} | Updated: ${adv.time || "--"} | ${keyTxt}`;
+    }
 
-    // Depth Entry elements
-    const entryBuyStrEl = document.getElementById("ai-entry-buy-str");
-    const entrySellStrEl = document.getElementById("ai-entry-sell-str");
-    const entrySpreadValEl = document.getElementById("ai-entry-spread-val");
+    const pill = document.getElementById("ai-decision-pill");
+    if (pill) {
+        const styles = {
+            "Expansion": ["🟢 BUY SPREAD (Expansion)", "#16A34A", "#FFFFFF"],
+            "Contraction": ["🔴 SELL SPREAD (Contraction)", "#DC2626", "#FFFFFF"],
+            "WAIT": ["⏸ WAIT", "#F1F5F9", "#334155"]
+        };
+        const s = styles[adv.decision] || styles["WAIT"];
+        pill.innerText = s[0];
+        pill.style.background = s[1];
+        pill.style.color = s[2];
+    }
+    const pairEl = document.getElementById("ai-decision-pair");
+    if (pairEl) pairEl.innerText = adv.pair || "";
+    const reasonEl = document.getElementById("ai-decision-reason");
+    if (reasonEl) reasonEl.innerText = adv.reason || "--";
 
-    // Depth Exit elements
-    const exitSpreadValEl = document.getElementById("ai-exit-spread-val");
-    const exitActionStrEl = document.getElementById("ai-exit-action-str");
-    const stepEl = document.getElementById("ai-adv-step");
-    const lotsEl = document.getElementById("ai-adv-lots");
+    const factsEl = document.getElementById("ai-facts-list");
+    if (factsEl) {
+        factsEl.innerHTML = (adv.facts || []).map(f => `<li>${aiEsc(f)}</li>`).join("") || "<li>--</li>";
+    }
 
-    // Market Catalyst
-    const marketCatalystEl = document.getElementById("ai-adv-market-catalyst");
+    const rulesEl = document.getElementById("ai-rules-text");
+    if (rulesEl) rulesEl.innerText = adv.rules || "";
 
-    // Net Profit
-    const profitEl = document.getElementById("ai-adv-net-profit");
-    const profitSubtext = document.getElementById("ai-adv-profit-subtext");
-
-    // Legacy elements for backward compatibility
-    const pairEl = document.getElementById("ai-adv-pair");
-    const dirEl = document.getElementById("ai-adv-direction");
-    const entryEl = document.getElementById("ai-adv-entry");
-    const exitEl = document.getElementById("ai-adv-exit-gap");
-    const reasoningEl = document.getElementById("ai-adv-reasoning");
-    const entryLabelEl = document.getElementById("ai-adv-entry-label");
-
-    const recDirection = adv.recommended_direction || "Expansion";
-    const srcText = adv.source || "Claude 3.5 Sonnet Analysis";
-
-    // 1. DYNAMIC PROMINENT STATUS INDICATOR (Active / Offline / Error)
-    const isClaudeSuccess = srcText.includes("Claude") && !srcText.includes("Error") && !srcText.includes("Local");
-    if (isClaudeSuccess) {
-        if (statusIndicator) {
-            statusIndicator.innerHTML = `
-                <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #ECFDF5; color: #047857; border: 2px solid #10B981; display: inline-flex; align-items: center; gap: 7px; box-shadow: 0 2px 8px rgba(16,185,129,0.2);">
-                    <span style="width: 9px; height: 9px; background: #10B981; border-radius: 50%; box-shadow: 0 0 8px #10B981;"></span>
-                    🟢 CLAUDE AI ACTIVE &amp; LIVE
-                </span>
-            `;
-        }
-        if (engineBadge) {
-            engineBadge.innerText = "⚡ CLAUDE AI ONLINE";
-            engineBadge.style.background = "#F3E8FF";
-            engineBadge.style.color = "#6B21A8";
-            engineBadge.style.borderColor = "#C084FC";
-        }
-        if (srcEl) {
-            srcEl.innerText = adv.source || "Claude AI Order Book Sentinel";
-            srcEl.style.color = "#1E293B";
-        }
-    } else if (srcText.includes("Error")) {
-        if (statusIndicator) {
-            statusIndicator.innerHTML = `
-                <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #FEF2F2; color: #DC2626; border: 2px solid #EF4444; display: inline-flex; align-items: center; gap: 7px;">
-                    <span style="width: 9px; height: 9px; background: #EF4444; border-radius: 50%;"></span>
-                    🔴 CLAUDE ERROR (${adv.api_error || 'Check API Key'})
-                </span>
-            `;
-        }
-        if (engineBadge) {
-            engineBadge.innerText = "⚠️ CLAUDE OFFLINE";
-            engineBadge.style.background = "#FEF2F2";
-            engineBadge.style.color = "#DC2626";
-            engineBadge.style.borderColor = "#FCA5A5";
-        }
-        if (srcEl) {
-            srcEl.innerText = srcText;
-            srcEl.style.color = "#DC2626";
-        }
-    } else {
-        if (statusIndicator) {
-            statusIndicator.innerHTML = `
-                <span style="font-size: 0.74rem; font-weight: 800; padding: 4px 12px; border-radius: 999px; background: #FFFBEB; color: #B45309; border: 2px solid #F59E0B; display: inline-flex; align-items: center; gap: 7px;">
-                    <span style="width: 9px; height: 9px; background: #F59E0B; border-radius: 50%;"></span>
-                    🟡 LOCAL STATS (Claude Key Not Set - Click '🔑 Claude API Key')
-                </span>
-            `;
-        }
-        if (engineBadge) {
-            engineBadge.innerText = "⚙️ LOCAL STATS";
-            engineBadge.style.background = "#FFFBEB";
-            engineBadge.style.color = "#B45309";
-            engineBadge.style.borderColor = "#FCD34D";
-        }
-        if (srcEl) {
-            srcEl.innerText = srcText;
-            srcEl.style.color = "#B45309";
+    const planBox = document.getElementById("ai-plan-box");
+    if (planBox) {
+        if (plan) {
+            planBox.style.display = "block";
+            document.getElementById("ai-plan-entry").innerText = `${plan.entry_text} @ spread ${aiNum(plan.entry_spread)} pts`;
+            document.getElementById("ai-plan-exit").innerText = `${plan.exit_text} @ spread ${aiNum(plan.target_spread)} pts (${plan.target_pts} pts move)`;
+            document.getElementById("ai-plan-settings").innerText = `Step ${plan.step} pts | Lots ${plan.lots}`;
+            const net = Number(plan.est_net_profit || 0);
+            document.getElementById("ai-plan-profit").innerText =
+                `Gross ₹${Number(plan.gross_profit).toLocaleString()} − Charges ₹${plan.charges} − Slippage ₹${plan.slippage_cushion} = Net ₹${net.toLocaleString()} (${plan.grams}g)`;
+            document.getElementById("ai-plan-warnings").innerText = (plan.warnings || []).map(w => "⚠️ " + w).join("\n");
+        } else {
+            planBox.style.display = "none";
         }
     }
 
-    if (summaryEl) summaryEl.innerText = adv.summary || "AI continuously monitors Depth Buy & Depth Sell spreads on your behalf across Month Master pairs.";
-    if (pairBadgeEl) pairBadgeEl.innerText = adv.top_pair || "--";
-    if (dirPillEl) {
-        dirPillEl.innerText = recDirection.toUpperCase();
-        dirPillEl.style.background = recDirection === "Expansion" ? "#16A34A" : "#DC2626";
-    }
-
-    // Step 1: Exact Depth Entry (Buy Depth & Sell Depth)
-    const pSym = adv.petal_symbol || "GOLDPETAL";
-    const mSym = adv.mini_symbol || "GOLDMINI";
-    const entryDiff = adv.suggested_entry_diff !== undefined ? adv.suggested_entry_diff : 900;
-    
-    if (entryBuyStrEl) {
-        entryBuyStrEl.innerText = adv.entry_depth_buy_text || (recDirection === "Expansion" ? `BUY ${pSym} (At Market Depth Ask)` : `BUY ${mSym} (At Market Depth Ask)`);
-    }
-    if (entrySellStrEl) {
-        entrySellStrEl.innerText = adv.entry_depth_sell_text || (recDirection === "Expansion" ? `SELL ${mSym} (At Market Depth Bid)` : `SELL ${pSym} (At Market Depth Bid)`);
-    }
-    if (entrySpreadValEl) {
-        entrySpreadValEl.innerText = `${entryDiff} pts`;
-    }
-
-    // Step 2: Exact Depth Exit
-    const exitGap = parseFloat(adv.suggested_exit_gap) || 60.0;
-    if (exitGapPillEl) {
-        exitGapPillEl.innerText = `+${exitGap} pts Target`;
-    }
-    const exitTargetSpread = adv.expected_exit_target !== undefined ? adv.expected_exit_target : 
-        (recDirection === "Expansion" ? (parseFloat(entryDiff) + exitGap).toFixed(1) : (parseFloat(entryDiff) - exitGap).toFixed(1));
-    if (exitSpreadValEl) {
-        exitSpreadValEl.innerText = `${exitTargetSpread} pts`;
-    }
-    if (exitActionStrEl) {
-        exitActionStrEl.innerText = adv.exit_depth_action_text || (recDirection === "Expansion" ? 
-            `Square-Off: Reverse orders (SELL ${pSym} @ Bid & BUY ${mSym} @ Ask) when spread expands to ${exitTargetSpread} pts.` :
-            `Square-Off: Reverse orders (BUY ${pSym} @ Ask & SELL ${mSym} @ Bid) when spread contracts to ${exitTargetSpread} pts.`);
-    }
-
-    if (stepEl) stepEl.innerText = `${adv.suggested_step || 35} pts`;
-    if (lotsEl) lotsEl.innerText = adv.suggested_lots || "1, 2, 2";
-
-    // 4 Multi-Factor Reasoning Pillars
-    const whySuggestedEl = document.getElementById("ai-adv-why-suggested");
-    const newsDriverEl = document.getElementById("ai-adv-news-driver");
-    const highLowPosEl = document.getElementById("ai-adv-highlow-position");
-    const frequencyEl = document.getElementById("ai-adv-frequency");
-
-    if (whySuggestedEl) {
-        whySuggestedEl.innerText = adv.why_suggested || adv.reasoning || "AI ne ye trade isliye suggest kiya kyunki spread Day Low support discount par hai aur bounce ki probability high hai.";
-    }
-    if (newsDriverEl) {
-        newsDriverEl.innerText = adv.news_factor || adv.market_catalyst || "US Dollar Index (DXY) softness aur bullion safe-haven demand se MCX spread me expansion favorable hai.";
-    }
-    if (highLowPosEl) {
-        highLowPosEl.innerText = adv.high_low_factor || (adv.depth_buy_low !== undefined ? `Today's Depth Buy: Low ${adv.depth_buy_low} ── High ${adv.depth_buy_high} pts. Current spread bottom support zone me hai.` : "Spread Day Low discount zone ke paas hai.");
-    }
-    if (frequencyEl) {
-        frequencyEl.innerText = adv.frequency_factor || "Aaj subah se aise 100-120+ points ke multiple spread moves repeat hue hain.";
-    }
-
-    // Assistant Chat Reply if user asked a question
+    // Claude ka jawab sirf tab dikhao jab sawaal poocha gaya ho
     const replyBox = document.getElementById("ai-assistant-reply-box");
-    const replyText = document.getElementById("ai-assistant-reply-text");
-    if (replyBox && replyText) {
-        if (adv.assistant_reply) {
-            replyBox.style.display = "block";
-            replyText.innerHTML = adv.assistant_reply;
-        } else if (replyText.innerText.includes("soch raha hai")) {
-            replyBox.style.display = "block";
-            replyText.innerHTML = `💡 <strong>AI Guidance:</strong> ${adv.why_suggested || adv.reasoning || "Setup ready. 1-Click Load into Lots Bot."}`;
-        }
+    if (replyBox && userQuery) {
+        replyBox.style.display = "block";
+        replyBox.innerText = adv.claude_reply || `⚠️ ${adv.api_error || "Claude se jawab nahi mila."}`;
     }
-
-    // Sync swings journal if provided
-    if (adv.swings_today_info) {
-        render100to120Swings(adv.swings_today_info.swings || [], adv.swings_today_info);
-    }
-
-    // Step 3: AI Market Catalyst & Depth Reasoning
-    if (marketCatalystEl) {
-        marketCatalystEl.innerHTML = `💡 <strong>Live Driver:</strong> ${adv.market_catalyst || adv.reasoning || "Live order book depth absorption and channel divergence detected across Month Master pairs."}`;
-    }
-
-    // Dynamic Estimated net in-hand profit based on exact traded grams
-    const grams = parseFloat(adv.trade_grams) || 100.0;
-    const mult = adv.multiplier_10g_scale !== undefined ? parseFloat(adv.multiplier_10g_scale) : (grams / 10.0);
-    const charges = adv.total_charges !== undefined ? parseFloat(adv.total_charges) : Math.round(80 + (grams * 7200 * 4 * 0.000035));
-    const slippage = adv.slippage_cushion !== undefined ? parseFloat(adv.slippage_cushion) : Math.round((grams / 10.0) * 8.0);
-    const grossProfit = exitGap * mult;
-    const estimatedNet = adv.estimated_net_profit !== undefined ? adv.estimated_net_profit : Math.max(0, Math.round(grossProfit - charges - slippage));
-    
-    if (profitEl) profitEl.innerText = `+₹${estimatedNet.toLocaleString()} In-Hand`;
-    if (profitSubtext) {
-        profitSubtext.innerText = `Based on ${grams}g weight (₹${charges} taxes + ₹${slippage} slippage cushion)`;
-    }
-
-    // Dynamic Depth Buy & Sell Ranges Display
-    const entryBuyRangeEl = document.getElementById("ai-entry-buy-range");
-    const entrySellRangeEl = document.getElementById("ai-entry-sell-range");
-    if (entryBuyRangeEl) {
-        const bLow = adv.depth_buy_low !== undefined ? adv.depth_buy_low : '--';
-        const bHigh = adv.depth_buy_high !== undefined ? adv.depth_buy_high : '--';
-        entryBuyRangeEl.innerText = `Low ${bLow} ── High ${bHigh}`;
-    }
-    if (entrySellRangeEl) {
-        const sLow = adv.depth_sell_low !== undefined ? adv.depth_sell_low : '--';
-        const sHigh = adv.depth_sell_high !== undefined ? adv.depth_sell_high : '--';
-        entrySellRangeEl.innerText = `Low ${sLow} ── High ${sHigh}`;
-    }
-
-    // Hidden elements sync
-    if (pairEl) pairEl.innerText = adv.top_pair || "--";
-    if (dirEl) {
-        dirEl.innerText = recDirection;
-        dirEl.style.color = recDirection === "Expansion" ? "#0284C7" : "#DC2626";
-    }
-    if (entryLabelEl) {
-        entryLabelEl.innerText = recDirection === "Expansion" ? "Entry (Depth Buy):" : "Entry (Depth Sell):";
-    }
-    if (entryEl) entryEl.innerText = `${adv.suggested_entry_diff} pts`;
-    if (exitEl) exitEl.innerText = `${adv.suggested_exit_gap} pts`;
-    if (reasoningEl) reasoningEl.innerHTML = `💡 ${adv.reasoning || ""}`;
 }
 
-// 🏆 Today's 100 to 120+ Points Swings Journal Renderer
-function render100to120Swings(swings, data) {
-    const totalEl = document.getElementById("swings-total-count");
-    const missedEl = document.getElementById("swings-missed-count");
-    const cashEl = document.getElementById("swings-missed-cash");
-    const tbody = document.getElementById("swings-table-body");
-
-    const totalCount = data && data.swings_total_count !== undefined ? data.swings_total_count : (swings ? swings.length : 0);
-    const missedCount = data && data.swings_missed_count !== undefined ? data.swings_missed_count : (swings ? swings.filter(s => s.status && s.status.includes("Missed")).length : 0);
-    const missedCash = data && data.swings_missed_cash !== undefined ? data.swings_missed_cash : (swings ? swings.filter(s => s.status && s.status.includes("Missed")).reduce((acc, x) => acc + (x.in_hand_cash || 0), 0) : 0);
-
-    if (totalEl) totalEl.innerText = totalCount;
-    if (missedEl) missedEl.innerText = missedCount;
-    if (cashEl) cashEl.innerText = missedCash.toLocaleString();
-
-    if (!tbody) return;
-
-    if (!swings || swings.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" style="padding: 1rem; text-align: center; color: #64748B;">Aaj abhi tak koi 100+ points ka swing trigger nahi hua. Monitoring live order book...</td></tr>`;
-        return;
-    }
-
-    tbody.innerHTML = swings.map((s, idx) => {
-        const isMissed = s.status && s.status.includes("Missed");
-        const statusBadge = isMissed ? 
-            `<span style="background: #FEF2F2; color: #DC2626; border: 1.5px solid #FCA5A5; padding: 2px 8px; border-radius: 999px; font-weight: 800; font-size: 0.68rem;">⚠️ Missed (Nahi Kiya)</span>` :
-            `<span style="background: #ECFDF5; color: #047857; border: 1.5px solid #10B981; padding: 2px 8px; border-radius: 999px; font-weight: 800; font-size: 0.68rem;">✅ Traded</span>`;
-        const moveColor = s.direction === "Expansion" ? "#15803D" : "#B91C1C";
-        return `
-            <tr style="border-bottom: 1.5px solid #E2E8F0; background: ${idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC'};">
-                <td style="padding: 0.55rem 0.8rem; font-family: monospace; color: #64748B; font-weight: 600;">${s.time || '--'}</td>
-                <td style="padding: 0.55rem 0.8rem; font-weight: 800; color: #0F172A;">${s.pair}</td>
-                <td style="padding: 0.55rem 0.8rem; font-weight: 900; color: ${moveColor}; font-family: monospace;">
-                    ${s.direction === 'Expansion' ? '▲' : '▼'} +${s.move_pts} pts
-                </td>
-                <td style="padding: 0.55rem 0.8rem; font-family: monospace; font-size: 0.74rem; color: #334155;">
-                    ${s.from_spread} ── ${s.to_spread} pts
-                </td>
-                <td style="padding: 0.55rem 0.8rem; text-align: right; font-weight: 900; color: #059669; font-family: monospace;">
-                    +₹${(s.in_hand_cash || 0).toLocaleString()}
-                </td>
-                <td style="padding: 0.55rem 0.8rem; text-align: center;">
-                    ${statusBadge}
-                </td>
-            </tr>
-        `;
-    }).join("");
-}
-window.render100to120Swings = render100to120Swings;
-
-// 💬 Interactive AI Assistant Query Handlers
 function askAIAssistant(qText) {
     const input = document.getElementById("ai-assistant-query-input");
     if (input) input.value = qText;
@@ -4487,344 +4209,117 @@ function submitAIAssistantQuestion() {
     if (!input) return;
     const q = input.value.trim();
     if (!q) return;
-
     const replyBox = document.getElementById("ai-assistant-reply-box");
-    const replyText = document.getElementById("ai-assistant-reply-text");
-    if (replyBox && replyText) {
+    if (replyBox) {
         replyBox.style.display = "block";
-        replyText.innerHTML = `<em>⏳ AI Assistant soch raha hai... "${q}"</em>`;
+        replyBox.innerText = "⏳ Claude soch raha hai...";
     }
-
     callClaudeAnalysis(q);
 }
 window.submitAIAssistantQuestion = submitAIAssistantQuestion;
 
-function toggleMonthMasterReferenceTable() {
-    const wrapper = document.getElementById("mm-table-collapsible-wrapper");
-    const icon = document.getElementById("mm-table-toggle-icon");
-    if (!wrapper) return;
-    if (wrapper.style.display === "none" || !wrapper.style.display) {
-        wrapper.style.display = "block";
-        if (icon) icon.innerText = "▲ Click to Hide Table";
-    } else {
-        wrapper.style.display = "none";
-        if (icon) icon.innerText = "▼ Click to View Table";
-    }
-}
-window.toggleMonthMasterReferenceTable = toggleMonthMasterReferenceTable;
-
-// 4-Column Clean Month Master Combinations Matrix
-window._lastAIMatrix = [];
-
 function renderAIMatrix(matrix) {
     const tbody = document.getElementById("ai-matrix-tbody");
     if (!tbody) return;
-
-    window._lastAIMatrix = matrix || [];
-
-    if (!matrix || matrix.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="4" style="padding: 1.25rem; text-align: center; color: #64748B;">No combinations available. Add pairs in Month Master.</td></tr>`;
+    if (!matrix.length) {
+        tbody.innerHTML = `<tr><td colspan="4" style="padding: 0.8rem; text-align: center; color: #64748B;">Koi pair nahi. Month Master me pair add karein.</td></tr>`;
         return;
     }
-
-    tbody.innerHTML = matrix.map((row, idx) => {
-        const isTop = row.is_top_pick;
-        const bg = isTop ? "rgba(168, 85, 247, 0.08)" : (idx % 2 === 0 ? "#FFFFFF" : "#F8FAFC");
-        const borderLeft = isTop ? "border-left: 4px solid #8B5CF6;" : "";
-
-        const buySpread = row.depth_buy_spread !== undefined ? row.depth_buy_spread : row.spread;
-        const buyLow = row.depth_buy_low !== undefined ? row.depth_buy_low : (buySpread - 35);
-        const buyHigh = row.depth_buy_high !== undefined ? row.depth_buy_high : (buySpread + 35);
-
-        const sellSpread = row.depth_sell_spread !== undefined ? row.depth_sell_spread : row.spread;
-        const sellLow = row.depth_sell_low !== undefined ? row.depth_sell_low : (sellSpread - 35);
-        const sellHigh = row.depth_sell_high !== undefined ? row.depth_sell_high : (sellSpread + 35);
-
-        // Detect if Buy is near Day Low (Expansion setup) or Sell is near Day High (Contraction setup)
-        const buyRange = Math.max(1, buyHigh - buyLow);
-        const buyPos = (buySpread - buyLow) / buyRange; // 0 = at low, 1 = at high
-
-        const sellRange = Math.max(1, sellHigh - sellLow);
-        const sellPos = (sellHigh - sellSpread) / sellRange; // 0 = at high, 1 = at low
-
-        let signalBtn = "";
-        if (buyPos <= 0.35) {
-            signalBtn = `
-                <button type="button" class="metallic-button" onclick="loadPairSetupToBot('${row.petal_symbol}', '${row.mini_symbol}', 'Expansion', ${buySpread})" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 800; background: linear-gradient(135deg, #16A34A, #15803D); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 6px rgba(22, 163, 74, 0.3);">
-                    <span>🟢 BUY SPREAD</span>
-                </button>
-            `;
-        } else if (sellPos <= 0.35) {
-            signalBtn = `
-                <button type="button" class="metallic-button" onclick="loadPairSetupToBot('${row.petal_symbol}', '${row.mini_symbol}', 'Contraction', ${sellSpread})" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 800; background: linear-gradient(135deg, #DC2626, #B91C1C); color: #fff; border: none; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 6px rgba(220, 38, 38, 0.3);">
-                    <span>🔴 SELL SPREAD</span>
-                </button>
-            `;
-        } else {
-            signalBtn = `
-                <button type="button" class="metallic-button" onclick="loadPairSetupToBot('${row.petal_symbol}', '${row.mini_symbol}', 'Expansion', ${buySpread})" style="padding: 5px 12px; font-size: 0.74rem; font-weight: 700; background: #F1F5F9; color: #334155; border: 1.5px solid #CBD5E1; border-radius: 6px; cursor: pointer;">
-                    <span>⚖️ Load Bot</span>
-                </button>
-            `;
+    const pct = v => (v === null || v === undefined) ? "--" : `${Math.round(v)}%`;
+    tbody.innerHTML = matrix.map(r => {
+        if (!r.has_live_data) {
+            return `<tr style="border-bottom: 1px solid #E2E8F0;">
+                <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${aiEsc(r.label)}</td>
+                <td colspan="3" style="padding: 0.5rem 0.6rem; color: #94A3B8;">Live price nahi aaya</td></tr>`;
         }
-
-        return `
-            <tr style="background: ${bg}; ${borderLeft} border-bottom: 1.5px solid #E2E8F0;">
-                <td style="padding: 0.75rem 0.9rem;">
-                    <div style="display: flex; align-items: center; gap: 6px;">
-                        ${isTop ? '<span style="color: #F59E0B; font-size: 0.95rem;" title="Top Pick">⭐</span>' : ''}
-                        <strong style="color: #0F172A; font-size: 0.86rem;">${row.label}</strong>
-                    </div>
-                    <div style="font-size: 0.7rem; color: #64748B; margin-top: 2px;">
-                        LTP: ₹${row.petal_ltp} vs ₹${row.mini_ltp}
-                    </div>
-                </td>
-                <td style="padding: 0.75rem 0.9rem;">
-                    <div style="font-family: monospace; font-size: 1rem; font-weight: 900; color: #15803D;">
-                        ₹${buySpread.toFixed(1)} pts
-                    </div>
-                    <div style="font-size: 0.72rem; color: #166534; font-weight: 600; margin-top: 2px;">
-                        Today's Buy: Low ${buyLow.toFixed(1)} ── High ${buyHigh.toFixed(1)}
-                    </div>
-                </td>
-                <td style="padding: 0.75rem 0.9rem;">
-                    <div style="font-family: monospace; font-size: 1rem; font-weight: 900; color: #B91C1C;">
-                        ₹${sellSpread.toFixed(1)} pts
-                    </div>
-                    <div style="font-size: 0.72rem; color: #991B1B; font-weight: 600; margin-top: 2px;">
-                        Today's Sell: Low ${sellLow.toFixed(1)} ── High ${sellHigh.toFixed(1)}
-                    </div>
-                </td>
-                <td style="padding: 0.75rem 0.9rem; text-align: center;">
-                    ${signalBtn}
-                </td>
-            </tr>
-        `;
+        return `<tr style="border-bottom: 1px solid #E2E8F0;">
+            <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${r.is_active ? "⭐ " : ""}${aiEsc(r.label)}</td>
+            <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #15803D;">${aiNum(r.depth_buy_spread)}</strong> <span style="color: #64748B;">(${aiNum(r.depth_buy_low)}–${aiNum(r.depth_buy_high)})</span></td>
+            <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #B91C1C;">${aiNum(r.depth_sell_spread)}</strong> <span style="color: #64748B;">(${aiNum(r.depth_sell_low)}–${aiNum(r.depth_sell_high)})</span></td>
+            <td style="padding: 0.5rem 0.6rem; font-family: monospace;">${pct(r.buy_pos_pct)} / ${pct(r.sell_pos_pct)}</td>
+        </tr>`;
     }).join("");
 }
 
-function loadPairSetupToBot(pSym, mSym, direction, entryDiff) {
-    const payload = {
-        direction: direction || "Expansion",
-        petal_symbol: pSym,
-        mini_symbol: mSym,
-        entry_diff: entryDiff,
-        exit_gap: 60,
-        step: 30,
-        lots: "1, 2, 2"
-    };
-    applyAISuggestionToBot(payload);
-}
-window.loadPairSetupToBot = loadPairSetupToBot;
-
-window._aiOpportunitiesMap = {};
-
-function renderAIOpportunities(opps) {
-    const tbody = document.getElementById("ai-opportunities-tbody");
+function renderAISignals(signals, summary, threshold) {
+    const summaryEl = document.getElementById("ai-scanner-summary");
+    if (summaryEl) {
+        const win = (summary.win_rate_percent === null || summary.win_rate_percent === undefined) ? "--" : `${summary.win_rate_percent}%`;
+        summaryEl.innerText =
+            `Jab spread apne 60-min average se ${threshold} pts se zyada door jaata hai, scanner signal likhta hai. ` +
+            `Aaj: ${summary.total_opportunities || 0} signals | ${summary.reverted_count || 0} success | ` +
+            `${summary.stopped_count || 0} stopped | ${summary.active_count || 0} chal rahe | Win rate ${win}`;
+    }
+    const tbody = document.getElementById("ai-signals-tbody");
     if (!tbody) return;
-
-    window._aiOpportunitiesMap = {};
-
-    if (!opps || opps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="8" style="padding: 1.25rem; text-align: center; color: #64748B;">No trades logged today yet. AI continuously monitors Depth Buy &amp; Depth Sell spreads on your behalf.</td></tr>`;
+    if (!signals.length) {
+        tbody.innerHTML = `<tr><td colspan="5" style="padding: 0.8rem; text-align: center; color: #64748B;">Aaj abhi tak koi signal nahi.</td></tr>`;
         return;
     }
-
-    tbody.innerHTML = opps.map((opp, idx) => {
-        const oppId = opp.id || `opp_${idx}`;
-        window._aiOpportunitiesMap[oppId] = opp;
-
-        const isReal = opp.is_real_trade || (opp.status && opp.status.includes("Real"));
-        const isActive = opp.status === "Active Position (Real)" || opp.status === "Ready to Enter" || (opp.status && opp.status.includes("Active"));
-        const isSuccess = opp.status && (opp.status.includes("Success") || opp.status.includes("Target Achieved") || opp.status.includes("Executed"));
-
-        let badgeBg = "#F1F5F9";
-        let badgeColor = "#475569";
-        let badgeBorder = "#CBD5E1";
-        let statusText = opp.status || "Ready to Enter";
-
-        if (opp.status === "Ready to Enter") {
-            badgeBg = "#ECFDF5";
-            badgeColor = "#047857";
-            badgeBorder = "#10B981";
-            statusText = "🟢 Ready to Enter";
-        } else if (isReal) {
-            if (isActive) {
-                badgeBg = "#EFF6FF";
-                badgeColor = "#1D4ED8";
-                badgeBorder = "#3B82F6";
-                statusText = "🎯 Active Trade (Live)";
-            } else {
-                badgeBg = "#ECFDF5";
-                badgeColor = "#047857";
-                badgeBorder = "#10B981";
-                statusText = `🎯 Real Trade (+${opp.captured_pts || 0} pts)`;
-            }
-        } else if (isSuccess) {
-            badgeBg = "#EFF6FF";
-            badgeColor = "#1D4ED8";
-            badgeBorder = "#3B82F6";
-            statusText = `✅ Target Achieved (+${opp.captured_pts || 60} pts)`;
-        } else {
-            badgeBg = "#FFFBEB";
-            badgeColor = "#B45309";
-            badgeBorder = "#F59E0B";
-        }
-
-        const dirColor = opp.direction === "Expansion" ? "#0284C7" : "#DC2626";
-        const dirBg = opp.direction === "Expansion" ? "#EFF6FF" : "#FEF2F2";
-        const dirBorder = opp.direction === "Expansion" ? "#93C5FD" : "#FCA5A5";
-
-        const netPnlColor = (opp.net_profit || 0) > 0 ? "#059669" : ((opp.net_profit || 0) < 0 ? "#DC2626" : "#64748B");
-        const netPnlText = opp.net_profit !== undefined ? `${opp.net_profit > 0 ? '+' : ''}₹${opp.net_profit.toLocaleString()}` : "₹0";
-
-        const gramsBadge = opp.grams ? `<span style="font-size: 0.65rem; background: #EEF2F6; color: #475569; padding: 1px 5px; border-radius: 4px; font-weight: 700; margin-left: 4px;">${opp.grams}g</span>` : '';
-        const realTag = isReal ? `<span style="background: #10B981; color: #FFFFFF; font-size: 0.6rem; font-weight: 800; padding: 1px 4px; border-radius: 3px; margin-right: 4px;">REAL</span>` : '';
-
-        // Exact depth entry string formatted with clear action
-        const entryStr = opp.entry_action_str || (opp.direction === "Expansion" ? 
-            `BUY ${opp.petal_symbol || 'Leg1'} @ Depth Ask | SELL ${opp.mini_symbol || 'Leg2'} @ Depth Bid (Spread: ${opp.trigger_spread})` :
-            `SELL ${opp.petal_symbol || 'Leg1'} @ Depth Bid | BUY ${opp.mini_symbol || 'Leg2'} @ Depth Ask (Spread: ${opp.trigger_spread})`);
-
-        // Exit target string
-        const exitStr = opp.exit_action_str || `Target: ${opp.exit_spread || (opp.trigger_spread + 60)} pts (+${opp.captured_pts || 60} pts)`;
-
-        // Catalyst reasoning
-        const catalystStr = opp.catalyst || opp.market_catalyst || opp.reason || "Order book depth absorption & spread divergence monitored by AI.";
-
-        return `
-            <tr style="border-bottom: 1.5px solid #E2E8F0; background: ${isReal ? 'rgba(16, 185, 129, 0.04)' : (idx % 2 === 0 ? '#FFFFFF' : '#F8FAFC')};">
-                <td style="padding: 0.55rem 0.75rem; font-family: monospace; color: #475569; font-weight: 700; white-space: nowrap;">
-                    ${opp.timestamp}
-                </td>
-                <td style="padding: 0.55rem 0.6rem; font-weight: 700; color: #0F172A; white-space: nowrap;">
-                    ${realTag}<strong>${opp.pair}</strong>${gramsBadge}
-                </td>
-                <td style="padding: 0.55rem 0.6rem; white-space: nowrap;">
-                    <span style="background: ${dirBg}; color: ${dirColor}; border: 1.5px solid ${dirBorder}; padding: 2px 7px; border-radius: 5px; font-size: 0.68rem; font-weight: 800; display: inline-block;">
-                        ${opp.direction}
-                    </span>
-                    <div style="font-size: 0.65rem; color: #64748B; margin-top: 2px;">${statusText}</div>
-                </td>
-                <td style="padding: 0.55rem 0.6rem; font-size: 0.74rem; color: #0F172A; font-weight: 600;">
-                    ${entryStr}
-                </td>
-                <td style="padding: 0.55rem 0.6rem; font-size: 0.74rem; font-family: monospace; font-weight: 700; color: #1D4ED8; white-space: nowrap;">
-                    ${exitStr}
-                </td>
-                <td style="padding: 0.55rem 0.6rem; text-align: right; font-family: monospace; font-weight: 900; font-size: 0.88rem; color: ${netPnlColor}; white-space: nowrap;">
-                    ${netPnlText}
-                </td>
-                <td style="padding: 0.55rem 0.75rem; font-size: 0.72rem; color: #334155; line-height: 1.35; max-width: 280px;">
-                    ${catalystStr}
-                </td>
-                <td style="padding: 0.55rem 0.75rem; text-align: center; white-space: nowrap;">
-                    <button type="button" class="metallic-button" onclick="loadAIOppToBot('${oppId}')" style="padding: 4px 9px; font-size: 0.72rem; font-weight: 800; background: linear-gradient(135deg, #8B5CF6, #6366F1); color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);">
-                        ⚡ Load Bot
-                    </button>
-                </td>
-            </tr>
-        `;
+    tbody.innerHTML = signals.map(o => {
+        let result = "⏳ Chal raha hai";
+        if ((o.status || "").includes("Reverted")) result = `✅ +${aiNum(o.captured_pts)} pts (Net ₹${aiEsc(o.net_profit)})`;
+        else if ((o.status || "").includes("Stopped")) result = `❌ ${aiNum(o.captured_pts)} pts (Net ₹${aiEsc(o.net_profit)})`;
+        return `<tr style="border-bottom: 1px solid #E2E8F0;">
+            <td style="padding: 0.45rem 0.6rem; font-family: monospace;">${aiEsc(o.timestamp)}</td>
+            <td style="padding: 0.45rem 0.6rem;">${aiEsc(o.pair)}</td>
+            <td style="padding: 0.45rem 0.6rem;">${aiEsc(o.direction)}</td>
+            <td style="padding: 0.45rem 0.6rem; font-family: monospace;">${aiNum(o.trigger_spread)} / ${aiNum(o.rolling_mean)}</td>
+            <td style="padding: 0.45rem 0.6rem;">${result}</td>
+        </tr>`;
     }).join("");
 }
 
-function loadAIOppToBot(oppId) {
-    const opp = (window._aiOpportunitiesMap && window._aiOpportunitiesMap[oppId]) || null;
-    if (!opp) {
-        alert("Opportunity details not found. Please refresh.");
-        return;
-    }
-    const payload = opp.actionable_payload || {
-        direction: opp.direction || "Expansion",
-        petal_symbol: opp.petal_symbol || (opp.pair ? opp.pair.split(" vs ")[0] : ""),
-        mini_symbol: opp.mini_symbol || (opp.pair ? opp.pair.split(" vs ")[1] : ""),
-        entry_diff: opp.trigger_spread || 900,
-        exit_gap: opp.captured_pts || 60,
-        step: 30,
-        lots: "1, 2, 2"
-    };
-    applyAISuggestionToBot(payload);
-}
-// Alias for convenience
-window.loadAIOpportunityToBot = loadAIOppToBot;
-
-function renderAISummary(summary) {
-    const totalEl = document.getElementById("ai-stat-total");
-    const winrateEl = document.getElementById("ai-stat-winrate");
-    const profitEl = document.getElementById("ai-stat-profit");
-
-    if (totalEl) totalEl.innerText = summary.total_opportunities || 0;
-    if (winrateEl) winrateEl.innerText = `${summary.win_rate_percent || 0.0}%`;
-    if (profitEl) {
-        const p = summary.total_simulated_profit || 0.0;
-        profitEl.innerText = `${p >= 0 ? '+' : ''}₹${p.toLocaleString()}`;
-        profitEl.style.color = p >= 0 ? "#059669" : "#DC2626";
-    }
-}
-
-function applyAISuggestionToBot(customPayload = null) {
-    const payload = customPayload || window._lastAIActionablePayload;
+function applyAISuggestionToBot() {
+    const payload = window._lastAIActionablePayload;
     if (!payload) {
-        alert("No AI recommendation loaded yet. Please click Refresh Analysis.");
+        alert("Abhi koi suggestion nahi hai (decision WAIT hai).");
         return;
     }
 
-    // 1. Populate Lots Bot inputs
+    // Lots Bot me sahi pair dhoondo. Na mile to kuch mat bharo - galat pair par load hona khatarnak hai.
+    const monthSelectEl = document.getElementById("ta-lots-select-month");
+    const wanted = `${payload.petal_symbol} / ${payload.mini_symbol}`;
+    let matchIdx = -1;
+    if (monthSelectEl) {
+        for (let i = 0; i < monthSelectEl.options.length; i++) {
+            if (monthSelectEl.options[i].text.trim() === wanted) {
+                matchIdx = i;
+                break;
+            }
+        }
+    }
+    if (matchIdx === -1) {
+        alert(`❌ Pair "${wanted}" Lots Bot ki month list me nahi mila.\n\nPehle Month Master me yeh pair add karein. Form me kuch nahi bhara gaya.`);
+        return;
+    }
+
+    monthSelectEl.selectedIndex = matchIdx;
     const dirEl = document.getElementById("ta-lots-select-direction");
     const entryEl = document.getElementById("ta-lots-input-entry-diff");
     const stepEl = document.getElementById("ta-lots-input-averaging-step");
     const exitEl = document.getElementById("ta-lots-input-exit-gap");
     const lotsEl = document.getElementById("ta-lots-input-lots");
-    const monthSelectEl = document.getElementById("ta-lots-select-month");
-
-    if (dirEl && payload.direction) dirEl.value = payload.direction;
-    if (entryEl && payload.entry_diff !== undefined) entryEl.value = payload.entry_diff;
-    if (stepEl && payload.step !== undefined) stepEl.value = payload.step;
-    if (exitEl && payload.exit_gap !== undefined) exitEl.value = payload.exit_gap;
-    if (lotsEl && payload.lots) {
+    if (dirEl) dirEl.value = payload.direction;
+    if (entryEl) entryEl.value = payload.entry_diff;
+    if (stepEl) stepEl.value = payload.step;
+    if (exitEl) exitEl.value = payload.exit_gap;
+    if (lotsEl) {
         lotsEl.value = payload.lots;
         lotsEl.dispatchEvent(new Event("input"));
     }
 
-    if (monthSelectEl && payload.petal_symbol && payload.mini_symbol) {
-        for (let i = 0; i < monthSelectEl.options.length; i++) {
-            const opt = monthSelectEl.options[i];
-            if (opt.text.includes(payload.petal_symbol) || opt.value.includes(payload.petal_symbol)) {
-                monthSelectEl.selectedIndex = i;
-                break;
-            }
-        }
-    }
-
-    // 2. Close modal
     closeAIHubModal();
-
-    // 3. Switch left studio tab to 'lots' and ensure left column is open
-    if (typeof switchLeftTab === "function") {
-        switchLeftTab("lots");
-    }
+    if (typeof switchLeftTab === "function") switchLeftTab("lots");
     if (typeof toggleLeftCol === "function") {
         const leftCol = document.getElementById("workstation-col-left");
-        if (leftCol && leftCol.classList.contains("collapsed")) {
-            toggleLeftCol();
-        }
+        if (leftCol && leftCol.classList.contains("collapsed")) toggleLeftCol();
     }
-
-    // 4. Highlight the form with glowing animation
     const formCard = document.getElementById("card-trade-automation-lots");
-    if (formCard) {
-        formCard.scrollIntoView({ behavior: "smooth", block: "center" });
-        formCard.style.transition = "box-shadow 0.4s ease, border-color 0.4s ease";
-        formCard.style.boxShadow = "0 0 25px rgba(168, 85, 247, 0.7)";
-        formCard.style.borderColor = "#a855f7";
-        setTimeout(() => {
-            formCard.style.boxShadow = "";
-            formCard.style.borderColor = "";
-        }, 2500);
-    }
+    if (formCard) formCard.scrollIntoView({ behavior: "smooth", block: "center" });
 
-    logLocalMessage(`[AI HUB] Loaded setup: Entry ${payload.entry_diff}, Target Gap ${payload.exit_gap}, Step ${payload.step}, Lots: ${payload.lots}. Please review lots and click 'Add Bot Instance' when ready.`);
-    alert(`✅ AI Recommended Setup Loaded!\n\n• Direction: ${payload.direction}\n• Entry Diff: ${payload.entry_diff}\n• Exit Gap: ${payload.exit_gap} pts\n• Averaging Step: ${payload.step} pts\n• Lots Ladder: ${payload.lots}\n\nForm has been auto-filled. Please review your quantities and click 'Add Bot Instance' to start.`);
+    logLocalMessage(`[AI] Form bhara: ${wanted} | ${payload.direction} | Entry ${payload.entry_diff} | Target +${payload.exit_gap} | Step ${payload.step} | Lots ${payload.lots}. Bot abhi start NAHI hua.`);
+    alert(`Lots Bot form bhar diya:\n\n• Pair: ${wanted}\n• Direction: ${payload.direction}\n• Entry: ${payload.entry_diff}\n• Target: +${payload.exit_gap} pts\n• Step: ${payload.step} pts\n• Lots: ${payload.lots}\n\nBot abhi start NAHI hua. Check karke khud 'Add Bot Instance' dabayein.`);
 }
 
 

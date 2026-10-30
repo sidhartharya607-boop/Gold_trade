@@ -2265,152 +2265,32 @@ def get_depth_average_price(depth: dict, side: str, required_qty: int, default_p
 # 🧠 AI & QUANTITATIVE ARBITRAGE INTELLIGENCE ENGINE (Claude Sonnet + Stats)
 # =====================================================================
 class AIArbitrageEngine:
+    """
+    Minimal AI Assistant. Iske 4 hisse hain:
+    1. Scanner (process_tick): har pair ka spread uske pichle 60 min ke average se kitna door hai, track karta hai.
+    2. Pair table (get_multi_pair_matrix): Month Master pairs ka live depth spread + aaj ka asli High/Low.
+    3. Suggestion (generate_claude_advisory): ek simple rule -
+         Depth Buy spread aaj ke range ke neeche 30% me ho  -> Expansion (BUY spread)
+         Depth Sell spread aaj ke range ke upar 30% me ho   -> Contraction (SELL spread)
+         warna                                               -> WAIT
+    4. Claude (optional): sirf upar ke facts samjhata hai / sawaal ka jawab deta hai. Koi number Claude nahi banata.
+    Data na ho to koi number assume nahi hota - "--" dikhta hai aur decision WAIT hota hai.
+    """
+    ZONE_PCT = 30.0              # range ke bottom/top 30% me signal
+    MIN_RANGE_PTS = 20.0         # aaj ka range isse chhota ho to signal nahi
+    MIN_HISTORY_SECONDS = 600    # scanner ko signal dene se pehle kam se kam 10 min ka data chahiye
+    DEFAULT_TARGET_PTS = 110.0
+    DEFAULT_STEP_PTS = 35.0
+    DEFAULT_LOTS = "1, 2, 2"
+    CLAUDE_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5"]
+
     def __init__(self, state: TradingSystem):
         self.state = state
         self._last_tick_processed = {}
         self._spread_history = {}  # pair_key -> list of (timestamp, spread)
         self.claude_api_url = "https://api.anthropic.com/v1/messages"
-        self.claude_model = "claude-3-5-sonnet-20240620"
-        self._cached_working_model = None
-        self._cached_discovered_models = []
         self._last_ai_analysis = None
         self._last_ai_analysis_time = 0.0
-
-    @staticmethod
-    def _parse_claude_response(content: str, default_data: dict) -> dict:
-        """
-        Bulletproof 3-stage parser for Claude API responses.
-        Handles markdown fences, unescaped quotes, trailing commas, and partial truncations gracefully.
-        Never throws a JSONDecodeError.
-        """
-        import re
-        import json
-
-        clean_text = content.strip()
-        if clean_text.startswith("```json"):
-            clean_text = clean_text[7:]
-        elif clean_text.startswith("```"):
-            clean_text = clean_text[3:]
-        if clean_text.endswith("```"):
-            clean_text = clean_text[:-3]
-        clean_text = clean_text.strip()
-
-        first_brace = clean_text.find("{")
-        last_brace = clean_text.rfind("}")
-        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
-            json_candidate = clean_text[first_brace:last_brace + 1]
-        else:
-            json_candidate = clean_text
-
-        # Stage 1: Standard JSON parse
-        try:
-            parsed = json.loads(json_candidate)
-            if isinstance(parsed, dict) and parsed:
-                return parsed
-        except Exception:
-            pass
-
-        # Stage 2: Clean trailing commas & unescaped control chars
-        try:
-            cleaned = re.sub(r",\s*([\]}])", r"\1", json_candidate)
-            cleaned = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', cleaned)
-            parsed = json.loads(cleaned)
-            if isinstance(parsed, dict) and parsed:
-                return parsed
-        except Exception:
-            pass
-
-        # Stage 3: Regex Field Extraction Fallback
-        # If standard json.loads choked on unescaped quotes or delimiter at line 44,
-        # extract every field directly from Claude's generated text without throwing an error!
-        result = dict(default_data)
-
-        dir_m = re.search(r'"recommended_direction"\s*:\s*"([A-Za-z]+)"', content, re.IGNORECASE)
-        if dir_m:
-            result["recommended_direction"] = dir_m.group(1).capitalize()
-
-        entry_m = re.search(r'"suggested_entry_diff"\s*:\s*([0-9.-]+)', content)
-        if entry_m:
-            try:
-                result["suggested_entry_diff"] = float(entry_m.group(1))
-            except ValueError:
-                pass
-
-        exit_m = re.search(r'"suggested_exit_gap"\s*:\s*([0-9.-]+)', content)
-        if exit_m:
-            try:
-                result["suggested_exit_gap"] = float(exit_m.group(1))
-            except ValueError:
-                pass
-
-        step_m = re.search(r'"suggested_step"\s*:\s*([0-9.-]+)', content)
-        if step_m:
-            try:
-                result["suggested_step"] = float(step_m.group(1))
-            except ValueError:
-                pass
-
-        lots_m = re.search(r'"suggested_lots"\s*:\s*"([^"]+)"', content)
-        if lots_m:
-            result["suggested_lots"] = lots_m.group(1).strip()
-
-        pair_m = re.search(r'"top_pair"\s*:\s*"([^"]+)"', content)
-        if pair_m:
-            result["top_pair"] = pair_m.group(1).strip()
-
-        sum_m = re.search(r'"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if sum_m:
-            result["summary"] = sum_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-        else:
-            sum_m2 = re.search(r'"summary"\s*:\s*"([^"}]+)', content)
-            if sum_m2:
-                result["summary"] = sum_m2.group(1).replace('"', '').strip()
-
-        reas_m = re.search(r'"reasoning"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if reas_m:
-            result["reasoning"] = reas_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-        else:
-            reas_m2 = re.search(r'"reasoning"\s*:\s*"([^"}]+)', content)
-            if reas_m2:
-                result["reasoning"] = reas_m2.group(1).replace('"', '').strip()
-
-        risk_m = re.search(r'"risk_warning"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if risk_m:
-            result["risk_warning"] = risk_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-
-        cat_m = re.search(r'"market_catalyst"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if cat_m:
-            result["market_catalyst"] = cat_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-        else:
-            cat_m2 = re.search(r'"market_catalyst"\s*:\s*"([^"}]+)', content)
-            if cat_m2:
-                result["market_catalyst"] = cat_m2.group(1).replace('"', '').strip()
-
-        why_m = re.search(r'"why_suggested"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if why_m:
-            result["why_suggested"] = why_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-
-        news_m = re.search(r'"news_factor"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if news_m:
-            result["news_factor"] = news_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-
-        hl_m = re.search(r'"high_low_factor"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if hl_m:
-            result["high_low_factor"] = hl_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-
-        freq_m = re.search(r'"frequency_factor"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if freq_m:
-            result["frequency_factor"] = freq_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-
-        guide_m = re.search(r'"assistant_guidance"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if guide_m:
-            result["assistant_guidance"] = guide_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-
-        reply_m = re.search(r'"assistant_reply"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', content)
-        if reply_m:
-            result["assistant_reply"] = reply_m.group(1).replace('\\"', '"').replace('\\n', ' ').strip()
-
-        return result
 
     def get_api_key(self) -> str:
         # 1. Check in-memory system_state
@@ -2447,6 +2327,7 @@ class AIArbitrageEngine:
                     pass
         return ""
 
+    # ----------------- 1. Scanner -----------------
     def calculate_rolling_mean(self, pair_key: str, cur_spread: float) -> float:
         history = self._spread_history.setdefault(pair_key, [])
         now = time.time()
@@ -2459,13 +2340,24 @@ class AIArbitrageEngine:
         spreads = [h[1] for h in self._spread_history[pair_key]]
         return sum(spreads) / len(spreads)
 
+    def get_rolling_info(self, pair_key: str) -> dict:
+        """60-min average aur kitne minute ka data hai (server restart par reset hota hai)."""
+        history = self._spread_history.get(pair_key, [])
+        if not history:
+            return {"mean": None, "minutes": 0}
+        spreads = [h[1] for h in history]
+        return {
+            "mean": round(sum(spreads) / len(spreads), 2),
+            "minutes": int((history[-1][0] - history[0][0]) / 60)
+        }
+
     def process_tick(self, petal_sym: str, mini_sym: str, spread: float, buy_spread: float, sell_spread: float):
         if not petal_sym or not mini_sym or spread == 0.0:
             return
 
         pair_key = f"{petal_sym}_{mini_sym}"
         now_ts = time.time()
-        
+
         # Throttle processing to once every 1 second per pair
         if now_ts - self._last_tick_processed.get(pair_key, 0) < 1.0:
             return
@@ -2475,60 +2367,49 @@ class AIArbitrageEngine:
         divergence = abs(spread - rolling_mean)
         threshold = getattr(self.state, "ai_divergence_threshold", 80.0)
 
-        # Dynamic charges & weight calculation
-        ch_info = calculate_trade_pair_charges(petal_sym, mini_sym, spread)
+        ch_info = calculate_trade_pair_charges(petal_sym, mini_sym, self.state.symbol_ltps.get(mini_sym, 0.0) or 0.0)
         trade_grams = ch_info["grams"]
         pair_charges = ch_info["total_charges"]
         pair_slippage = ch_info["slippage_cushion"]
         pair_mult = ch_info["multiplier_10g_scale"]
 
-        # 1. Update any existing ACTIVE opportunities for this pair
+        # 1. Update any existing ACTIVE signals for this pair
         for opp in self.state.ai_opportunities_log:
             if opp.get("status") == "Active" and opp.get("pair_key") == pair_key:
                 entry_spread = opp["trigger_spread"]
-                opp_dir = opp["direction"]
                 init_div = opp["divergence_pts"]
-
-                if opp_dir == "Expansion":
+                if opp["direction"] == "Expansion":
                     current_gain = spread - entry_spread
                 else:
                     current_gain = entry_spread - spread
 
-                # Mean reversion success condition: captured >= 60% of initial divergence
+                # Success: spread ne shuruaati divergence ka 60% wapas cover kar liya
                 target_reversion = max(20.0, init_div * 0.6)
+                # Stopped: spread 0.8x aur ulta chala gaya
+                stop_loss = init_div * 0.8
+
                 if current_gain >= target_reversion:
                     opp["status"] = "Reverted (Success)"
-                    opp["captured_pts"] = round(current_gain, 1)
-                    opp["exit_spread"] = round(spread, 2)
-                    opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
-                    
-                    gross = round(current_gain * pair_mult, 2)
-                    opp["gross_profit"] = gross
-                    opp["charges"] = pair_charges
-                    opp["slippage_cushion"] = pair_slippage
-                    opp["net_profit"] = round(gross - pair_charges - pair_slippage, 2)
-                    opp["accuracy_score"] = round(min(100.0, 75.0 + (current_gain / max(1.0, init_div)) * 25.0), 1)
-                    opp["grams"] = trade_grams
-                    self.state.save_ai_opportunities()
-
-                # Stop loss / breakout failure condition: spread moved 0.8x further in adverse direction
-                elif (opp_dir == "Expansion" and spread < (entry_spread - init_div * 0.8)) or \
-                     (opp_dir == "Contraction" and spread > (entry_spread + init_div * 0.8)):
+                elif current_gain <= -stop_loss:
                     opp["status"] = "Breakout / Stopped"
-                    loss_pts = abs(spread - entry_spread)
-                    opp["captured_pts"] = round(-loss_pts, 1)
-                    opp["exit_spread"] = round(spread, 2)
-                    opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
-                    opp["gross_profit"] = round(-loss_pts * pair_mult, 2)
-                    opp["charges"] = pair_charges
-                    opp["slippage_cushion"] = pair_slippage
-                    opp["net_profit"] = round(- (loss_pts * pair_mult) - pair_charges, 2)
-                    opp["accuracy_score"] = 0.0
-                    opp["grams"] = trade_grams
-                    self.state.save_ai_opportunities()
+                else:
+                    continue
 
-        # 2. Check if a NEW divergence opportunity has opened
-        if divergence >= threshold:
+                gross = round(current_gain * pair_mult, 2)
+                opp["captured_pts"] = round(current_gain, 1)
+                opp["exit_spread"] = round(spread, 2)
+                opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
+                opp["gross_profit"] = gross
+                opp["charges"] = pair_charges
+                opp["slippage_cushion"] = pair_slippage
+                opp["net_profit"] = round(gross - pair_charges - pair_slippage, 2)
+                opp["grams"] = trade_grams
+                self.state.save_ai_opportunities()
+
+        # 2. New signal - only once we have enough history for the average to mean something
+        history = self._spread_history.get(pair_key, [])
+        history_span = (history[-1][0] - history[0][0]) if len(history) > 1 else 0.0
+        if divergence >= threshold and history_span >= self.MIN_HISTORY_SECONDS:
             recent_same_pair = [
                 o for o in self.state.ai_opportunities_log
                 if o.get("pair_key") == pair_key and (now_ts - o.get("created_ts", 0)) < 180.0
@@ -2556,7 +2437,6 @@ class AIArbitrageEngine:
                     "charges": pair_charges,
                     "slippage_cushion": pair_slippage,
                     "net_profit": 0.0,
-                    "accuracy_score": 0.0,
                     "grams": trade_grams
                 }
                 self.state.ai_opportunities_log.insert(0, new_opp)
@@ -2564,825 +2444,357 @@ class AIArbitrageEngine:
                     self.state.ai_opportunities_log.pop()
                 self.state.save_ai_opportunities()
 
-    def get_multi_pair_matrix(self) -> list:
-        matrix = []
-        pairs_to_evaluate = []
-
-        # Active Main pair
-        if self.state.petal_symbol and self.state.mini_symbol:
-            pairs_to_evaluate.append({
-                "petal_symbol": self.state.petal_symbol,
-                "mini_symbol": self.state.mini_symbol,
-                "label": f"{self.state.petal_symbol} / {self.state.mini_symbol} (Active)",
-                "is_month_master": True
-            })
-
-        # 1. Month master direct mappings
-        for m in getattr(self.state, "month_master", []):
-            p = m.get("petal_symbol", "")
-            mini = m.get("mini_symbol", "")
-            if p and mini:
-                if not any(x["petal_symbol"] == p and x["mini_symbol"] == mini for x in pairs_to_evaluate):
-                    pairs_to_evaluate.append({
-                        "petal_symbol": p,
-                        "mini_symbol": mini,
-                        "label": f"{p} / {mini}",
-                        "is_month_master": True
-                    })
-
-        # 2. Extract ALL unique subscribed instruments across Month Master, Active pairs, live tickers & Scrip caches
-        all_unique_instruments = set()
-        if self.state.petal_symbol: all_unique_instruments.add(self.state.petal_symbol)
-        if self.state.mini_symbol: all_unique_instruments.add(self.state.mini_symbol)
-        for m in getattr(self.state, "month_master", []):
-            if m.get("petal_symbol"): all_unique_instruments.add(m["petal_symbol"])
-            if m.get("mini_symbol"): all_unique_instruments.add(m["mini_symbol"])
-        for s in getattr(self.state, "symbol_ltps", {}).keys():
-            if s and any(k in s.upper() for k in ["GOLD", "GUINEA", "PETAL", "TEN", "MINI"]):
-                all_unique_instruments.add(s)
-        for s in getattr(self.state, "symbol_depths", {}).keys():
-            if s and any(k in s.upper() for k in ["GOLD", "GUINEA", "PETAL", "TEN", "MINI"]):
-                all_unique_instruments.add(s)
-
-        # Also pull available contracts from MCX and Dhan token master caches
-        cached_candidates = []
-        if hasattr(self.state, "mcx_tokens_cache") and self.state.mcx_tokens_cache:
-            cached_candidates.extend(list(self.state.mcx_tokens_cache.keys()))
-        if hasattr(self.state, "dhan_tokens_cache") and self.state.dhan_tokens_cache:
-            cached_candidates.extend(list(self.state.dhan_tokens_cache.keys()))
-
-        discovered_by_type = {"GOLDTEN": [], "GOLDGUINEA": [], "GOLDPETAL": [], "GOLDM": []}
-        for c in cached_candidates:
-            c_u = str(c).upper()
-            if c_u.endswith("FUT") and not any(x in c_u for x in ["OPT", "CE", "PE"]):
-                for k in ["GOLDTEN", "GOLDGUINEA", "GOLDPETAL", "GOLDM"]:
-                    if c_u.startswith(k) and c_u not in discovered_by_type[k]:
-                        discovered_by_type[k].append(c_u)
-                        break
-
-        for k, clist in discovered_by_type.items():
-            clist.sort()
-            for sym in clist[:2]:
-                all_unique_instruments.add(sym)
-
-        # Standard active contracts guarantee (ensures Ten, Guinea, Petal, and Mini are always ready)
-        if not any("TEN" in x for x in all_unique_instruments):
-            all_unique_instruments.add("GOLDTEN27JANFUT")
-        if not any("GUINEA" in x for x in all_unique_instruments):
-            all_unique_instruments.add("GOLDGUINEA28FEB27FUT")
-        if not any("MINI" in x or "GOLDM" in x for x in all_unique_instruments):
-            all_unique_instruments.add("GOLDM05FEB27FUT")
-        if not any("PETAL" in x for x in all_unique_instruments):
-            all_unique_instruments.add("GOLDPETAL30JAN27FUT")
-
-        # 3. Generate all pairwise Cross-Combinations (e.g. Ten vs Mini, Guinea vs Petal, Petal vs Ten, etc.)
-        unique_list = sorted(list(all_unique_instruments))
-        for i in range(len(unique_list)):
-            for j in range(i + 1, len(unique_list)):
-                sym_a = unique_list[i]
-                sym_b = unique_list[j]
-                
-                # Check if this pair or reverse is already present
-                already_in = any(
-                    (x["petal_symbol"] == sym_a and x["mini_symbol"] == sym_b) or
-                    (x["petal_symbol"] == sym_b and x["mini_symbol"] == sym_a)
-                    for x in pairs_to_evaluate
-                )
-                if not already_in:
-                    spec_a = get_gold_contract_specs(sym_a)
-                    spec_b = get_gold_contract_specs(sym_b)
-                    # Order by lot size grams ascending (smaller contract as Leg 1)
-                    if spec_a.get("lot_size_grams", 1) <= spec_b.get("lot_size_grams", 100):
-                        leg1, leg2 = sym_a, sym_b
-                    else:
-                        leg1, leg2 = sym_b, sym_a
-
-                    pairs_to_evaluate.append({
-                        "petal_symbol": leg1,
-                        "mini_symbol": leg2,
-                        "label": f"{leg1} / {leg2}"
-                    })
-
-        today_str = get_ist_time_str("%Y-%m-%d")
-        daily_stats_today = self.state.daily_spread_stats.get(today_str, {})
-        base_benchmark_mini = self.state.gold_mini_ltp if self.state.gold_mini_ltp > 0 else (self.state.symbol_ltps.get(self.state.mini_symbol, 72150.0) or 72150.0)
-
-        for p_info in pairs_to_evaluate:
-            p_sym = p_info["petal_symbol"]
-            m_sym = p_info["mini_symbol"]
-            p_spec = get_gold_contract_specs(p_sym)
-            m_spec = get_gold_contract_specs(m_sym)
-
-            t1 = p_spec.get("type", "LEG1").replace("GOLD", "")
-            t2 = m_spec.get("type", "LEG2").replace("GOLD", "")
-            if t1 == "M": t1 = "MINI"
-            if t2 == "M": t2 = "MINI"
-            category_tag = f"{t1} / {t2}" if t1 != t2 else f"{t1} / {t2} (Calendar)"
-
-            p_ltp = self.state.symbol_ltps.get(p_sym, 0.0) or (self.state.gold_petal_ltp if p_sym == self.state.petal_symbol else 0.0)
-            m_ltp = self.state.symbol_ltps.get(m_sym, 0.0) or (self.state.gold_mini_ltp if m_sym == self.state.mini_symbol else 0.0)
-
-            # Realistic reference price if live tick not yet arrived for this specific contract
-            if p_ltp <= 0.0:
-                p_type = p_spec.get("type", "")
-                if p_type == "GOLDPETAL":
-                    p_ltp = round((base_benchmark_mini / 10.0) + 12.0, 2)
-                elif p_type == "GOLDTEN":
-                    p_ltp = round(base_benchmark_mini + 25.0, 2)
-                elif p_type == "GOLDGUINEA":
-                    p_ltp = round((base_benchmark_mini * 0.8) + 15.0, 2)
-                else:
-                    p_ltp = round(base_benchmark_mini + 5.0, 2)
-
-            if m_ltp <= 0.0:
-                m_type = m_spec.get("type", "")
-                if m_type == "GOLDPETAL":
-                    m_ltp = round(base_benchmark_mini / 10.0, 2)
-                elif m_type == "GOLDTEN":
-                    m_ltp = round(base_benchmark_mini + 10.0, 2)
-                elif m_type == "GOLDGUINEA":
-                    m_ltp = round(base_benchmark_mini * 0.8, 2)
-                else:
-                    m_ltp = round(base_benchmark_mini, 2)
-
-            p_depth = self.state.symbol_depths.get(p_sym) or (self.state.petal_depth if p_sym == self.state.petal_symbol else None)
-            m_depth = self.state.symbol_depths.get(m_sym) or (self.state.mini_depth if m_sym == self.state.mini_symbol else None)
-
-            p_10g = p_ltp * p_spec["price_scale_to_10g"] if p_ltp > 0 else 0.0
-            m_10g = m_ltp * m_spec["price_scale_to_10g"] if m_ltp > 0 else 0.0
-            cur_spread = round(p_10g - m_10g, 2) if (p_ltp > 0 and m_ltp > 0) else 0.0
-
-            buy_spread = round(cur_spread + 14.0, 2)
-            sell_spread = round(cur_spread - 14.0, 2)
-            bid_ask_petal_gap = 1.0
-            bid_ask_mini_gap = 10.0
-
-            if p_depth and m_depth:
-                try:
-                    p_req_qty = p_spec["lots_per_unit_mini"]
-                    m_req_qty = m_spec["lots_per_unit_mini"]
-                    avg_p_buy = get_depth_average_price(p_depth, "sell", p_req_qty, p_ltp)
-                    avg_m_sell = get_depth_average_price(m_depth, "buy", m_req_qty, m_ltp)
-                    calc_buy = round((avg_p_buy * p_spec["price_scale_to_10g"]) - (avg_m_sell * m_spec["price_scale_to_10g"]), 2)
-
-                    avg_p_sell = get_depth_average_price(p_depth, "buy", p_req_qty, p_ltp)
-                    avg_m_buy = get_depth_average_price(m_depth, "sell", m_req_qty, m_ltp)
-                    calc_sell = round((avg_p_sell * p_spec["price_scale_to_10g"]) - (avg_m_buy * m_spec["price_scale_to_10g"]), 2)
-
-                    if calc_buy != 0 or calc_sell != 0:
-                        buy_spread = calc_buy
-                        sell_spread = calc_sell
-
-                    p_best_bid = p_depth.get("buy", [{}])[0].get("price", 0.0) if p_depth.get("buy") else 0.0
-                    p_best_ask = p_depth.get("sell", [{}])[0].get("price", 0.0) if p_depth.get("sell") else 0.0
-                    if p_best_bid > 0 and p_best_ask > 0:
-                        bid_ask_petal_gap = round(p_best_ask - p_best_bid, 2)
-
-                    m_best_bid = m_depth.get("buy", [{}])[0].get("price", 0.0) if m_depth.get("buy") else 0.0
-                    m_best_ask = m_depth.get("sell", [{}])[0].get("price", 0.0) if m_depth.get("sell") else 0.0
-                    if m_best_bid > 0 and m_best_ask > 0:
-                        bid_ask_mini_gap = round(m_best_ask - m_best_bid, 2)
-                except Exception:
-                    pass
-
-            pair_key = f"{p_sym}_{m_sym}"
-            stats_rec = daily_stats_today.get(pair_key, {})
-            day_high = stats_rec.get("high_spread") or cur_spread
-            day_low = stats_rec.get("low_spread") or cur_spread
-            day_range = round(day_high - day_low, 2) if (day_high and day_low) else 0.0
-
-            # Explicit Depth Buy Range (Today's Low and High for Depth BUY)
-            buy_high = stats_rec.get("high_depth_buy_spread")
-            buy_low = stats_rec.get("low_depth_buy_spread")
-            if buy_high is None or buy_high == 0:
-                buy_high = round(buy_spread + 35.0, 1)
-            if buy_low is None or buy_low == 0:
-                buy_low = round(buy_spread - 35.0, 1)
-            buy_range = round(buy_high - buy_low, 1)
-
-            # Explicit Depth Sell Range (Today's Low and High for Depth SELL)
-            sell_high = stats_rec.get("high_depth_sell_spread")
-            sell_low = stats_rec.get("low_depth_sell_spread")
-            if sell_high is None or sell_high == 0:
-                sell_high = round(sell_spread + 35.0, 1)
-            if sell_low is None or sell_low == 0:
-                sell_low = round(sell_spread - 35.0, 1)
-            sell_range = round(sell_high - sell_low, 1)
-
-            liquidity_score = 100
-            if bid_ask_petal_gap > p_spec["bid_ask_limit"]:
-                liquidity_score -= 35
-            elif bid_ask_petal_gap > 5.0:
-                liquidity_score -= 15
-
-            if bid_ask_mini_gap > m_spec["bid_ask_limit"]:
-                liquidity_score -= 35
-            elif bid_ask_mini_gap > 50.0:
-                liquidity_score -= 15
-
-            liquidity_score = max(10, min(99, liquidity_score))
-            divergence = abs(cur_spread - ((day_high + day_low) / 2.0)) if day_range > 0 else 0.0
-            opp_score = round(liquidity_score * 0.6 + min(40.0, divergence), 1)
-
-            matrix.append({
-                "petal_symbol": p_sym,
-                "mini_symbol": m_sym,
-                "label": f"{p_sym} / {m_sym}",
-                "category": category_tag,
-                "petal_ltp": round(p_ltp, 2),
-                "mini_ltp": round(m_ltp, 2),
-                "petal_10g": round(p_10g, 2),
-                "mini_10g": round(m_10g, 2),
-                "spread": cur_spread,
-                "depth_buy_spread": round(buy_spread, 1),
-                "depth_buy_high": round(buy_high, 1),
-                "depth_buy_low": round(buy_low, 1),
-                "depth_buy_range": buy_range,
-                "depth_sell_spread": round(sell_spread, 1),
-                "depth_sell_high": round(sell_high, 1),
-                "depth_sell_low": round(sell_low, 1),
-                "depth_sell_range": sell_range,
-                "day_high": day_high,
-                "day_low": day_low,
-                "day_range": day_range,
-                "bid_ask_petal_gap": bid_ask_petal_gap,
-                "bid_ask_mini_gap": bid_ask_mini_gap,
-                "liquidity_score": liquidity_score,
-                "opportunity_score": opp_score,
-                "is_month_master": p_info.get("is_month_master", False),
-                "status": "Safe & Liquid" if liquidity_score >= 70 else ("Moderate" if liquidity_score >= 40 else "Wide Spread")
-            })
-
-        # Sort: Month Master combinations strictly prioritized, then by highest opportunity score
-        matrix.sort(key=lambda x: (not x.get("is_month_master", False), -x["opportunity_score"]))
-        if matrix:
-            matrix[0]["is_top_pick"] = True
-
-        return matrix
-
     def get_opportunities_summary_from_list(self, events: list) -> dict:
-        total = len(events)
-        reverted = [o for o in events if "Reverted" in o.get("status", "") or "Trade Executed" in o.get("status", "")]
-        active = [o for o in events if "Active" in o.get("status", "")]
-        stopped = [o for o in events if "Stopped" in o.get("status", "") or "Breakout" in o.get("status", "")]
-
-        reverted_count = len(reverted)
-        win_rate = round((reverted_count / total * 100.0), 1) if total > 0 else 0.0
-        total_simulated_profit = round(sum(o.get("net_profit", 0.0) for o in reverted + stopped), 2)
-        avg_pts_captured = round(sum(o.get("captured_pts", 0.0) for o in reverted) / max(1, reverted_count), 1) if reverted_count > 0 else 0.0
-
+        reverted = [o for o in events if "Reverted" in o.get("status", "")]
+        stopped = [o for o in events if "Stopped" in o.get("status", "")]
+        active = [o for o in events if o.get("status") == "Active"]
+        closed_count = len(reverted) + len(stopped)
         return {
-            "total_opportunities": total,
-            "reverted_count": reverted_count,
+            "total_opportunities": len(events),
+            "reverted_count": len(reverted),
             "active_count": len(active),
             "stopped_count": len(stopped),
-            "win_rate_percent": win_rate,
-            "total_simulated_profit": total_simulated_profit,
-            "avg_points_captured": avg_pts_captured
+            # Win rate sirf band ho chuke signals par (active signals ka result abhi pata nahi)
+            "win_rate_percent": round(len(reverted) / closed_count * 100.0, 1) if closed_count else None,
+            "total_simulated_profit": round(sum(o.get("net_profit", 0.0) for o in reverted + stopped), 2)
         }
 
     def get_opportunities_summary(self) -> dict:
         return self.get_opportunities_summary_from_list(self.state.ai_opportunities_log)
 
-    def get_today_100_120_swings(self) -> dict:
-        """
-        Calculates all spread moves of 100 to 120+ points that occurred today across pairs.
-        Identifies whether the user executed them or missed them.
-        """
+    # ----------------- 2. Pair table -----------------
+    def _pairs_to_evaluate(self) -> list:
+        """Sirf woh pairs jo aap trade karte ho: active pair + Month Master pairs."""
+        pairs = []
+        candidates = [(self.state.petal_symbol, self.state.mini_symbol)]
+        for m in getattr(self.state, "month_master", []) or []:
+            candidates.append((m.get("petal_symbol", ""), m.get("mini_symbol", "")))
+        for p, m in candidates:
+            if p and m and (p, m) not in pairs:
+                pairs.append((p, m))
+        return pairs
+
+    def _range_position(self, value, low, high):
+        """0% = aaj ka Low, 100% = aaj ka High. Data kam ho to None."""
+        if value is None or low is None or high is None:
+            return None
+        if (high - low) < self.MIN_RANGE_PTS:
+            return None
+        return round(max(0.0, min(100.0, (value - low) / (high - low) * 100.0)), 1)
+
+    def get_multi_pair_matrix(self) -> list:
         today_str = get_ist_time_str("%Y-%m-%d")
-        matrix = self.get_multi_pair_matrix()
-        swings = []
-        
-        # 1. Real executed trades from today
-        executed_pairs = set()
-        for t in getattr(self.state, "trade_history", []):
-            t_date = t.get("date") or t.get("exit_date") or t.get("entry_date") or today_str
-            if today_str in str(t_date):
-                e_sp = float(t.get("entry_spread") or t.get("actual_entry_spread") or 0.0)
-                x_sp = float(t.get("actual_exit_spread") or t.get("exit_spread") or 0.0)
-                diff = abs(x_sp - e_sp)
-                p_s = t.get("petal_symbol", "")
-                m_s = t.get("mini_symbol", "")
-                pair_label = f"{p_s} vs {m_s}"
-                if diff >= 85.0:
-                    executed_pairs.add(pair_label)
-                    ch = calculate_trade_pair_charges(p_s, m_s, 72000.0)
-                    net_c = float(t.get("pnl", diff * ch["multiplier_10g_scale"] - ch["total_charges"]))
-                    swings.append({
-                        "id": f"exec_{t.get('id', random.randint(100, 999))}",
-                        "time": t.get("exit_time") or t.get("entry_time") or "10:30 AM",
-                        "pair": pair_label,
-                        "direction": t.get("direction", "Expansion"),
-                        "move_pts": round(diff, 1),
-                        "from_spread": round(e_sp, 1),
-                        "to_spread": round(x_sp, 1),
-                        "in_hand_cash": max(0, round(net_c)),
-                        "status": "Executed (Aapne Trade Kiya)",
-                        "reason": f"Aapka live trade: {round(diff, 1)} pts profit capture hua."
-                    })
+        stats_today = self.state.daily_spread_stats.get(today_str, {})
+        matrix = []
 
-        # 2. Check today's daily spread stats & opportunities log for 100-120+ pt swings
-        for p_item in (matrix[:5] if matrix else []):
-            p_sym = p_item["petal_symbol"]
-            m_sym = p_item["mini_symbol"]
+        for p_sym, m_sym in self._pairs_to_evaluate():
+            p_spec = get_gold_contract_specs(p_sym)
+            m_spec = get_gold_contract_specs(m_sym)
+            is_active = (p_sym == self.state.petal_symbol and m_sym == self.state.mini_symbol)
             pair_key = f"{p_sym}_{m_sym}"
-            pair_label = f"{p_sym} vs {m_sym}"
-            
-            d_high = p_item.get("day_high", 0.0)
-            d_low = p_item.get("day_low", 0.0)
-            d_range = p_item.get("day_range", 0.0)
-            ch_info = calculate_trade_pair_charges(p_sym, m_sym, p_item.get("petal_ltp", 7200.0))
-            mult = ch_info["multiplier_10g_scale"]
-            charges = ch_info["total_charges"]
-            slippage = ch_info["slippage_cushion"]
-            
-            if d_range >= 90.0:
-                cycles = max(1, min(3, int(d_range // 95)))
-                sample_times = ["09:45:20", "11:35:10", "14:20:45"]
-                for c_idx in range(cycles):
-                    s_id = f"swing_{pair_key}_{c_idx}"
-                    if not any(x.get("id") == s_id for x in swings):
-                        swing_move = round(min(125.0, max(95.0, d_range - (c_idx * 15.0))), 1)
-                        from_sp = round(d_low + (c_idx * 8.0), 1)
-                        to_sp = round(from_sp + swing_move, 1)
-                        net_profit = max(0, round((swing_move * mult) - charges - slippage))
-                        is_user_traded = pair_label in executed_pairs
-                        status_str = "Executed (Aapne Trade Kiya)" if is_user_traded else "Missed (Trade Ho Sakta Tha - Aapne Nahi Kiya)"
-                        
-                        swings.append({
-                            "id": s_id,
-                            "time": sample_times[c_idx % len(sample_times)],
-                            "pair": pair_label,
-                            "direction": "Expansion" if c_idx % 2 == 0 else "Contraction",
-                            "move_pts": swing_move,
-                            "from_spread": from_sp,
-                            "to_spread": to_sp,
-                            "in_hand_cash": net_profit,
-                            "status": status_str,
-                            "reason": f"Spread Day Low ({from_sp}) se Day High ({to_sp}) tak {swing_move} pts swing hua. Missed opportunity."
-                        })
 
-        # 3. Always ensure realistic morning & session swing opportunities are present if market has started
-        if len(swings) < 2 and matrix:
-            for idx, p_item in enumerate(matrix[:2]):
-                p_s = p_item["petal_symbol"]
-                m_s = p_item["mini_symbol"]
-                sp = p_item["spread"]
-                ch_info = calculate_trade_pair_charges(p_s, m_s, p_item.get("petal_ltp", 7200.0))
-                move_val = 110.0 if idx == 0 else 118.0
-                net_p = max(0, round((move_val * ch_info["multiplier_10g_scale"]) - ch_info["total_charges"] - ch_info["slippage_cushion"]))
-                s_id = f"baseline_swing_{idx}"
-                if not any(x.get("id") == s_id for x in swings):
-                    swings.append({
-                        "id": s_id,
-                        "time": "10:15:00" if idx == 0 else "12:30:00",
-                        "pair": f"{p_s} vs {m_s}",
-                        "direction": "Expansion" if idx == 0 else "Contraction",
-                        "move_pts": move_val,
-                        "from_spread": round(sp - (move_val / 2.0), 1),
-                        "to_spread": round(sp + (move_val / 2.0), 1),
-                        "in_hand_cash": net_p,
-                        "status": "Missed (Trade Ho Sakta Tha - Aapne Nahi Kiya)",
-                        "reason": f"Morning session spread swing: {move_val} points opportunity jo trade ho sakti thi par aapne nahi kiya."
-                    })
+            p_ltp = self.state.symbol_ltps.get(p_sym, 0.0) or (self.state.gold_petal_ltp if p_sym == self.state.petal_symbol else 0.0)
+            m_ltp = self.state.symbol_ltps.get(m_sym, 0.0) or (self.state.gold_mini_ltp if m_sym == self.state.mini_symbol else 0.0)
 
-        total_swings = len(swings)
-        missed_swings = len([s for s in swings if "Missed" in s.get("status", "")])
-        executed_swings = len([s for s in swings if "Executed" in s.get("status", "")])
-        total_missed_cash = sum(s.get("in_hand_cash", 0) for s in swings if "Missed" in s.get("status", ""))
-        total_potential_cash = sum(s.get("in_hand_cash", 0) for s in swings)
+            row = {
+                "petal_symbol": p_sym,
+                "mini_symbol": m_sym,
+                "label": f"{p_sym} / {m_sym}",
+                "pair_key": pair_key,
+                "is_active": is_active,
+                "has_live_data": False,
+                "petal_ltp": None,
+                "mini_ltp": None,
+                "spread": None,
+                "depth_buy_spread": None,
+                "depth_sell_spread": None,
+                "depth_buy_low": None,
+                "depth_buy_high": None,
+                "depth_sell_low": None,
+                "depth_sell_high": None,
+                "buy_pos_pct": None,
+                "sell_pos_pct": None
+            }
+
+            if not p_ltp or p_ltp <= 0 or not m_ltp or m_ltp <= 0:
+                matrix.append(row)
+                continue
+
+            p_scale = p_spec["price_scale_to_10g"]
+            m_scale = m_spec["price_scale_to_10g"]
+            row["has_live_data"] = True
+            row["petal_ltp"] = round(p_ltp, 2)
+            row["mini_ltp"] = round(m_ltp, 2)
+            row["spread"] = round(p_ltp * p_scale - m_ltp * m_scale, 2)
+
+            p_depth = self.state.symbol_depths.get(p_sym) or (self.state.petal_depth if p_sym == self.state.petal_symbol else None)
+            m_depth = self.state.symbol_depths.get(m_sym) or (self.state.mini_depth if m_sym == self.state.mini_symbol else None)
+            depth_ok = all(d and d.get("buy") and d.get("sell") for d in (p_depth, m_depth))
+            if depth_ok:
+                p_qty = p_spec["lots_per_unit_mini"]
+                m_qty = m_spec["lots_per_unit_mini"]
+                # BUY spread = BUY leg1 @ Ask, SELL leg2 @ Bid
+                row["depth_buy_spread"] = round(
+                    get_depth_average_price(p_depth, "sell", p_qty, p_ltp) * p_scale
+                    - get_depth_average_price(m_depth, "buy", m_qty, m_ltp) * m_scale, 2)
+                # SELL spread = SELL leg1 @ Bid, BUY leg2 @ Ask
+                row["depth_sell_spread"] = round(
+                    get_depth_average_price(p_depth, "buy", p_qty, p_ltp) * p_scale
+                    - get_depth_average_price(m_depth, "sell", m_qty, m_ltp) * m_scale, 2)
+
+            rec = stats_today.get(pair_key, {})
+            row["depth_buy_low"] = rec.get("low_depth_buy_spread")
+            row["depth_buy_high"] = rec.get("high_depth_buy_spread")
+            row["depth_sell_low"] = rec.get("low_depth_sell_spread")
+            row["depth_sell_high"] = rec.get("high_depth_sell_spread")
+            row["buy_pos_pct"] = self._range_position(row["depth_buy_spread"], row["depth_buy_low"], row["depth_buy_high"])
+            row["sell_pos_pct"] = self._range_position(row["depth_sell_spread"], row["depth_sell_low"], row["depth_sell_high"])
+            matrix.append(row)
+
+        # Live data wale pairs pehle, unme active pair sabse upar
+        matrix.sort(key=lambda r: (not r["has_live_data"], not r["is_active"]))
+        return matrix
+
+    # ----------------- 3. Suggestion -----------------
+    def _evaluate_pair(self, row: dict) -> tuple:
+        """Returns (decision, reason). decision = Expansion / Contraction / WAIT."""
+        if not row["has_live_data"]:
+            return "WAIT", "Is pair ka live price abhi nahi aaya."
+        if row["depth_buy_spread"] is None or row["depth_sell_spread"] is None:
+            return "WAIT", "Order book depth nahi mili, isliye asli entry spread pata nahi."
+
+        bp = row["buy_pos_pct"]
+        sp = row["sell_pos_pct"]
+        if bp is None and sp is None:
+            return "WAIT", f"Aaj ka High/Low range abhi {self.MIN_RANGE_PTS:.0f} pts se chhota hai ya record nahi hua, isliye 'sasta/mehenga' tay nahi kar sakte."
+
+        if bp is not None and bp <= self.ZONE_PCT:
+            return "Expansion", (
+                f"Depth Buy spread {row['depth_buy_spread']} aaj ke range "
+                f"({row['depth_buy_low']} se {row['depth_buy_high']}) ke neeche {bp:.0f}% par hai, yaani sasta zone."
+            )
+        if sp is not None and sp >= 100.0 - self.ZONE_PCT:
+            return "Contraction", (
+                f"Depth Sell spread {row['depth_sell_spread']} aaj ke range "
+                f"({row['depth_sell_low']} se {row['depth_sell_high']}) ke upar {sp:.0f}% par hai, yaani mehenga zone."
+            )
+        bp_txt = f"{bp:.0f}%" if bp is not None else "--"
+        sp_txt = f"{sp:.0f}%" if sp is not None else "--"
+        return "WAIT", f"Spread range ke beech me hai (Buy {bp_txt}, Sell {sp_txt}). Na sasta, na mehenga."
+
+    def _build_facts(self, row: dict, summary: dict) -> list:
+        def fmt(v):
+            return "--" if v is None else f"{v}"
+
+        facts = [f"Pair: {row['label']}"]
+        if not row["has_live_data"]:
+            facts.append("Live price: nahi aaya")
+            return facts
+        facts.append(f"LTP: {row['petal_ltp']} / {row['mini_ltp']} | LTP spread: {row['spread']} pts")
+        facts.append(
+            f"Depth Buy spread: {fmt(row['depth_buy_spread'])} pts | Aaj Low {fmt(row['depth_buy_low'])}, High {fmt(row['depth_buy_high'])}"
+        )
+        facts.append(
+            f"Depth Sell spread: {fmt(row['depth_sell_spread'])} pts | Aaj Low {fmt(row['depth_sell_low'])}, High {fmt(row['depth_sell_high'])}"
+        )
+        rolling = self.get_rolling_info(row["pair_key"])
+        if rolling["mean"] is not None:
+            facts.append(f"Pichle {rolling['minutes']} min ka average spread: {rolling['mean']} pts")
+        win = summary.get("win_rate_percent")
+        facts.append(
+            f"Scanner aaj: {summary.get('total_opportunities', 0)} signals "
+            f"({summary.get('reverted_count', 0)} success, {summary.get('stopped_count', 0)} stopped, "
+            f"{summary.get('active_count', 0)} chal rahe) | Win rate: {'--' if win is None else str(win) + '%'}"
+        )
+        return facts
+
+    def _build_plan(self, row: dict, decision: str) -> dict:
+        p_sym = row["petal_symbol"]
+        m_sym = row["mini_symbol"]
+        target_pts = self.DEFAULT_TARGET_PTS
+        ch_info = calculate_trade_pair_charges(p_sym, m_sym, row["mini_ltp"] or 0.0)
+
+        if decision == "Expansion":
+            entry = row["depth_buy_spread"]
+            target = round(entry + target_pts, 1)
+            entry_text = f"BUY {p_sym} @ Ask + SELL {m_sym} @ Bid"
+            exit_text = f"SELL {p_sym} @ Bid + BUY {m_sym} @ Ask"
+            day_range = (row["depth_buy_high"] or 0) - (row["depth_buy_low"] or 0)
+        else:
+            entry = row["depth_sell_spread"]
+            target = round(entry - target_pts, 1)
+            entry_text = f"SELL {p_sym} @ Bid + BUY {m_sym} @ Ask"
+            exit_text = f"BUY {p_sym} @ Ask + SELL {m_sym} @ Bid"
+            day_range = (row["depth_sell_high"] or 0) - (row["depth_sell_low"] or 0)
+
+        gross = round(target_pts * ch_info["multiplier_10g_scale"], 2)
+        net = round(gross - ch_info["total_charges"] - ch_info["slippage_cushion"], 2)
+
+        warnings = []
+        if day_range < target_pts:
+            warnings.append(
+                f"Aaj ka poora range sirf {day_range:.0f} pts raha hai, jabki target {target_pts:.0f} pts hai. "
+                f"Aaj ke hisaab se target bada hai."
+            )
 
         return {
-            "swings": swings,
-            "total_count": total_swings,
-            "missed_count": missed_swings,
-            "executed_count": executed_swings,
-            "total_missed_cash": total_missed_cash,
-            "total_potential_cash": total_potential_cash
-        }
-
-    async def generate_claude_advisory(self, user_query: str = "") -> dict:
-        api_key = self.get_api_key()
-        matrix = self.get_multi_pair_matrix()
-        summary = self.get_opportunities_summary()
-        current_threshold = getattr(self.state, "ai_divergence_threshold", 80.0)
-        swings_today_info = self.get_today_100_120_swings()
-
-        top_pair = matrix[0] if matrix else {
-            "petal_symbol": self.state.petal_symbol,
-            "mini_symbol": self.state.mini_symbol,
-            "spread": self.state.spread,
-            "depth_buy_spread": self.state.depth_buy_spread,
-            "depth_sell_spread": self.state.depth_sell_spread,
-            "day_high": self.state.spread + 40,
-            "day_low": self.state.spread - 40,
-            "day_range": 80.0
-        }
-
-        day_range = max(40.0, top_pair.get("day_range", 80.0))
-        mean_spread = (top_pair.get("day_high", 0.0) + top_pair.get("day_low", 0.0)) / 2.0 if top_pair.get("day_range", 0) > 0 else top_pair.get("spread", 800.0)
-        
-        # Calculate dynamic MCX charges based on EXACT grams weight of top pair
-        top_pair_ltp = top_pair.get("petal_ltp", 7200.0)
-        ch_info = calculate_trade_pair_charges(top_pair.get("petal_symbol", ""), top_pair.get("mini_symbol", ""), top_pair_ltp)
-        trade_grams = ch_info["grams"]
-        pair_charges = ch_info["total_charges"]
-        pair_slippage = ch_info["slippage_cushion"]
-        pair_mult = ch_info["multiplier_10g_scale"]
-
-        # User's strict Target: 100 to 120 points move
-        suggested_exit_gap = 110.0
-        suggested_step = 35.0
-
-        # Determine Direction and Exact Depth Spread Trigger:
-        if top_pair.get("spread", 0.0) <= mean_spread:
-            rec_dir = "Expansion"
-            suggested_entry = round(top_pair.get("depth_buy_spread", top_pair.get("spread", 0.0)), 1)
-            depth_used_label = "Depth Buy Spread"
-            opposite_exit_label = "Depth Sell Spread"
-            expected_exit_target = round(suggested_entry + suggested_exit_gap, 1)
-        else:
-            rec_dir = "Contraction"
-            suggested_entry = round(top_pair.get("depth_sell_spread", top_pair.get("spread", 0.0)), 1)
-            depth_used_label = "Depth Sell Spread"
-            opposite_exit_label = "Depth Buy Spread"
-            expected_exit_target = round(suggested_entry - suggested_exit_gap, 1)
-
-        gross_profit = round(suggested_exit_gap * pair_mult, 2)
-        estimated_net_profit = max(0, round(gross_profit - pair_charges - pair_slippage, 2))
-
-        # Determine exact Depth Buy & Depth Sell actions
-        p_sym = top_pair.get("petal_symbol", "")
-        m_sym = top_pair.get("mini_symbol", "")
-        top_pair_label = f"{p_sym} vs {m_sym}"
-        p_depth = self.state.symbol_depths.get(p_sym, {})
-        m_depth = self.state.symbol_depths.get(m_sym, {})
-        
-        p_best_ask = p_depth.get("sell", [{}])[0].get("price", 0.0) if p_depth.get("sell") else top_pair.get("petal_ltp", 7200.0)
-        p_best_bid = p_depth.get("buy", [{}])[0].get("price", 0.0) if p_depth.get("buy") else top_pair.get("petal_ltp", 7200.0)
-        m_best_ask = m_depth.get("sell", [{}])[0].get("price", 0.0) if m_depth.get("sell") else top_pair.get("mini_ltp", 72000.0)
-        m_best_bid = m_depth.get("buy", [{}])[0].get("price", 0.0) if m_depth.get("buy") else top_pair.get("mini_ltp", 72000.0)
-
-        p_spec = get_gold_contract_specs(p_sym)
-        m_spec = get_gold_contract_specs(m_sym)
-        p_ratio = int(round(trade_grams / max(1, p_spec.get("lot_size_grams", 1))))
-        m_ratio = int(round(trade_grams / max(1, m_spec.get("lot_size_grams", 100))))
-        if p_ratio < 1: p_ratio = 1
-        if m_ratio < 1: m_ratio = 1
-
-        if rec_dir == "Expansion":
-            depth_buy_contract = p_sym
-            depth_buy_price = p_best_ask
-            depth_buy_lots = p_ratio
-            depth_sell_contract = m_sym
-            depth_sell_price = m_best_bid
-            depth_sell_lots = m_ratio
-            entry_depth_buy_text = f"BUY {p_sym} @ Depth Ask ₹{p_best_ask:.2f} ({p_ratio} Lots = {trade_grams}g)"
-            entry_depth_sell_text = f"SELL {m_sym} @ Depth Bid ₹{m_best_bid:.2f} ({m_ratio} Lots = {trade_grams}g)"
-            exit_depth_action_text = f"Square Off when Spread expands to {expected_exit_target} pts (SELL {p_sym} @ Bid & BUY {m_sym} @ Ask)"
-        else:
-            depth_buy_contract = m_sym
-            depth_buy_price = m_best_ask
-            depth_buy_lots = m_ratio
-            depth_sell_contract = p_sym
-            depth_sell_price = p_best_bid
-            depth_sell_lots = p_ratio
-            entry_depth_buy_text = f"BUY {m_sym} @ Depth Ask ₹{m_best_ask:.2f} ({m_ratio} Lots = {trade_grams}g)"
-            entry_depth_sell_text = f"SELL {p_sym} @ Depth Bid ₹{p_best_bid:.2f} ({p_ratio} Lots = {trade_grams}g)"
-            exit_depth_action_text = f"Square Off when Spread contracts to {expected_exit_target} pts (BUY {p_sym} @ Ask & SELL {m_sym} @ Bid)"
-
-        # 4 Core Multi-Factor Reasoning Pillars
-        total_swings_count = swings_today_info["total_count"]
-        missed_count = swings_today_info["missed_count"]
-        missed_cash = swings_today_info["total_missed_cash"]
-
-        # Pillar 1: Why AI suggested this trade
-        why_suggested = (
-            f"AI ne ye trade isliye suggest kiya kyunki {top_pair_label} ka spread abhi "
-            f"Day Low discount level ({suggested_entry} pts) par hai aur order book depth me buyer accumulation confirm ho chuka hai. "
-            f"Yahan se 100-120 points (+{suggested_exit_gap} pts) ka bounce aane ki probability 85%+ hai, jisse ₹{estimated_net_profit} net profit mil sakta hai."
-        )
-
-        # Pillar 2: Market News & Macro Drivers (Bullion flows, DXY, US yields)
-        news_factor = (
-            "Market News Driver: US Dollar Index (DXY) me weakness aur upcoming US Fed rate expectation ke chalte "
-            "Gold me safe-haven demand strong hai. MCX physical delivery contracts me Petal/Mini liquidity divergence se spread 100-120 pts move karne ke liye favorable hai."
-        )
-
-        # Pillar 3: Today's High / Low Range Position
-        b_low = top_pair.get("depth_buy_low", suggested_entry - 40.0)
-        b_high = top_pair.get("depth_buy_high", suggested_entry + 40.0)
-        high_low_factor = (
-            f"Today's High/Low Position: Aaj ka Depth Buy Low {b_low} pts aur High {b_high} pts raha hai. "
-            f"Abhi current rate {suggested_entry} pts bilkul bottom discount zone me hai, jahan se downside risk minimal hai."
-        )
-
-        # Pillar 4: Recurrence Frequency (Kitni baar aisa hua aaj)
-        frequency_factor = (
-            f"Recurrence Frequency: Aaj aise 100 se 120+ points ke total {total_swings_count} trades ban chuke hain "
-            f"(jinme se {missed_count} trades miss hue jo aap kar sakte the, worth ₹{missed_cash} cash). "
-            f"Ye current setup aaj ka next high-probability 100+ pt move hai."
-        )
-
-        # Assistant Step-by-Step Guidance
-        safe_sl = round(suggested_entry - 45.0 if rec_dir == "Expansion" else suggested_entry + 45.0, 1)
-        assistant_guidance = (
-            f"Assistant Guide: 1) '1-Click Load into Lots Bot' par click karein. "
-            f"2) Entry {suggested_entry} pts par trigger hogi. "
-            f"3) Target {expected_exit_target} pts (+{suggested_exit_gap} pts) par square off karein. "
-            f"4) Safe stop-loss {safe_sl} pts par maintain karein. Estimated net cash: +₹{estimated_net_profit}."
-        )
-
-        # Interactive user query reply
-        assistant_reply = ""
-        if user_query:
-            uq_low = user_query.lower()
-            if "news" in uq_low:
-                assistant_reply = f"📰 News Impact: {news_factor}"
-            elif "stoploss" in uq_low or "stop" in uq_low or "sl" in uq_low or "risk" in uq_low:
-                assistant_reply = f"🛑 Safe Stop-Loss: Current entry {suggested_entry} pts ke mutabiq safe stop-loss {safe_sl} pts rakhein (Risk: 45 pts). Is level ke baad breakout adverse ho sakta hai."
-            elif "100" in uq_low or "target" in uq_low or "safe" in uq_low:
-                assistant_reply = f"🎯 100-120 Pts Target Analysis: Aaj is pair ka day range {day_range} pts hai aur {total_swings_count} baar 100+ points ka swing trigger hua hai. +{suggested_exit_gap} pts ka target fully achievable hai aur net ~₹{estimated_net_profit} cash dega."
-            elif "kab" in uq_low or "time" in uq_low or "entry" in uq_low or "next" in uq_low:
-                assistant_reply = f"⏱️ Timing Guidance: Abhi spread {suggested_entry} pts par support le raha hai. Ye entry ka optimal time hai kyunki spread Day Low ke paas hai."
-            else:
-                assistant_reply = f"💡 Assistant Advice: {why_suggested} Aap is setup ko bina hesitate kiye 1-Click execute kar sakte hain."
-
-        default_catalyst = news_factor
-
-        summary_msg = (
-            f"Top Setup: {top_pair_label} ({trade_grams}g) | {rec_dir} | "
-            f"Entry {depth_used_label}: {suggested_entry} pts | Target Exit: {expected_exit_target} pts (+{suggested_exit_gap} pts Target). "
-            f"In-Hand Cash: ~₹{estimated_net_profit} (After ₹{pair_charges} MCX taxes)."
-        )
-
-        reasoning_msg = why_suggested
-
-        fallback_response = {
-            "source": "Local Statistical Engine",
-            "summary": summary_msg,
-            "top_pair": top_pair_label,
-            "petal_symbol": top_pair.get("petal_symbol"),
-            "mini_symbol": top_pair.get("mini_symbol"),
-            "recommended_direction": rec_dir,
-            "suggested_entry_diff": suggested_entry,
-            "suggested_exit_gap": suggested_exit_gap,
-            "suggested_step": suggested_step,
-            "suggested_lots": "1, 2, 2",
-            "entry_depth_buy_text": entry_depth_buy_text,
-            "entry_depth_sell_text": entry_depth_sell_text,
-            "exit_depth_action_text": exit_depth_action_text,
-            "expected_exit_target": expected_exit_target,
-            "market_catalyst": default_catalyst,
-            "why_suggested": why_suggested,
-            "news_factor": news_factor,
-            "high_low_factor": high_low_factor,
-            "frequency_factor": frequency_factor,
-            "assistant_guidance": assistant_guidance,
-            "assistant_reply": assistant_reply,
-            "swings_today_info": swings_today_info,
-            "depth_buy_contract": depth_buy_contract,
-            "depth_buy_price": depth_buy_price,
-            "depth_buy_lots": depth_buy_lots,
-            "depth_sell_contract": depth_sell_contract,
-            "depth_sell_price": depth_sell_price,
-            "depth_sell_lots": depth_sell_lots,
-            "depth_buy_spread": round(top_pair.get("depth_buy_spread", suggested_entry), 1),
-            "depth_buy_low": round(top_pair.get("depth_buy_low", suggested_entry - 35.0), 1),
-            "depth_buy_high": round(top_pair.get("depth_buy_high", suggested_entry + 35.0), 1),
-            "depth_sell_spread": round(top_pair.get("depth_sell_spread", suggested_entry), 1),
-            "depth_sell_low": round(top_pair.get("depth_sell_low", suggested_entry - 35.0), 1),
-            "depth_sell_high": round(top_pair.get("depth_sell_high", suggested_entry + 35.0), 1),
-            "reasoning": reasoning_msg,
-            "risk_warning": f"Breakout threshold detected at {round(top_pair.get('day_low', 0) - 25.0, 1) if rec_dir == 'Expansion' else round(top_pair.get('day_high', 0) + 25.0, 1)}. Maintain safe stop-loss at {safe_sl} pts.",
-            "trade_grams": trade_grams,
-            "total_charges": pair_charges,
-            "slippage_cushion": pair_slippage,
-            "multiplier_10g_scale": pair_mult,
-            "estimated_net_profit": estimated_net_profit,
+            "direction": decision,
+            "entry_spread": entry,
+            "target_spread": target,
+            "target_pts": target_pts,
+            "step": self.DEFAULT_STEP_PTS,
+            "lots": self.DEFAULT_LOTS,
+            "entry_text": entry_text,
+            "exit_text": exit_text,
+            "grams": ch_info["grams"],
+            "gross_profit": gross,
+            "charges": ch_info["total_charges"],
+            "slippage_cushion": ch_info["slippage_cushion"],
+            "est_net_profit": net,
+            "warnings": warnings,
             "actionable_payload": {
-                "direction": rec_dir,
-                "petal_symbol": top_pair.get("petal_symbol"),
-                "mini_symbol": top_pair.get("mini_symbol"),
-                "entry_diff": suggested_entry,
-                "exit_gap": suggested_exit_gap,
-                "step": suggested_step,
-                "lots": "1, 2, 2"
+                "direction": decision,
+                "petal_symbol": p_sym,
+                "mini_symbol": m_sym,
+                "entry_diff": entry,
+                "exit_gap": target_pts,
+                "step": self.DEFAULT_STEP_PTS,
+                "lots": self.DEFAULT_LOTS
             }
         }
 
-        if api_key:
-            try:
-                system_prompt = (
-                    "You are the AccuStock Gold Arbitrage AI Assistant & Co-Pilot.\n"
-                    "Your role is EXCLUSIVELY to guide the human trader on high-probability 100 to 120+ points spread swing trades across MCX Gold pairs (GOLDPETAL, GOLDMINI, GOLDGUINEA, GOLDTEN).\n\n"
-                    "STRICT CONSTRAINTS & FORMAT RULES:\n"
-                    "1. ADVISORY ONLY: You NEVER execute trades. You suggest parameters for the human trader.\n"
-                    "2. TARGET 100-120 PTS: Set suggested_exit_gap to 100.0 to 120.0 points.\n"
-                    "3. 4 PILLARS OF REASONING:\n"
-                    "   - why_suggested: Explain in clear, direct Hinglish WHY you suggested this trade.\n"
-                    "   - news_factor: Explain how Gold macro news (Dollar index DXY, US rates, bullion demand) supports this move.\n"
-                    "   - high_low_factor: Explain entry position relative to today's High/Low range.\n"
-                    "   - frequency_factor: Mention how many times this 100-120+ pt move repeated today.\n"
-                    "4. ASSISTANT GUIDANCE: In 'assistant_guidance', give clear step-by-step advice for entry, exit, and safe stop-loss.\n"
-                    "5. ASSISTANT REPLY: If user_query is provided, answer the user's specific question directly in 'assistant_reply'.\n"
-                    "6. FORMAT: Output STRICT RAW JSON only. Do NOT wrap in markdown blocks.\n"
-                    "Keys required: summary, top_pair, petal_symbol, mini_symbol, recommended_direction, suggested_entry_diff, suggested_exit_gap, suggested_step, suggested_lots, why_suggested, news_factor, high_low_factor, frequency_factor, assistant_guidance, assistant_reply, reasoning, risk_warning, market_catalyst."
-                )
+    async def generate_claude_advisory(self, user_query: str = "") -> dict:
+        matrix = self.get_multi_pair_matrix()
+        today_str = get_ist_time_str("%Y-%m-%d")
+        summary = self.get_opportunities_summary_from_list(
+            [o for o in self.state.ai_opportunities_log if o.get("date") == today_str]
+        )
 
-                market_context = {
-                    "current_time_ist": get_ist_time_str(),
-                    "market_session_status": get_market_session_status(),
-                    "scanner_dynamic_threshold": current_threshold,
-                    "top_pairs_matrix": matrix[:3],
-                    "top_pair_weight_grams": trade_grams,
-                    "top_pair_exact_charges_inr": pair_charges,
-                    "top_pair_slippage_cushion_inr": pair_slippage,
-                    "today_summary": summary,
-                    "swings_today": swings_today_info,
-                    "user_query": user_query or "Analyze current market opportunities for 100 to 120 points trades and explain why you suggested them."
+        evaluated = [(row,) + self._evaluate_pair(row) for row in matrix]
+        # Pehla pair jisme signal ho; warna pehla live pair; warna jo bhi ho
+        pick = next((e for e in evaluated if e[1] != "WAIT"), None) \
+            or next((e for e in evaluated if e[0]["has_live_data"]), None) \
+            or (evaluated[0] if evaluated else None)
+
+        result = {
+            "source": "Local Rules",
+            "time": get_ist_time_str("%H:%M:%S"),
+            "decision": "WAIT",
+            "reason": "Koi pair set nahi hai. Month Master me pair add karein.",
+            "pair": "--",
+            "petal_symbol": "",
+            "mini_symbol": "",
+            "facts": [],
+            "plan": None,
+            "rules": (
+                f"Rule: Depth Buy spread aaj ke range ke neeche {self.ZONE_PCT:.0f}% me ho to BUY spread (Expansion); "
+                f"Depth Sell spread upar {self.ZONE_PCT:.0f}% me ho to SELL spread (Contraction); warna WAIT. "
+                f"Target {self.DEFAULT_TARGET_PTS:.0f} pts, Step {self.DEFAULT_STEP_PTS:.0f}, Lots {self.DEFAULT_LOTS} (default settings)."
+            ),
+            "claude_reply": "",
+            "api_error": ""
+        }
+
+        if pick:
+            row, decision, reason = pick
+            result.update({
+                "decision": decision,
+                "reason": reason,
+                "pair": row["label"],
+                "petal_symbol": row["petal_symbol"],
+                "mini_symbol": row["mini_symbol"],
+                "facts": self._build_facts(row, summary),
+                "plan": self._build_plan(row, decision) if decision != "WAIT" else None
+            })
+
+        # Claude sirf tab jab user ne sawaal poocha ho
+        if user_query:
+            api_key = self.get_api_key()
+            if not api_key:
+                result["api_error"] = "Claude API key set nahi hai. '🔑 Claude API Key' se set karein."
+            else:
+                context = {
+                    "time_ist": get_ist_time_str(),
+                    "market_session": get_market_session_status(),
+                    "suggestion": {k: result[k] for k in ("decision", "reason", "pair", "facts", "plan", "rules")},
+                    "all_pairs": matrix
                 }
+                reply, model, err = await self._ask_claude(api_key, context, user_query)
+                if reply:
+                    result["claude_reply"] = reply
+                    result["source"] = f"Local Rules + Claude ({model})"
+                else:
+                    result["api_error"] = err
 
-                user_message = (
-                    f"Analyze this live MCX Gold arbitrage data and return optimal trading parameters in JSON format:\n"
-                    f"{json.dumps(market_context, indent=2)}"
-                )
-
-                headers = {
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json"
-                }
-
-                # Priority model list: check env override, cached working model, or fast modern checkpoints
-                candidate_models = []
-                if os.getenv("CLAUDE_MODEL", "").strip():
-                    candidate_models.append(os.getenv("CLAUDE_MODEL", "").strip())
-                if self._cached_working_model:
-                    candidate_models.append(self._cached_working_model)
-                
-                default_tier_candidates = [
-                    "claude-sonnet-5-5",           # Active 2026 flagship Sonnet
-                    "claude-haiku-5-5",            # High-speed 2026 Haiku (< 1 sec)
-                    "claude-3-7-sonnet-latest",
-                    "claude-3-5-sonnet-latest",
-                    "claude-3-5-sonnet-20241022",
-                    "claude-3-5-sonnet-20240620",
-                    "claude-3-5-haiku-20241022",
-                    "claude-3-haiku-20240307",
-                    "claude-fable-5-1",
-                    "claude-opus-5-5"
-                ]
-                for m in default_tier_candidates:
-                    if m not in candidate_models:
-                        candidate_models.append(m)
-
-                async with aiohttp.ClientSession() as session:
-                    # Dynamically auto-discover models enabled for this specific key (only if not already cached)
-                    if not self._cached_discovered_models and not self._cached_working_model:
-                        try:
-                            async with session.get(
-                                "https://api.anthropic.com/v1/models",
-                                headers=headers,
-                                timeout=aiohttp.ClientTimeout(total=3)
-                            ) as m_resp:
-                                if m_resp.status == 200:
-                                    m_json = await m_resp.json()
-                                    discovered = [item.get("id") for item in m_json.get("data", []) if item.get("id")]
-                                    if discovered:
-                                        self._cached_discovered_models = discovered
-                                        logger.info(f"[CLAUDE API] Auto-discovered models: {discovered}")
-                                        sonnet_haiku = [m for m in discovered if "sonnet" in m.lower() or "haiku" in m.lower()]
-                                        other_disc = [m for m in discovered if m not in sonnet_haiku]
-                                        candidate_models = sonnet_haiku + other_disc + candidate_models
-                                        candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
-                        except Exception as e:
-                            logger.info(f"[CLAUDE API] Discovery skip note: {e}")
-                    elif self._cached_discovered_models and not self._cached_working_model:
-                        candidate_models = self._cached_discovered_models + candidate_models
-                        candidate_models = [m for i, m in enumerate(candidate_models) if m and m not in candidate_models[:i]]
-
-                    last_api_err = ""
-                    for mod in candidate_models:
-                        payload = {
-                            "model": mod,
-                            "max_tokens": 1500,  # Ample headroom to prevent truncation
-                            "system": system_prompt,
-                            "messages": [{"role": "user", "content": user_message}]
-                        }
-                        try:
-                            async with session.post(self.claude_api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=12)) as resp:
-                                if resp.status == 200:
-                                    data = await resp.json()
-                                    content = data.get("content", [{}])[0].get("text", "")
-                                    
-                                    # Bulletproof multi-stage parse (never crashes on delimiter or quotes)
-                                    parsed = self._parse_claude_response(content, fallback_response)
-                                    self._cached_working_model = mod
-                                    self.claude_model = mod
-                                    parsed["source"] = f"Claude AI ({mod})"
-                                    parsed["trade_grams"] = trade_grams
-                                    parsed["total_charges"] = pair_charges
-                                    parsed["slippage_cushion"] = pair_slippage
-                                    parsed["multiplier_10g_scale"] = pair_mult
-                                    parsed["entry_depth_buy_text"] = parsed.get("entry_depth_buy_text") or entry_depth_buy_text
-                                    parsed["entry_depth_sell_text"] = parsed.get("entry_depth_sell_text") or entry_depth_sell_text
-                                    parsed["exit_depth_action_text"] = parsed.get("exit_depth_action_text") or exit_depth_action_text
-                                    parsed["expected_exit_target"] = parsed.get("expected_exit_target") or expected_exit_target
-                                    parsed["market_catalyst"] = parsed.get("market_catalyst") or default_catalyst
-                                    parsed["why_suggested"] = parsed.get("why_suggested") or why_suggested
-                                    parsed["news_factor"] = parsed.get("news_factor") or news_factor
-                                    parsed["high_low_factor"] = parsed.get("high_low_factor") or high_low_factor
-                                    parsed["frequency_factor"] = parsed.get("frequency_factor") or frequency_factor
-                                    parsed["assistant_guidance"] = parsed.get("assistant_guidance") or assistant_guidance
-                                    parsed["assistant_reply"] = parsed.get("assistant_reply") or assistant_reply
-                                    parsed["swings_today_info"] = swings_today_info
-                                    parsed["depth_buy_contract"] = depth_buy_contract
-                                    parsed["depth_buy_price"] = depth_buy_price
-                                    parsed["depth_buy_lots"] = depth_buy_lots
-                                    parsed["depth_sell_contract"] = depth_sell_contract
-                                    parsed["depth_sell_price"] = depth_sell_price
-                                    parsed["depth_sell_lots"] = depth_sell_lots
-                                    parsed["depth_buy_spread"] = fallback_response["depth_buy_spread"]
-                                    parsed["depth_buy_low"] = fallback_response["depth_buy_low"]
-                                    parsed["depth_buy_high"] = fallback_response["depth_buy_high"]
-                                    parsed["depth_sell_spread"] = fallback_response["depth_sell_spread"]
-                                    parsed["depth_sell_low"] = fallback_response["depth_sell_low"]
-                                    parsed["depth_sell_high"] = fallback_response["depth_sell_high"]
-                                    
-                                    # Calculate in-hand net profit
-                                    c_exit_gap = float(parsed.get("suggested_exit_gap", suggested_exit_gap))
-                                    c_gross = round(c_exit_gap * pair_mult, 2)
-                                    parsed["estimated_net_profit"] = max(0, round(c_gross - pair_charges - pair_slippage, 2))
-                                    
-                                    parsed["actionable_payload"] = {
-                                        "direction": parsed.get("recommended_direction", rec_dir),
-                                        "petal_symbol": parsed.get("petal_symbol", top_pair.get("petal_symbol")),
-                                        "mini_symbol": parsed.get("mini_symbol", top_pair.get("mini_symbol")),
-                                        "entry_diff": float(parsed.get("suggested_entry_diff", suggested_entry)),
-                                        "exit_gap": c_exit_gap,
-                                        "step": float(parsed.get("suggested_step", suggested_step)),
-                                        "lots": str(parsed.get("suggested_lots", "1, 2, 2"))
-                                    }
-                                    self._last_ai_analysis = parsed
-                                    self._last_ai_analysis_time = time.time()
-                                    return parsed
-                                else:
-                                    err_text = await resp.text()
-                                    try:
-                                        err_json = json.loads(err_text)
-                                        err_type = err_json.get("error", {}).get("type", "")
-                                        err_msg = err_json.get("error", {}).get("message", f"HTTP {resp.status}")
-                                    except Exception:
-                                        err_type, err_msg = "", err_text[:200]
-                                    
-                                    # Check for invalid API key
-                                    if resp.status == 401 or "authentication_error" in err_type:
-                                        last_api_err = "Invalid API Key (Anthropic rejected the key. Please verify sk-ant-...)"
-                                        break
-                                    
-                                    # Check for credit balance / quota issues
-                                    if "credit" in err_msg.lower() or "balance" in err_msg.lower() or "quota" in err_msg.lower():
-                                        last_api_err = "Credit Balance is $0 (Please deposit credit at console.anthropic.com/settings/billing)"
-                                        break
-
-                                    # If model not found, try next candidate
-                                    if "not_found" in err_type or "model" in err_msg.lower() or resp.status == 404:
-                                        logger.info(f"[CLAUDE API] Model '{mod}' not found on account. Trying next candidate...")
-                                        last_api_err = err_msg
-                                        continue
-                                    
-                                    last_api_err = err_msg
-                                    break
-                        except Exception as post_err:
-                            logger.info(f"[CLAUDE API] Attempt with {mod} timed out or failed: {post_err}")
-                            last_api_err = str(post_err)
-                            continue
-
-                    # If all model candidates failed
-                    if "model:" in str(last_api_err).lower() or "not_found" in str(last_api_err).lower():
-                        user_friendly_err = f"Account Tier / Model Access: Your Anthropic account balance may be $0 or lacks tier access for Sonnet. Deposit prepaid credit ($5) at console.anthropic.com/settings/billing."
-                    else:
-                        user_friendly_err = last_api_err or "Claude AI Model not available"
-
-                    fallback_response["source"] = f"Local Engine (Claude Error: {user_friendly_err[:50]})"
-                    fallback_response["api_error"] = user_friendly_err
-                    self._last_ai_analysis = fallback_response
-                    self._last_ai_analysis_time = time.time()
-                    return fallback_response
-
-            except Exception as e:
-                logger.error(f"[CLAUDE API ERROR] {e}")
-                fallback_response["source"] = f"Local Engine (Connection Error: {str(e)[:40]})"
-                fallback_response["api_error"] = str(e)
-                self._last_ai_analysis = fallback_response
-                self._last_ai_analysis_time = time.time()
-                return fallback_response
-
-        fallback_response["source"] = "Local Statistical Engine (API Key not set in .env)" if not api_key else "Local Statistical Engine (Ready)"
-        self._last_ai_analysis = fallback_response
+        self._last_ai_analysis = result
         self._last_ai_analysis_time = time.time()
-        return fallback_response
+        return result
+
+    # ----------------- 4. Claude -----------------
+    async def _ask_claude(self, api_key: str, context: dict, question: str) -> tuple:
+        """Returns (reply_text, model, error)."""
+        system_prompt = (
+            "Tum AccuStock MCX Gold spread trading terminal ke assistant ho. Trader Hinglish me baat karta hai, "
+            "tum bhi simple Hinglish me jawab do.\n"
+            "Rules:\n"
+            "1. Sirf diye gaye DATA ka use karo. Koi number, probability, news ya event khud se mat banao.\n"
+            "2. Jawab ke liye data na ho to saaf bolo: 'yeh data mere paas nahi hai'.\n"
+            "3. Tum trade execute nahi karte. Final decision trader ka hai. Risk hamesha batao.\n"
+            "4. Jawab chhota rakho (6-8 lines), plain text, koi table nahi."
+        )
+        user_message = f"DATA:\n{json.dumps(context, indent=2, default=str)}\n\nSAWAL: {question}"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+
+        models = []
+        env_model = os.getenv("CLAUDE_MODEL", "").strip()
+        if env_model:
+            models.append(env_model)
+        models += [m for m in self.CLAUDE_MODELS if m not in models]
+
+        last_err = "Claude se jawab nahi mila"
+        try:
+            async with aiohttp.ClientSession() as session:
+                for model in models:
+                    payload = {
+                        "model": model,
+                        "max_tokens": 700,
+                        "system": system_prompt,
+                        "messages": [{"role": "user", "content": user_message}]
+                    }
+                    try:
+                        async with session.post(self.claude_api_url, headers=headers, json=payload,
+                                                timeout=aiohttp.ClientTimeout(total=25)) as resp:
+                            if resp.status == 200:
+                                data = await resp.json()
+                                text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
+                                if text:
+                                    return text, model, ""
+                                last_err = "Claude ne khaali jawab diya"
+                                continue
+                            err_text = await resp.text()
+                            try:
+                                err_msg = json.loads(err_text).get("error", {}).get("message", f"HTTP {resp.status}")
+                            except Exception:
+                                err_msg = err_text[:200] or f"HTTP {resp.status}"
+                            if resp.status == 401:
+                                return "", model, "API key galat hai (Anthropic ne reject kiya)."
+                            if resp.status == 404:
+                                logger.info(f"[CLAUDE API] Model '{model}' available nahi, agla try kar rahe hain.")
+                                last_err = err_msg
+                                continue
+                            return "", model, err_msg
+                    except asyncio.TimeoutError:
+                        last_err = f"{model}: timeout"
+                        continue
+        except Exception as e:
+            logger.error(f"[CLAUDE API ERROR] {e}")
+            last_err = str(e)
+        return "", "", last_err
+
 
 # Global AI Engine Instance
 ai_arbitrage_engine = AIArbitrageEngine(system_state)
@@ -7438,241 +6850,16 @@ async def api_export_all_trades_csv(token: str = None, authorization: str = Head
 @app.get("/api/ai/dashboard-data")
 async def api_get_ai_dashboard_data(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    matrix = ai_arbitrage_engine.get_multi_pair_matrix()
     today_str = get_ist_time_str("%Y-%m-%d")
-    
-    # 1. Gather scanner recorded divergence opportunities
-    all_events = list(system_state.ai_opportunities_log)
-    
-    # 2a. Include active open position if currently live in the workstation
-    if getattr(system_state, "is_in_position", False):
-        p_sym = system_state.petal_symbol
-        m_sym = system_state.mini_symbol
-        ref_p = system_state.petal_entry_price * 10.0 if system_state.petal_entry_price < 10000 else system_state.petal_entry_price
-        ch_info = calculate_trade_pair_charges(p_sym, m_sym, ref_p if ref_p > 1000.0 else 72000.0)
-        cur_spread = system_state.depth_buy_spread if system_state.position_direction == "Expansion" else system_state.depth_sell_spread
-        e_spread = system_state.entry_spread
-        diff = (cur_spread - e_spread) if system_state.position_direction == "Expansion" else (e_spread - cur_spread)
-        all_events.append({
-            "id": "real_live_active_pos",
-            "timestamp": system_state.entry_time or get_ist_time_str("%H:%M:%S"),
-            "date": today_str,
-            "pair": f"{p_sym} vs {m_sym}",
-            "pair_key": f"{p_sym}_{m_sym}",
-            "petal_symbol": p_sym,
-            "mini_symbol": m_sym,
-            "trigger_spread": round(e_spread, 2),
-            "exit_spread": round(cur_spread, 2),
-            "rolling_mean": round(e_spread, 2),
-            "divergence_pts": round(abs(diff), 1),
-            "direction": system_state.position_direction or "Expansion",
-            "status": "Active Position (Real)",
-            "captured_pts": round(diff, 1),
-            "duration_seconds": 0,
-            "gross_profit": round(system_state.petal_pnl + system_state.mini_pnl, 2),
-            "charges": ch_info["total_charges"],
-            "slippage_cushion": ch_info["slippage_cushion"],
-            "net_profit": round(system_state.unrealized_pnl, 2),
-            "accuracy_score": 100.0 if system_state.unrealized_pnl > 0 else 0.0,
-            "grams": ch_info["grams"],
-            "is_real_trade": True
-        })
-
-    # 2b. Merge real live executed trades from today's workstation trading
-    for t in getattr(system_state, "trade_history", []):
-        t_date = t.get("date") or t.get("exit_date") or t.get("entry_date") or today_str
-        if t_date == today_str or today_str in str(t_date):
-            e_spread = float(t.get("entry_spread") or t.get("actual_entry_spread") or 0.0)
-            x_spread = float(t.get("actual_exit_spread") or t.get("exit_spread") or 0.0)
-            direction = t.get("direction", "Expansion")
-            captured = (x_spread - e_spread) if direction == "Expansion" else (e_spread - x_spread)
-            pnl_val = float(t.get("pnl", 0.0))
-            
-            t_id = f"real_{t.get('id')}"
-            if not any(x.get("id") == t_id for x in all_events):
-                p_sym = t.get("petal_symbol") or system_state.petal_symbol
-                m_sym = t.get("mini_symbol") or system_state.mini_symbol
-                ch_info = calculate_trade_pair_charges(p_sym, m_sym, 72000.0)
-                all_events.append({
-                    "id": t_id,
-                    "timestamp": t.get("exit_time") or t.get("entry_time") or "--",
-                    "date": t_date,
-                    "pair": f"{p_sym} vs {m_sym}",
-                    "pair_key": f"{p_sym}_{m_sym}",
-                    "petal_symbol": p_sym,
-                    "mini_symbol": m_sym,
-                    "trigger_spread": round(e_spread, 2),
-                    "exit_spread": round(x_spread, 2),
-                    "rolling_mean": round(e_spread, 2),
-                    "divergence_pts": round(abs(captured), 1),
-                    "direction": direction,
-                    "status": "Trade Executed (Real)",
-                    "captured_pts": round(captured, 1),
-                    "duration_seconds": 0,
-                    "gross_profit": round(float(t.get("gross_pnl", 0.0)), 2),
-                    "charges": round(float(t.get("charges", ch_info["total_charges"])), 2),
-                    "slippage_cushion": ch_info["slippage_cushion"],
-                    "net_profit": round(pnl_val, 2),
-                    "accuracy_score": 100.0 if pnl_val > 0 else 0.0,
-                    "grams": ch_info["grams"],
-                    "is_real_trade": True
-                })
-
-    # 2c. Merge closed trades from ta_lots_trades if any
-    for lot_t in getattr(system_state, "ta_lots_trades", []):
-        if lot_t.get("status") in ["Closed", "COMPLETED"]:
-            lt_id = f"real_lot_{lot_t.get('id')}"
-            if not any(x.get("id") == lt_id for x in all_events):
-                p_sym = lot_t.get("petal_symbol") or system_state.petal_symbol
-                m_sym = lot_t.get("mini_symbol") or system_state.mini_symbol
-                ch_info = calculate_trade_pair_charges(p_sym, m_sym, 72000.0)
-                pnl_val = float(lot_t.get("pnl", 0.0))
-                e_sp = float(lot_t.get("entry_spread", 0.0))
-                x_sp = float(lot_t.get("exit_spread", 0.0))
-                dir_val = lot_t.get("direction", "Expansion")
-                diff = (x_sp - e_sp) if dir_val == "Expansion" else (e_sp - x_sp)
-                all_events.append({
-                    "id": lt_id,
-                    "timestamp": lot_t.get("exit_time") or lot_t.get("entry_time") or "--",
-                    "date": lot_t.get("exit_date") or today_str,
-                    "pair": f"{p_sym} vs {m_sym}",
-                    "pair_key": f"{p_sym}_{m_sym}",
-                    "petal_symbol": p_sym,
-                    "mini_symbol": m_sym,
-                    "trigger_spread": round(e_sp, 2),
-                    "exit_spread": round(x_sp, 2),
-                    "rolling_mean": round(e_sp, 2),
-                    "divergence_pts": round(abs(diff), 1),
-                    "direction": dir_val,
-                    "status": "Trade Executed (Real)",
-                    "captured_pts": round(diff, 1),
-                    "duration_seconds": 0,
-                    "gross_profit": round(pnl_val + ch_info["total_charges"], 2),
-                    "charges": ch_info["total_charges"],
-                    "slippage_cushion": ch_info["slippage_cushion"],
-                    "net_profit": round(pnl_val, 2),
-                    "accuracy_score": 100.0 if pnl_val > 0 else 0.0,
-                    "grams": ch_info["grams"],
-                    "is_real_trade": True
-                })
-
-    # 2d. Ensure today's AI Trade Setups table has actionable setups from Month Master pairs since morning
-    today_setups_count = len([e for e in all_events if e.get("date") == today_str])
-    if today_setups_count < 3 and matrix:
-        mm_pairs = [p for p in matrix if p.get("is_month_master")] or matrix[:3]
-        sim_times = ["09:35:14", "11:20:48", "14:10:05"]
-        for idx, p_item in enumerate(mm_pairs[:3]):
-            p_sym = p_item["petal_symbol"]
-            m_sym = p_item["mini_symbol"]
-            spread = p_item["spread"]
-            d_high = p_item.get("day_high", spread + 45.0)
-            d_low = p_item.get("day_low", spread - 45.0)
-            mid_c = (d_high + d_low) / 2.0 if d_high > d_low else spread
-            ch_info = calculate_trade_pair_charges(p_sym, m_sym, p_item.get("petal_ltp", 7200.0))
-            
-            t_str = sim_times[idx % len(sim_times)]
-            dir_val = "Expansion" if spread <= mid_c else "Contraction"
-            div_val = round(abs(spread - mid_c), 1)
-            target_pts = max(35.0, round(div_val * 0.65, 1))
-            net_in_hand = max(0, round((target_pts * ch_info["multiplier_10g_scale"]) - ch_info["total_charges"] - ch_info["slippage_cushion"], 2))
-            
-            p_spec = get_gold_contract_specs(p_sym)
-            m_spec = get_gold_contract_specs(m_sym)
-            p_ratio = int(round(ch_info["grams"] / max(1, p_spec.get("lot_size_grams", 1))))
-            m_ratio = int(round(ch_info["grams"] / max(1, m_spec.get("lot_size_grams", 100))))
-            if p_ratio < 1: p_ratio = 1
-            if m_ratio < 1: m_ratio = 1
-
-            if dir_val == "Expansion":
-                entry_act = f"BUY {p_sym} @ Depth Ask | SELL {m_sym} @ Depth Bid (Spread: {p_item['depth_buy_spread']:.1f})"
-                exit_act = f"Target: {round(p_item['depth_buy_spread'] + target_pts, 1)} pts (+{target_pts} pts) -> SELL {p_sym} & BUY {m_sym}"
-                cat_txt = f"Order book depth buyer accumulation in {p_sym}. Spread at {p_item['depth_buy_spread']} pts is at Day Low discount. Reversion to mean gives ₹{net_in_hand} net profit."
-                status_txt = "Ready to Enter" if idx == 0 else f"Target Achieved (+{target_pts} pts)"
-            else:
-                entry_act = f"SELL {p_sym} @ Depth Bid | BUY {m_sym} @ Depth Ask (Spread: {p_item['depth_sell_spread']:.1f})"
-                exit_act = f"Target: {round(p_item['depth_sell_spread'] - target_pts, 1)} pts (+{target_pts} pts) -> BUY {p_sym} & SELL {m_sym}"
-                cat_txt = f"Order book depth seller supply in {p_sym}. Spread at {p_item['depth_sell_spread']} pts is at Day High peak. Contraction gives ₹{net_in_hand} net profit."
-                status_txt = "Ready to Enter" if idx == 0 else f"Target Achieved (+{target_pts} pts)"
-
-            setup_id = f"ai_setup_{p_sym}_{m_sym}_{idx}"
-            if not any(x.get("id") == setup_id for x in all_events):
-                all_events.append({
-                    "id": setup_id,
-                    "timestamp": t_str,
-                    "date": today_str,
-                    "pair": f"{p_sym} vs {m_sym}",
-                    "pair_key": f"{p_sym}_{m_sym}",
-                    "petal_symbol": p_sym,
-                    "mini_symbol": m_sym,
-                    "trigger_spread": round(spread, 1),
-                    "exit_spread": round(p_item['depth_buy_spread'] + target_pts, 1) if dir_val == "Expansion" else round(p_item['depth_sell_spread'] - target_pts, 1),
-                    "rolling_mean": round(mid_c, 1),
-                    "divergence_pts": div_val,
-                    "direction": dir_val,
-                    "status": status_txt,
-                    "captured_pts": target_pts if idx > 0 else 0.0,
-                    "duration_seconds": 1800,
-                    "gross_profit": round(target_pts * ch_info["multiplier_10g_scale"], 2),
-                    "charges": ch_info["total_charges"],
-                    "slippage_cushion": ch_info["slippage_cushion"],
-                    "net_profit": net_in_hand,
-                    "accuracy_score": 100.0 if idx > 0 else 0.0,
-                    "grams": ch_info["grams"],
-                    "entry_action_str": entry_act,
-                    "exit_action_str": exit_act,
-                    "catalyst": cat_txt,
-                    "actionable_payload": {
-                        "direction": dir_val,
-                        "petal_symbol": p_sym,
-                        "mini_symbol": m_sym,
-                        "entry_diff": p_item['depth_buy_spread'] if dir_val == "Expansion" else p_item['depth_sell_spread'],
-                        "exit_gap": target_pts,
-                        "step": max(15.0, round(target_pts * 0.5, 1)),
-                        "lots": "1, 2, 2"
-                    }
-                })
-
-    # Ensure all events have entry_action_str and exit_action_str
-    for ev in all_events:
-        if not ev.get("entry_action_str"):
-            p_s = ev.get("petal_symbol", "")
-            m_s = ev.get("mini_symbol", "")
-            e_dir = ev.get("direction", "Expansion")
-            t_sp = ev.get("trigger_spread", 0.0)
-            if e_dir == "Expansion":
-                ev["entry_action_str"] = f"BUY {p_s} @ Depth Ask | SELL {m_s} @ Depth Bid (Spread: {t_sp})"
-                ev["exit_action_str"] = f"SELL {p_s} @ Bid | BUY {m_s} @ Ask"
-            else:
-                ev["entry_action_str"] = f"SELL {p_s} @ Depth Bid | BUY {m_s} @ Depth Ask (Spread: {t_sp})"
-                ev["exit_action_str"] = f"BUY {p_s} @ Ask | SELL {m_s} @ Bid"
-        if not ev.get("catalyst"):
-            ev["catalyst"] = f"Order book depth divergence monitored by AI. Reversion target calculated for profit."
-
-    all_events.sort(key=lambda x: str(x.get("timestamp", "")), reverse=True)
-    summary = ai_arbitrage_engine.get_opportunities_summary_from_list(all_events)
-    has_key = bool(ai_arbitrage_engine.get_api_key())
-    
-    # If API key is present now, but cached analysis had "not set" or failed model error, invalidate stale cache
-    if has_key and ai_arbitrage_engine._last_ai_analysis:
-        src = ai_arbitrage_engine._last_ai_analysis.get("source", "").lower()
-        if "not set" in src or "claude-3-5-sonnet-20241022" in src or "error" in src:
-            ai_arbitrage_engine._last_ai_analysis = None
-
-    swings_info = ai_arbitrage_engine.get_today_100_120_swings()
+    # Sirf scanner ke asli signals (aaj ke) - koi simulated/demo entry nahi
+    signals = [o for o in system_state.ai_opportunities_log if o.get("date") == today_str]
     return {
         "status": "SUCCESS",
-        "matrix": matrix,
-        "opportunities": all_events,
-        "summary": summary,
-        "swings_100_120": swings_info["swings"],
-        "swings_total_count": swings_info["total_count"],
-        "swings_missed_count": swings_info["missed_count"],
-        "swings_executed_count": swings_info["executed_count"],
-        "swings_missed_cash": swings_info["total_missed_cash"],
-        "swings_potential_cash": swings_info["total_potential_cash"],
+        "matrix": ai_arbitrage_engine.get_multi_pair_matrix(),
+        "signals": signals,
+        "summary": ai_arbitrage_engine.get_opportunities_summary_from_list(signals),
         "threshold": getattr(system_state, "ai_divergence_threshold", 80.0),
-        "has_claude_api_key": has_key,
-        "last_analysis": ai_arbitrage_engine._last_ai_analysis
+        "has_claude_api_key": bool(ai_arbitrage_engine.get_api_key())
     }
 
 
