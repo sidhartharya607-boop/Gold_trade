@@ -4068,6 +4068,7 @@ function openAIHubModal() {
     const modal = document.getElementById("ai-hub-modal");
     if (modal) {
         modal.style.display = "flex";
+        document.body.style.overflow = "hidden";  // full page view - peeche ka page scroll na ho
         fetchAIHubData();
     }
 }
@@ -4075,7 +4076,13 @@ function openAIHubModal() {
 function closeAIHubModal() {
     const modal = document.getElementById("ai-hub-modal");
     if (modal) modal.style.display = "none";
+    document.body.style.overflow = "";
 }
+
+document.addEventListener("keydown", e => {
+    const modal = document.getElementById("ai-hub-modal");
+    if (e.key === "Escape" && modal && modal.style.display !== "none") closeAIHubModal();
+});
 
 function fetchAIHubData() {
     const spinner = document.getElementById("ai-refresh-spinner");
@@ -4140,7 +4147,8 @@ function callClaudeAnalysis(userQuery = "") {
 const AI_DECISION_STYLES = {
     "Expansion": ["🟢 BUY SPREAD", "#16A34A", "#FFFFFF"],
     "Contraction": ["🔴 SELL SPREAD", "#DC2626", "#FFFFFF"],
-    "WAIT": ["⏸ WAIT", "#F1F5F9", "#334155"]
+    "WAIT": ["⏸ WAIT", "#F1F5F9", "#334155"],
+    "EXPIRY": ["⛔ EXPIRY PAAS", "#FEF3C7", "#92400E"]
 };
 
 function renderClaudeAdvisory(adv, userQuery = "") {
@@ -4156,8 +4164,11 @@ function renderClaudeAdvisory(adv, userQuery = "") {
     const summaryEl = document.getElementById("ai-suggestions-summary");
     if (summaryEl) {
         const n = adv.signal_count || 0;
+        const exp = adv.expiry_blocked_count || 0;
         summaryEl.innerText = suggestions.length
-            ? `${suggestions.length} months check kiye: ${n} me signal hai, ${suggestions.length - n} me WAIT.` + (n > 1 ? " ⭐ = sabse achhi position wala month." : "")
+            ? `${suggestions.length} months check kiye: ${n} me signal hai, ${suggestions.length - n - exp} me WAIT` +
+              (exp ? `, ${exp} expiry ke paas (suggestion band).` : ".") +
+              (n > 1 ? " ⭐ = sabse achhi position wala month." : "")
             : "Koi pair set nahi hai. Month Master me pair add karein.";
     }
 
@@ -4200,7 +4211,7 @@ function renderAISuggestions(suggestions) {
     const tbody = document.getElementById("ai-suggestions-tbody");
     if (!tbody) return;
     if (!suggestions.length) {
-        tbody.innerHTML = `<tr><td colspan="6" style="padding: 0.8rem; text-align: center; color: #64748B;">Koi pair nahi. Month Master me pair add karein.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" style="padding: 0.8rem; text-align: center; color: #64748B;">Koi pair nahi. Month Master me pair add karein.</td></tr>`;
         return;
     }
     const pct = v => (v === null || v === undefined) ? "--" : `${Math.round(v)}%`;
@@ -4227,6 +4238,7 @@ function renderAISuggestions(suggestions) {
         return `
             <tr onclick="toggleAISuggestionDetail(${idx})" style="cursor: pointer; background: ${rowBg}; border-top: 1px solid #E2E8F0;">
                 <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${s.is_best ? "⭐ " : ""}${aiEsc(s.pair)}${s.is_active ? ' <span style="font-size: 0.65rem; color: #64748B;">(active)</span>' : ''}</td>
+                <td style="padding: 0.5rem 0.6rem; white-space: nowrap; ${s.decision === 'EXPIRY' ? 'color: #B45309; font-weight: 700;' : ''}">${s.expiry_date ? `${aiEsc(s.expiry_date)}<br><span style="font-size: 0.7rem; color: #64748B;">${s.days_to_expiry} din baaki</span>` : '--'}</td>
                 <td style="padding: 0.5rem 0.6rem;"><span style="font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 5px; background: ${st[1]}; color: ${st[2]}; white-space: nowrap;">${st[0]}</span></td>
                 <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #15803D;">${aiNum(s.depth_buy_spread)}</strong> <span style="color: #64748B;">(${aiNum(s.depth_buy_low)}–${aiNum(s.depth_buy_high)})</span> · ${pct(s.buy_pos_pct)}</td>
                 <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #B91C1C;">${aiNum(s.depth_sell_spread)}</strong> <span style="color: #64748B;">(${aiNum(s.depth_sell_low)}–${aiNum(s.depth_sell_high)})</span> · ${pct(s.sell_pos_pct)}</td>
@@ -4234,7 +4246,7 @@ function renderAISuggestions(suggestions) {
                 <td style="padding: 0.5rem 0.6rem; text-align: right;">${btn}</td>
             </tr>
             <tr id="ai-sugg-detail-${idx}" style="display: ${s.is_best ? 'table-row' : 'none'}; background: ${rowBg};">
-                <td colspan="6" style="padding: 0.2rem 0.8rem 0.7rem 0.8rem; font-size: 0.76rem; line-height: 1.5; color: #334155;">${detailParts.join("")}</td>
+                <td colspan="7" style="padding: 0.2rem 0.8rem 0.7rem 0.8rem; font-size: 0.76rem; line-height: 1.5; color: #334155;">${detailParts.join("")}</td>
             </tr>`;
     }).join("");
 }

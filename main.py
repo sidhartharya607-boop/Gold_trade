@@ -397,7 +397,8 @@ class TradingSystem:
         self.mcx_tokens_cache = {}
         self.mcx_official_symbols = {}
         self.mcx_lotsize_cache = {}
-        
+        self.mcx_expiry_cache = {}  # symbol -> expiry string from Angel One scrip master (e.g. "30JAN2027")
+
         # Volume & Depth attributes
         self.gold_petal_volume = 0
         self.gold_petal_buy_qty = 0
@@ -2264,6 +2265,30 @@ def get_depth_average_price(depth: dict, side: str, required_qty: int, default_p
 # =====================================================================
 # 🧠 AI & QUANTITATIVE ARBITRAGE INTELLIGENCE ENGINE (Claude Sonnet + Stats)
 # =====================================================================
+def get_contract_expiry_date(symbol: str):
+    """
+    Contract ki expiry date (datetime.date) ya None.
+    1. Angel One scrip master ki expiry (mcx_expiry_cache), e.g. "30JAN2027"
+    2. Warna symbol se, e.g. GOLDPETAL30JAN27FUT -> 30 Jan 2027
+    """
+    import re
+    sym_u = (symbol or "").upper()
+    cached = getattr(system_state, "mcx_expiry_cache", {}).get(sym_u)
+    if cached:
+        for fmt in ("%d%b%Y", "%d-%b-%Y", "%Y-%m-%d"):
+            try:
+                return datetime.strptime(str(cached).upper(), fmt).date()
+            except ValueError:
+                continue
+    m = re.search(r"(\d{2})([A-Z]{3})(\d{2})FUT$", sym_u)
+    if m:
+        try:
+            return datetime.strptime(f"{m.group(1)}{m.group(2)}{m.group(3)}", "%d%b%y").date()
+        except ValueError:
+            return None
+    return None
+
+
 class AIArbitrageEngine:
     """
     Minimal AI Assistant. Iske 4 hisse hain:
@@ -2282,6 +2307,7 @@ class AIArbitrageEngine:
     DEFAULT_TARGET_PTS = 110.0
     DEFAULT_STEP_PTS = 35.0
     DEFAULT_LOTS = "1, 2, 2"
+    EXPIRY_BLOCK_DAYS = 5        # expiry se itne (ya kam) din pehle us month ka suggestion band
     CLAUDE_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5"]
 
     def __init__(self, state: TradingSystem):
@@ -2483,81 +2509,97 @@ class AIArbitrageEngine:
         return round(max(0.0, min(100.0, (value - low) / (high - low) * 100.0)), 1)
 
     def get_multi_pair_matrix(self) -> list:
-        today_str = get_ist_time_str("%Y-%m-%d")
-        stats_today = self.state.daily_spread_stats.get(today_str, {})
-        matrix = []
-
-        for p_sym, m_sym in self._pairs_to_evaluate():
-            p_spec = get_gold_contract_specs(p_sym)
-            m_spec = get_gold_contract_specs(m_sym)
-            is_active = (p_sym == self.state.petal_symbol and m_sym == self.state.mini_symbol)
-            pair_key = f"{p_sym}_{m_sym}"
-
-            p_ltp = self.state.symbol_ltps.get(p_sym, 0.0) or (self.state.gold_petal_ltp if p_sym == self.state.petal_symbol else 0.0)
-            m_ltp = self.state.symbol_ltps.get(m_sym, 0.0) or (self.state.gold_mini_ltp if m_sym == self.state.mini_symbol else 0.0)
-
-            row = {
-                "petal_symbol": p_sym,
-                "mini_symbol": m_sym,
-                "label": f"{p_sym} / {m_sym}",
-                "pair_key": pair_key,
-                "is_active": is_active,
-                "has_live_data": False,
-                "petal_ltp": None,
-                "mini_ltp": None,
-                "spread": None,
-                "depth_buy_spread": None,
-                "depth_sell_spread": None,
-                "depth_buy_low": None,
-                "depth_buy_high": None,
-                "depth_sell_low": None,
-                "depth_sell_high": None,
-                "buy_pos_pct": None,
-                "sell_pos_pct": None
-            }
-
-            if not p_ltp or p_ltp <= 0 or not m_ltp or m_ltp <= 0:
-                matrix.append(row)
-                continue
-
-            p_scale = p_spec["price_scale_to_10g"]
-            m_scale = m_spec["price_scale_to_10g"]
-            row["has_live_data"] = True
-            row["petal_ltp"] = round(p_ltp, 2)
-            row["mini_ltp"] = round(m_ltp, 2)
-            row["spread"] = round(p_ltp * p_scale - m_ltp * m_scale, 2)
-
-            p_depth = self.state.symbol_depths.get(p_sym) or (self.state.petal_depth if p_sym == self.state.petal_symbol else None)
-            m_depth = self.state.symbol_depths.get(m_sym) or (self.state.mini_depth if m_sym == self.state.mini_symbol else None)
-            depth_ok = all(d and d.get("buy") and d.get("sell") for d in (p_depth, m_depth))
-            if depth_ok:
-                p_qty = p_spec["lots_per_unit_mini"]
-                m_qty = m_spec["lots_per_unit_mini"]
-                # BUY spread = BUY leg1 @ Ask, SELL leg2 @ Bid
-                row["depth_buy_spread"] = round(
-                    get_depth_average_price(p_depth, "sell", p_qty, p_ltp) * p_scale
-                    - get_depth_average_price(m_depth, "buy", m_qty, m_ltp) * m_scale, 2)
-                # SELL spread = SELL leg1 @ Bid, BUY leg2 @ Ask
-                row["depth_sell_spread"] = round(
-                    get_depth_average_price(p_depth, "buy", p_qty, p_ltp) * p_scale
-                    - get_depth_average_price(m_depth, "sell", m_qty, m_ltp) * m_scale, 2)
-
-            rec = stats_today.get(pair_key, {})
-            row["depth_buy_low"] = rec.get("low_depth_buy_spread")
-            row["depth_buy_high"] = rec.get("high_depth_buy_spread")
-            row["depth_sell_low"] = rec.get("low_depth_sell_spread")
-            row["depth_sell_high"] = rec.get("high_depth_sell_spread")
-            row["buy_pos_pct"] = self._range_position(row["depth_buy_spread"], row["depth_buy_low"], row["depth_buy_high"])
-            row["sell_pos_pct"] = self._range_position(row["depth_sell_spread"], row["depth_sell_low"], row["depth_sell_high"])
-            matrix.append(row)
+        matrix = [self.build_pair_row(p_sym, m_sym) for p_sym, m_sym in self._pairs_to_evaluate()]
 
         # Live data wale pairs pehle, unme active pair sabse upar
         matrix.sort(key=lambda r: (not r["has_live_data"], not r["is_active"]))
         return matrix
 
+    def build_pair_row(self, p_sym: str, m_sym: str) -> dict:
+        """Ek pair ka live data: LTP, depth spread, aaj ka High/Low, expiry. Data na ho to None."""
+        today_str = get_ist_time_str("%Y-%m-%d")
+        stats_today = self.state.daily_spread_stats.get(today_str, {})
+        p_spec = get_gold_contract_specs(p_sym)
+        m_spec = get_gold_contract_specs(m_sym)
+        is_active = (p_sym == self.state.petal_symbol and m_sym == self.state.mini_symbol)
+        pair_key = f"{p_sym}_{m_sym}"
+
+        p_ltp = self.state.symbol_ltps.get(p_sym, 0.0) or (self.state.gold_petal_ltp if p_sym == self.state.petal_symbol else 0.0)
+        m_ltp = self.state.symbol_ltps.get(m_sym, 0.0) or (self.state.gold_mini_ltp if m_sym == self.state.mini_symbol else 0.0)
+
+        row = {
+            "petal_symbol": p_sym,
+            "mini_symbol": m_sym,
+            "label": f"{p_sym} / {m_sym}",
+            "pair_key": pair_key,
+            "is_active": is_active,
+            "has_live_data": False,
+            "petal_ltp": None,
+            "mini_ltp": None,
+            "spread": None,
+            "depth_buy_spread": None,
+            "depth_sell_spread": None,
+            "depth_buy_low": None,
+            "depth_buy_high": None,
+            "depth_sell_low": None,
+            "depth_sell_high": None,
+            "buy_pos_pct": None,
+            "sell_pos_pct": None,
+            "expiry_date": None,
+            "days_to_expiry": None
+        }
+
+        # Pair ki expiry = dono legs me se jo pehle expire ho
+        expiries = [d for d in (get_contract_expiry_date(p_sym), get_contract_expiry_date(m_sym)) if d]
+        if expiries:
+            first_expiry = min(expiries)
+            row["expiry_date"] = first_expiry.strftime("%d %b %Y")
+            row["days_to_expiry"] = (first_expiry - get_ist_time().date()).days
+
+        if not p_ltp or p_ltp <= 0 or not m_ltp or m_ltp <= 0:
+            return row
+
+        p_scale = p_spec["price_scale_to_10g"]
+        m_scale = m_spec["price_scale_to_10g"]
+        row["has_live_data"] = True
+        row["petal_ltp"] = round(p_ltp, 2)
+        row["mini_ltp"] = round(m_ltp, 2)
+        row["spread"] = round(p_ltp * p_scale - m_ltp * m_scale, 2)
+
+        p_depth = self.state.symbol_depths.get(p_sym) or (self.state.petal_depth if p_sym == self.state.petal_symbol else None)
+        m_depth = self.state.symbol_depths.get(m_sym) or (self.state.mini_depth if m_sym == self.state.mini_symbol else None)
+        depth_ok = all(d and d.get("buy") and d.get("sell") for d in (p_depth, m_depth))
+        if depth_ok:
+            p_qty = p_spec["lots_per_unit_mini"]
+            m_qty = m_spec["lots_per_unit_mini"]
+            # BUY spread = BUY leg1 @ Ask, SELL leg2 @ Bid
+            row["depth_buy_spread"] = round(
+                get_depth_average_price(p_depth, "sell", p_qty, p_ltp) * p_scale
+                - get_depth_average_price(m_depth, "buy", m_qty, m_ltp) * m_scale, 2)
+            # SELL spread = SELL leg1 @ Bid, BUY leg2 @ Ask
+            row["depth_sell_spread"] = round(
+                get_depth_average_price(p_depth, "buy", p_qty, p_ltp) * p_scale
+                - get_depth_average_price(m_depth, "sell", m_qty, m_ltp) * m_scale, 2)
+
+        rec = stats_today.get(pair_key, {})
+        row["depth_buy_low"] = rec.get("low_depth_buy_spread")
+        row["depth_buy_high"] = rec.get("high_depth_buy_spread")
+        row["depth_sell_low"] = rec.get("low_depth_sell_spread")
+        row["depth_sell_high"] = rec.get("high_depth_sell_spread")
+        row["buy_pos_pct"] = self._range_position(row["depth_buy_spread"], row["depth_buy_low"], row["depth_buy_high"])
+        row["sell_pos_pct"] = self._range_position(row["depth_sell_spread"], row["depth_sell_low"], row["depth_sell_high"])
+        return row
+
     # ----------------- 3. Suggestion -----------------
     def _evaluate_pair(self, row: dict) -> tuple:
-        """Returns (decision, reason). decision = Expansion / Contraction / WAIT."""
+        """Returns (decision, reason). decision = Expansion / Contraction / WAIT / EXPIRY."""
+        days = row["days_to_expiry"]
+        if days is not None and days <= self.EXPIRY_BLOCK_DAYS:
+            when = "expire ho chuka" if days < 0 else ("aaj expiry hai" if days == 0 else f"sirf {days} din baaki")
+            return "EXPIRY", (
+                f"Expiry {row['expiry_date']} ko hai ({when}). Expiry ke last {self.EXPIRY_BLOCK_DAYS} din me "
+                f"is month me nayi entry ka suggestion nahi diya jaata. Agla month dekhein."
+            )
         if not row["has_live_data"]:
             return "WAIT", "Is pair ka live price abhi nahi aaya."
         if row["depth_buy_spread"] is None or row["depth_sell_spread"] is None:
@@ -2587,6 +2629,10 @@ class AIArbitrageEngine:
             return "--" if v is None else f"{v}"
 
         facts = [f"Pair: {row['label']}"]
+        if row["expiry_date"]:
+            facts.append(f"Expiry: {row['expiry_date']} ({row['days_to_expiry']} din baaki)")
+        else:
+            facts.append("Expiry: pata nahi chala (symbol/scrip master se nahi nikla)")
         if not row["has_live_data"]:
             facts.append("Live price: nahi aaya")
             return facts
@@ -2631,6 +2677,8 @@ class AIArbitrageEngine:
         net = round(gross - ch_info["total_charges"] - ch_info["slippage_cushion"], 2)
 
         warnings = []
+        if row["days_to_expiry"] is None:
+            warnings.append("Is pair ki expiry date pata nahi chali. Entry se pehle khud expiry check karein.")
         if day_range < target_pts:
             warnings.append(
                 f"Aaj ka poora range sirf {day_range:.0f} pts raha hai, jabki target {target_pts:.0f} pts hai. "
@@ -2663,7 +2711,8 @@ class AIArbitrageEngine:
             }
         }
 
-    async def generate_claude_advisory(self, user_query: str = "") -> dict:
+    def build_suggestions(self) -> list:
+        """Har pair (month) ka suggestion, sorted (best upar). Claude ke bina - fast aur free."""
         matrix = self.get_multi_pair_matrix()
         today_str = get_ist_time_str("%Y-%m-%d")
         today_signals = [o for o in self.state.ai_opportunities_log if o.get("date") == today_str]
@@ -2698,28 +2747,38 @@ class AIArbitrageEngine:
                 "depth_sell_low": row["depth_sell_low"],
                 "depth_sell_high": row["depth_sell_high"],
                 "sell_pos_pct": row["sell_pos_pct"],
+                "expiry_date": row["expiry_date"],
+                "days_to_expiry": row["days_to_expiry"],
                 "facts": self._build_facts(row, pair_summary),
-                "plan": self._build_plan(row, decision) if decision != "WAIT" else None,
+                "plan": self._build_plan(row, decision) if decision in ("Expansion", "Contraction") else None,
                 "is_best": False
             })
+            if suggestions[-1]["plan"]:
+                suggestions[-1]["plan"]["risk"] = self.risk_check(row, suggestions[-1]["plan"])
 
-        # Order: signal wale pehle (jo zone me sabse andar ho woh upar), phir WAIT wale live pairs, phir bina data wale
+        # Order: signal wale pehle (jo zone me sabse andar ho woh upar), phir WAIT, phir bina data wale, sabse neeche expiry wale
         suggestions.sort(key=lambda s: (
-            s["decision"] == "WAIT",
+            s["decision"] == "EXPIRY",
+            s["plan"] is None,
             not s["has_live_data"],
             s["zone_depth_pct"] if s["zone_depth_pct"] is not None else 999.0
         ))
-        if suggestions and suggestions[0]["decision"] != "WAIT":
+        if suggestions and suggestions[0]["plan"]:
             suggestions[0]["is_best"] = True
+        return suggestions
 
+    async def generate_claude_advisory(self, user_query: str = "") -> dict:
+        suggestions = self.build_suggestions()
         result = {
             "source": "Local Rules",
             "time": get_ist_time_str("%H:%M:%S"),
             "suggestions": suggestions,
-            "signal_count": len([s for s in suggestions if s["decision"] != "WAIT"]),
+            "signal_count": len([s for s in suggestions if s["plan"]]),
+            "expiry_blocked_count": len([s for s in suggestions if s["decision"] == "EXPIRY"]),
             "rules": (
                 f"Rule: Depth Buy spread aaj ke range ke neeche {self.ZONE_PCT:.0f}% me ho to BUY spread (Expansion); "
                 f"Depth Sell spread upar {self.ZONE_PCT:.0f}% me ho to SELL spread (Contraction); warna WAIT. "
+                f"Jis month ki expiry {self.EXPIRY_BLOCK_DAYS} din ya usse kam door ho, uska suggestion nahi aata. "
                 f"Target {self.DEFAULT_TARGET_PTS:.0f} pts, Step {self.DEFAULT_STEP_PTS:.0f}, Lots {self.DEFAULT_LOTS} (default settings). "
                 f"Ek se zyada signal hon to jo spread zone me sabse andar hai (Low/High ke sabse paas) woh upar dikhta hai."
             ),
@@ -5085,6 +5144,8 @@ async def search_active_mcx_tokens():
                     system_state.mcx_lotsize_cache[sym_u.removesuffix("FUT")] = lotsize_val
                     system_state.mcx_lotsize_cache[f"{sym_u.removesuffix('FUT')}FUT"] = lotsize_val
                     system_state.mcx_lotsize_cache[token] = lotsize_val
+                    if item.get("expiry"):
+                        system_state.mcx_expiry_cache[sym_u] = item.get("expiry")
                     if any(symbol.startswith(p) for p in ["GOLDPETAL", "GOLDM", "GOLDTEN", "GOLD10", "GOLDGUINEA"]):
                         results.append({
                             "symbol": symbol,
