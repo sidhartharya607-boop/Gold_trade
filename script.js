@@ -4053,7 +4053,7 @@ if (mbotStartBtn) {
 // 1. /api/ai/dashboard-data  -> pairs table + scanner signals
 // 2. /api/ai/analyze-claude  -> "Abhi kya karein" (local rules); sawaal ho to Claude ka jawab bhi
 // =========================================================================
-window._lastAIActionablePayload = null;
+window._aiSuggestions = [];
 
 function aiEsc(v) {
     return String(v === null || v === undefined ? "--" : v)
@@ -4089,7 +4089,6 @@ function fetchAIHubData() {
         .then(data => {
             if (!data || data.status !== "SUCCESS") return;
             window._hasClaudeApiKey = !!data.has_claude_api_key;
-            renderAIMatrix(data.matrix || []);
             renderAISignals(data.signals || [], data.summary || {}, data.threshold);
 
             const count = (data.signals || []).length;
@@ -4138,9 +4137,15 @@ function callClaudeAnalysis(userQuery = "") {
     }).catch(err => console.error("AI analysis network error:", err));
 }
 
+const AI_DECISION_STYLES = {
+    "Expansion": ["🟢 BUY SPREAD", "#16A34A", "#FFFFFF"],
+    "Contraction": ["🔴 SELL SPREAD", "#DC2626", "#FFFFFF"],
+    "WAIT": ["⏸ WAIT", "#F1F5F9", "#334155"]
+};
+
 function renderClaudeAdvisory(adv, userQuery = "") {
-    const plan = adv.plan || null;
-    window._lastAIActionablePayload = plan ? plan.actionable_payload : null;
+    const suggestions = adv.suggestions || [];
+    window._aiSuggestions = suggestions;
 
     const sourceLine = document.getElementById("ai-source-line");
     if (sourceLine) {
@@ -4148,46 +4153,18 @@ function renderClaudeAdvisory(adv, userQuery = "") {
         sourceLine.innerText = `Source: ${adv.source || "--"} | Updated: ${adv.time || "--"} | ${keyTxt}`;
     }
 
-    const pill = document.getElementById("ai-decision-pill");
-    if (pill) {
-        const styles = {
-            "Expansion": ["🟢 BUY SPREAD (Expansion)", "#16A34A", "#FFFFFF"],
-            "Contraction": ["🔴 SELL SPREAD (Contraction)", "#DC2626", "#FFFFFF"],
-            "WAIT": ["⏸ WAIT", "#F1F5F9", "#334155"]
-        };
-        const s = styles[adv.decision] || styles["WAIT"];
-        pill.innerText = s[0];
-        pill.style.background = s[1];
-        pill.style.color = s[2];
-    }
-    const pairEl = document.getElementById("ai-decision-pair");
-    if (pairEl) pairEl.innerText = adv.pair || "";
-    const reasonEl = document.getElementById("ai-decision-reason");
-    if (reasonEl) reasonEl.innerText = adv.reason || "--";
-
-    const factsEl = document.getElementById("ai-facts-list");
-    if (factsEl) {
-        factsEl.innerHTML = (adv.facts || []).map(f => `<li>${aiEsc(f)}</li>`).join("") || "<li>--</li>";
+    const summaryEl = document.getElementById("ai-suggestions-summary");
+    if (summaryEl) {
+        const n = adv.signal_count || 0;
+        summaryEl.innerText = suggestions.length
+            ? `${suggestions.length} months check kiye: ${n} me signal hai, ${suggestions.length - n} me WAIT.` + (n > 1 ? " ⭐ = sabse achhi position wala month." : "")
+            : "Koi pair set nahi hai. Month Master me pair add karein.";
     }
 
     const rulesEl = document.getElementById("ai-rules-text");
     if (rulesEl) rulesEl.innerText = adv.rules || "";
 
-    const planBox = document.getElementById("ai-plan-box");
-    if (planBox) {
-        if (plan) {
-            planBox.style.display = "block";
-            document.getElementById("ai-plan-entry").innerText = `${plan.entry_text} @ spread ${aiNum(plan.entry_spread)} pts`;
-            document.getElementById("ai-plan-exit").innerText = `${plan.exit_text} @ spread ${aiNum(plan.target_spread)} pts (${plan.target_pts} pts move)`;
-            document.getElementById("ai-plan-settings").innerText = `Step ${plan.step} pts | Lots ${plan.lots}`;
-            const net = Number(plan.est_net_profit || 0);
-            document.getElementById("ai-plan-profit").innerText =
-                `Gross ₹${Number(plan.gross_profit).toLocaleString()} − Charges ₹${plan.charges} − Slippage ₹${plan.slippage_cushion} = Net ₹${net.toLocaleString()} (${plan.grams}g)`;
-            document.getElementById("ai-plan-warnings").innerText = (plan.warnings || []).map(w => "⚠️ " + w).join("\n");
-        } else {
-            planBox.style.display = "none";
-        }
-    }
+    renderAISuggestions(suggestions);
 
     // Claude ka jawab sirf tab dikhao jab sawaal poocha gaya ho
     const replyBox = document.getElementById("ai-assistant-reply-box");
@@ -4218,28 +4195,55 @@ function submitAIAssistantQuestion() {
 }
 window.submitAIAssistantQuestion = submitAIAssistantQuestion;
 
-function renderAIMatrix(matrix) {
-    const tbody = document.getElementById("ai-matrix-tbody");
+// Har month ki ek row + uske neeche detail row (click par khulti hai)
+function renderAISuggestions(suggestions) {
+    const tbody = document.getElementById("ai-suggestions-tbody");
     if (!tbody) return;
-    if (!matrix.length) {
-        tbody.innerHTML = `<tr><td colspan="4" style="padding: 0.8rem; text-align: center; color: #64748B;">Koi pair nahi. Month Master me pair add karein.</td></tr>`;
+    if (!suggestions.length) {
+        tbody.innerHTML = `<tr><td colspan="6" style="padding: 0.8rem; text-align: center; color: #64748B;">Koi pair nahi. Month Master me pair add karein.</td></tr>`;
         return;
     }
     const pct = v => (v === null || v === undefined) ? "--" : `${Math.round(v)}%`;
-    tbody.innerHTML = matrix.map(r => {
-        if (!r.has_live_data) {
-            return `<tr style="border-bottom: 1px solid #E2E8F0;">
-                <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${aiEsc(r.label)}</td>
-                <td colspan="3" style="padding: 0.5rem 0.6rem; color: #94A3B8;">Live price nahi aaya</td></tr>`;
+    tbody.innerHTML = suggestions.map((s, idx) => {
+        const st = AI_DECISION_STYLES[s.decision] || AI_DECISION_STYLES["WAIT"];
+        const plan = s.plan;
+        const planCell = plan
+            ? `${aiNum(plan.entry_spread)} → ${aiNum(plan.target_spread)}<br><strong style="color: ${plan.est_net_profit >= 0 ? '#059669' : '#DC2626'};">Net ₹${Number(plan.est_net_profit).toLocaleString()}</strong>${(plan.warnings || []).length ? ' <span title="Warning hai - detail dekhein">⚠️</span>' : ''}`
+            : "--";
+        const btn = plan
+            ? `<button type="button" onclick="event.stopPropagation(); applyAISuggestionToBot(${idx})" style="padding: 4px 10px; font-size: 0.74rem; font-weight: 800; background: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">Form me bharo</button>`
+            : "";
+        const detailParts = [`<div style="font-weight: 600; color: #0F172A;">${aiEsc(s.reason)}</div>`];
+        if (plan) {
+            detailParts.push(`<div style="margin-top: 0.35rem;"><strong>Entry:</strong> ${aiEsc(plan.entry_text)} @ ${aiNum(plan.entry_spread)} pts</div>`);
+            detailParts.push(`<div><strong>Exit:</strong> ${aiEsc(plan.exit_text)} @ ${aiNum(plan.target_spread)} pts (${plan.target_pts} pts move)</div>`);
+            detailParts.push(`<div><strong>Bot settings:</strong> Step ${plan.step} pts | Lots ${aiEsc(plan.lots)}</div>`);
+            detailParts.push(`<div><strong>Target hit hua to (1 unit):</strong> Gross ₹${Number(plan.gross_profit).toLocaleString()} − Charges ₹${plan.charges} − Slippage ₹${plan.slippage_cushion} = Net ₹${Number(plan.est_net_profit).toLocaleString()} (${plan.grams}g)</div>`);
+            (plan.warnings || []).forEach(w => detailParts.push(`<div style="color: #B45309; font-weight: 600;">⚠️ ${aiEsc(w)}</div>`));
         }
-        return `<tr style="border-bottom: 1px solid #E2E8F0;">
-            <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${r.is_active ? "⭐ " : ""}${aiEsc(r.label)}</td>
-            <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #15803D;">${aiNum(r.depth_buy_spread)}</strong> <span style="color: #64748B;">(${aiNum(r.depth_buy_low)}–${aiNum(r.depth_buy_high)})</span></td>
-            <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #B91C1C;">${aiNum(r.depth_sell_spread)}</strong> <span style="color: #64748B;">(${aiNum(r.depth_sell_low)}–${aiNum(r.depth_sell_high)})</span></td>
-            <td style="padding: 0.5rem 0.6rem; font-family: monospace;">${pct(r.buy_pos_pct)} / ${pct(r.sell_pos_pct)}</td>
-        </tr>`;
+        detailParts.push(`<ul style="margin: 0.4rem 0 0 0; padding-left: 1.1rem; font-family: monospace; color: #475569;">${(s.facts || []).map(f => `<li>${aiEsc(f)}</li>`).join("")}</ul>`);
+
+        const rowBg = s.is_best ? "rgba(79, 70, 229, 0.06)" : "#FFFFFF";
+        return `
+            <tr onclick="toggleAISuggestionDetail(${idx})" style="cursor: pointer; background: ${rowBg}; border-top: 1px solid #E2E8F0;">
+                <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${s.is_best ? "⭐ " : ""}${aiEsc(s.pair)}${s.is_active ? ' <span style="font-size: 0.65rem; color: #64748B;">(active)</span>' : ''}</td>
+                <td style="padding: 0.5rem 0.6rem;"><span style="font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 5px; background: ${st[1]}; color: ${st[2]}; white-space: nowrap;">${st[0]}</span></td>
+                <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #15803D;">${aiNum(s.depth_buy_spread)}</strong> <span style="color: #64748B;">(${aiNum(s.depth_buy_low)}–${aiNum(s.depth_buy_high)})</span> · ${pct(s.buy_pos_pct)}</td>
+                <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #B91C1C;">${aiNum(s.depth_sell_spread)}</strong> <span style="color: #64748B;">(${aiNum(s.depth_sell_low)}–${aiNum(s.depth_sell_high)})</span> · ${pct(s.sell_pos_pct)}</td>
+                <td style="padding: 0.5rem 0.6rem; font-family: monospace;">${planCell}</td>
+                <td style="padding: 0.5rem 0.6rem; text-align: right;">${btn}</td>
+            </tr>
+            <tr id="ai-sugg-detail-${idx}" style="display: ${s.is_best ? 'table-row' : 'none'}; background: ${rowBg};">
+                <td colspan="6" style="padding: 0.2rem 0.8rem 0.7rem 0.8rem; font-size: 0.76rem; line-height: 1.5; color: #334155;">${detailParts.join("")}</td>
+            </tr>`;
     }).join("");
 }
+
+function toggleAISuggestionDetail(idx) {
+    const row = document.getElementById(`ai-sugg-detail-${idx}`);
+    if (row) row.style.display = row.style.display === "none" ? "table-row" : "none";
+}
+window.toggleAISuggestionDetail = toggleAISuggestionDetail;
 
 function renderAISignals(signals, summary, threshold) {
     const summaryEl = document.getElementById("ai-scanner-summary");
@@ -4270,10 +4274,11 @@ function renderAISignals(signals, summary, threshold) {
     }).join("");
 }
 
-function applyAISuggestionToBot() {
-    const payload = window._lastAIActionablePayload;
+function applyAISuggestionToBot(idx) {
+    const s = (window._aiSuggestions || [])[idx];
+    const payload = s && s.plan ? s.plan.actionable_payload : null;
     if (!payload) {
-        alert("Abhi koi suggestion nahi hai (decision WAIT hai).");
+        alert("Is month me abhi koi suggestion nahi hai (decision WAIT hai).");
         return;
     }
 

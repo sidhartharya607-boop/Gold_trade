@@ -2602,7 +2602,7 @@ class AIArbitrageEngine:
             facts.append(f"Pichle {rolling['minutes']} min ka average spread: {rolling['mean']} pts")
         win = summary.get("win_rate_percent")
         facts.append(
-            f"Scanner aaj: {summary.get('total_opportunities', 0)} signals "
+            f"Scanner aaj (is pair me): {summary.get('total_opportunities', 0)} signals "
             f"({summary.get('reverted_count', 0)} success, {summary.get('stopped_count', 0)} stopped, "
             f"{summary.get('active_count', 0)} chal rahe) | Win rate: {'--' if win is None else str(win) + '%'}"
         )
@@ -2666,46 +2666,66 @@ class AIArbitrageEngine:
     async def generate_claude_advisory(self, user_query: str = "") -> dict:
         matrix = self.get_multi_pair_matrix()
         today_str = get_ist_time_str("%Y-%m-%d")
-        summary = self.get_opportunities_summary_from_list(
-            [o for o in self.state.ai_opportunities_log if o.get("date") == today_str]
-        )
+        today_signals = [o for o in self.state.ai_opportunities_log if o.get("date") == today_str]
 
-        evaluated = [(row,) + self._evaluate_pair(row) for row in matrix]
-        # Pehla pair jisme signal ho; warna pehla live pair; warna jo bhi ho
-        pick = next((e for e in evaluated if e[1] != "WAIT"), None) \
-            or next((e for e in evaluated if e[0]["has_live_data"]), None) \
-            or (evaluated[0] if evaluated else None)
+        # Har pair (month) ka alag suggestion, taaki compare kar sakein
+        suggestions = []
+        for row in matrix:
+            decision, reason = self._evaluate_pair(row)
+            pair_summary = self.get_opportunities_summary_from_list(
+                [o for o in today_signals if o.get("pair_key") == row["pair_key"]]
+            )
+            if decision == "Expansion":
+                zone_depth = row["buy_pos_pct"]            # 0% = bilkul Low par = sabse achha
+            elif decision == "Contraction":
+                zone_depth = 100.0 - row["sell_pos_pct"]   # 0% = bilkul High par = sabse achha
+            else:
+                zone_depth = None
+            suggestions.append({
+                "pair": row["label"],
+                "petal_symbol": row["petal_symbol"],
+                "mini_symbol": row["mini_symbol"],
+                "is_active": row["is_active"],
+                "has_live_data": row["has_live_data"],
+                "decision": decision,
+                "reason": reason,
+                "zone_depth_pct": zone_depth,
+                "depth_buy_spread": row["depth_buy_spread"],
+                "depth_buy_low": row["depth_buy_low"],
+                "depth_buy_high": row["depth_buy_high"],
+                "buy_pos_pct": row["buy_pos_pct"],
+                "depth_sell_spread": row["depth_sell_spread"],
+                "depth_sell_low": row["depth_sell_low"],
+                "depth_sell_high": row["depth_sell_high"],
+                "sell_pos_pct": row["sell_pos_pct"],
+                "facts": self._build_facts(row, pair_summary),
+                "plan": self._build_plan(row, decision) if decision != "WAIT" else None,
+                "is_best": False
+            })
+
+        # Order: signal wale pehle (jo zone me sabse andar ho woh upar), phir WAIT wale live pairs, phir bina data wale
+        suggestions.sort(key=lambda s: (
+            s["decision"] == "WAIT",
+            not s["has_live_data"],
+            s["zone_depth_pct"] if s["zone_depth_pct"] is not None else 999.0
+        ))
+        if suggestions and suggestions[0]["decision"] != "WAIT":
+            suggestions[0]["is_best"] = True
 
         result = {
             "source": "Local Rules",
             "time": get_ist_time_str("%H:%M:%S"),
-            "decision": "WAIT",
-            "reason": "Koi pair set nahi hai. Month Master me pair add karein.",
-            "pair": "--",
-            "petal_symbol": "",
-            "mini_symbol": "",
-            "facts": [],
-            "plan": None,
+            "suggestions": suggestions,
+            "signal_count": len([s for s in suggestions if s["decision"] != "WAIT"]),
             "rules": (
                 f"Rule: Depth Buy spread aaj ke range ke neeche {self.ZONE_PCT:.0f}% me ho to BUY spread (Expansion); "
                 f"Depth Sell spread upar {self.ZONE_PCT:.0f}% me ho to SELL spread (Contraction); warna WAIT. "
-                f"Target {self.DEFAULT_TARGET_PTS:.0f} pts, Step {self.DEFAULT_STEP_PTS:.0f}, Lots {self.DEFAULT_LOTS} (default settings)."
+                f"Target {self.DEFAULT_TARGET_PTS:.0f} pts, Step {self.DEFAULT_STEP_PTS:.0f}, Lots {self.DEFAULT_LOTS} (default settings). "
+                f"Ek se zyada signal hon to jo spread zone me sabse andar hai (Low/High ke sabse paas) woh upar dikhta hai."
             ),
             "claude_reply": "",
             "api_error": ""
         }
-
-        if pick:
-            row, decision, reason = pick
-            result.update({
-                "decision": decision,
-                "reason": reason,
-                "pair": row["label"],
-                "petal_symbol": row["petal_symbol"],
-                "mini_symbol": row["mini_symbol"],
-                "facts": self._build_facts(row, summary),
-                "plan": self._build_plan(row, decision) if decision != "WAIT" else None
-            })
 
         # Claude sirf tab jab user ne sawaal poocha ho
         if user_query:
@@ -2716,8 +2736,11 @@ class AIArbitrageEngine:
                 context = {
                     "time_ist": get_ist_time_str(),
                     "market_session": get_market_session_status(),
-                    "suggestion": {k: result[k] for k in ("decision", "reason", "pair", "facts", "plan", "rules")},
-                    "all_pairs": matrix
+                    "rules": result["rules"],
+                    "suggestions_per_pair": [
+                        {k: s[k] for k in ("pair", "decision", "reason", "facts", "plan", "is_best")}
+                        for s in suggestions
+                    ]
                 }
                 reply, model, err = await self._ask_claude(api_key, context, user_query)
                 if reply:
