@@ -24,6 +24,83 @@ async function logout() {
     }
 }
 
+// In-app dialog (replaces the browser's confirm()/alert() pop-ups; looks like the app on phone too)
+const appDialogQueue = [];
+let appDialogOpen = false;
+
+function showNextAppDialog() {
+    if (appDialogOpen || !appDialogQueue.length) return;
+    appDialogOpen = true;
+    const { message, isConfirm, resolve } = appDialogQueue.shift();
+    const danger = isConfirm && /kill|delete|square.?off|stop|clear|remove|hold|cancel|saaf|wipe/i.test(message);
+
+    const overlay = document.createElement("div");
+    overlay.className = "app-dialog-overlay";
+    overlay.innerHTML = `
+        <div class="app-dialog" role="${isConfirm ? "alertdialog" : "dialog"}" aria-modal="true">
+            <div class="app-dialog-msg"></div>
+            <div class="app-dialog-actions">
+                ${isConfirm ? '<button type="button" class="app-dialog-btn app-dialog-cancel">Cancel</button>' : ""}
+                <button type="button" class="app-dialog-btn app-dialog-ok${danger ? " danger" : ""}">${isConfirm ? "Yes, continue" : "OK"}</button>
+            </div>
+        </div>`;
+    overlay.querySelector(".app-dialog-msg").textContent = String(message ?? "");
+    document.body.appendChild(overlay);
+
+    const close = (result) => {
+        document.removeEventListener("keydown", onKey, true);
+        overlay.remove();
+        appDialogOpen = false;
+        resolve(result);
+        showNextAppDialog();
+    };
+    const onKey = (e) => {
+        if (e.key === "Escape") { e.preventDefault(); close(false); }
+        else if (e.key === "Enter") { e.preventDefault(); close(true); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    overlay.querySelector(".app-dialog-ok").addEventListener("click", () => close(true));
+    const cancelBtn = overlay.querySelector(".app-dialog-cancel");
+    if (cancelBtn) cancelBtn.addEventListener("click", () => close(false));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(!isConfirm ? true : false); });
+    overlay.querySelector(".app-dialog-ok").focus();
+}
+
+function appConfirm(message) {
+    return new Promise((resolve) => {
+        appDialogQueue.push({ message, isConfirm: true, resolve });
+        showNextAppDialog();
+    });
+}
+
+window.alert = function(message) {
+    appDialogQueue.push({ message, isConfirm: false, resolve: () => {} });
+    showNextAppDialog();
+};
+
+// Server (WebSocket) link status banner
+let lastServerMessageAt = 0;
+function setServerLinkBanner(show) {
+    const banner = document.getElementById("server-link-banner");
+    const text = document.getElementById("server-link-text");
+    if (!banner) return;
+    if (!show) {
+        banner.style.display = "none";
+        return;
+    }
+    const last = lastServerMessageAt ? new Date(lastServerMessageAt).toLocaleTimeString("en-IN", { hour12: false }) : "--";
+    const why = navigator.onLine === false ? "No internet connection." : "Connection to the server lost.";
+    if (text) text.innerHTML = `<strong>${why}</strong> Data shown is from ${last} (old). Reconnecting…`;
+    banner.style.display = "flex";
+}
+window.addEventListener("offline", () => setServerLinkBanner(true));
+
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch(err => console.warn("Service worker register failed:", err));
+    });
+}
+
 let socket = null;
 let reconnectTimeout = null;
 let reconnectDelay = 1000;
@@ -217,6 +294,8 @@ function connect() {
     socket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
+            lastServerMessageAt = Date.now();
+            setServerLinkBanner(false);
             window.latestDataPayload = data;
             updateDashboard(data);
         } catch (error) {
@@ -235,7 +314,8 @@ function connect() {
             return;
         }
         logLocalMessage(`[SYSTEM] Stream offline. ${closeReason}`);
-        
+        setServerLinkBanner(true);
+
         logLocalMessage(`[SYSTEM] Reconnecting in ${(reconnectDelay / 1000).toFixed(1)}s...`);
         reconnectTimeout = setTimeout(() => {
             reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_RECONNECT_DELAY);
@@ -1589,6 +1669,43 @@ window.toggleTaLotsAccordion = function(talotscardId) {
     if (data.manual_bot !== undefined || data.manual_bots !== undefined) {
         updateManualBotUI(data.manual_bot, data.manual_bots);
     }
+    if (Array.isArray(data.order_fills)) {
+        renderOrderFills(data.order_fills);
+    }
+}
+
+// Har order (kisi bhi bot / manual) asli kitne spread par laga - expected (depth) vs laga (broker fill)
+function renderOrderFills(fills) {
+    const body = document.getElementById("order-fills-body");
+    const badge = document.getElementById("order-fills-badge");
+    if (!body) return;
+    const pending = fills.filter(f => f.verify_status === "PENDING").length;
+    if (badge) badge.innerText = pending ? `${fills.length} ORDERS · ${pending} to verify` : `${fills.length} ORDERS`;
+    const key = JSON.stringify(fills.map(f => [f.fill_id, f.verify_status, f.actual_spread]));
+    if (body.dataset.key === key) return;
+    body.dataset.key = key;
+    if (!fills.length) {
+        body.innerHTML = `<tr><td colspan="6" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No orders filled yet.</td></tr>`;
+        return;
+    }
+    const short = s => String(s || "--").replace("GOLDPETAL", "PETAL").replace("GOLDM", "M");
+    const statusTxt = {
+        CONFIRMED: `<span style="color: #059669; font-weight: 700;">✅ Asli</span>`,
+        PENDING: `<span style="color: #d97706; font-weight: 700;" title="The real avg price comes from the broker as soon as the API rate limit is free">⏳ Verifying</span>`,
+        UNVERIFIED: `<span style="color: #64748b;" title="Broker did not return an avg price - showing the depth/LTP price">⚠️ Not from broker</span>`
+    };
+    body.innerHTML = fills.map(f => {
+        const slip = Number(f.slippage_pts || 0);
+        const slipCol = slip > 0.5 ? "#dc2626" : "#059669";
+        return `<tr style="border-bottom: 1px solid var(--border-color); font-size: 0.73rem;">
+            <td style="padding: 0.45rem;">${f.time}<br><span style="color: var(--text-muted); font-size: 0.66rem;">${f.date} · ${f.mode}</span></td>
+            <td style="padding: 0.45rem; font-weight: 600;">${short(f.petal_symbol)} / ${short(f.mini_symbol)}</td>
+            <td style="padding: 0.45rem; font-weight: 700; color: ${f.side === "BUY SPREAD" ? "#059669" : "#dc2626"};">${f.side}<br><span style="color: var(--text-muted); font-weight: 500; font-size: 0.66rem;">${f.leg} · ${f.quantity} lot</span></td>
+            <td class="font-mono" style="padding: 0.45rem;">${Number(f.expected_spread).toFixed(2)} → <strong>${Number(f.actual_spread).toFixed(2)}</strong></td>
+            <td class="font-mono" style="padding: 0.45rem; color: ${slipCol}; font-weight: 700;">${slip > 0 ? "+" : ""}${slip.toFixed(2)}</td>
+            <td style="padding: 0.45rem;">${statusTxt[f.verify_status] || f.verify_status}</td>
+        </tr>`;
+    }).join("");
 }
 
 // Element class flasher utility helper
@@ -1675,7 +1792,7 @@ function postAction(endpoint, payload = {}) {
 }
 
 // Handle manual Position Entry action
-entryBtn.addEventListener("click", () => {
+entryBtn.addEventListener("click", async () => {
     const selectedDirEl = document.querySelector('input[name="trade-direction"]:checked');
     if (!selectedDirEl) return;
     
@@ -1692,7 +1809,7 @@ entryBtn.addEventListener("click", () => {
     const symbolStr = (window.latestDataPayload && window.latestDataPayload.petal_symbol) ? window.latestDataPayload.petal_symbol : "Selected Month";
 
     const confirmMsg = `Order Details Confirmation:\n\n• Order Type: ${direction} Order\n• Month / Symbol: ${symbolStr}\n• Order Mode: ${modeStr}\n\nAre you sure you want to place this order?`;
-    if (!confirm(confirmMsg)) {
+    if (!await appConfirm(confirmMsg)) {
         return;
     }
     
@@ -1715,16 +1832,16 @@ if (exitBtn) {
 }
 
 // Handle Emergency Kill Switch action
-killSwitchBtn.addEventListener("click", () => {
-    if (confirm("WARNING: Are you sure you want to trigger the EMERGENCY KILL SWITCH? This will square-off all active positions and halt trading.")) {
+killSwitchBtn.addEventListener("click", async () => {
+    if (await appConfirm("WARNING: Are you sure you want to trigger the EMERGENCY KILL SWITCH? This will square-off all active positions and halt trading.")) {
         logLocalMessage("[SYSTEM] TRIGGERING EMERGENCY TERMINAL SHUTDOWN...");
         postAction("kill-switch");
     }
 });
 
 // Window-level manual trade action helper functions
-window.cancelManualTrade = function(tradeId) {
-    if (confirm(`Are you sure you want to cancel manual trade ID ${tradeId}?`)) {
+window.cancelManualTrade = async function(tradeId) {
+    if (await appConfirm(`Are you sure you want to cancel manual trade ID ${tradeId}?`)) {
         logLocalMessage(`[SYSTEM] Cancelling manual trade ID ${tradeId}...`);
         if (window.latestDataPayload && Array.isArray(window.latestDataPayload.manual_trades)) {
             window.latestDataPayload.manual_trades = window.latestDataPayload.manual_trades.filter(t => String(t.id) !== String(tradeId));
@@ -1744,8 +1861,8 @@ window.cancelManualTrade = function(tradeId) {
     }
 };
 
-window.exitManualTrade = function(tradeId) {
-    if (confirm(`Are you sure you want to square off manual trade ID ${tradeId}?`)) {
+window.exitManualTrade = async function(tradeId) {
+    if (await appConfirm(`Are you sure you want to square off manual trade ID ${tradeId}?`)) {
         logLocalMessage(`[SYSTEM] Squaring off manual trade ID ${tradeId}...`);
         postAction("exit-manual", { trade_id: tradeId });
     }
@@ -1761,8 +1878,8 @@ window.dismissManualTrade = function(tradeId) {
     postAction("dismiss-manual", { trade_id: tradeId });
 };
 
-window.clearAllInactiveManualTrades = function() {
-    if (confirm("Are you sure you want to clear all cancelled, failed, and closed manual trades?")) {
+window.clearAllInactiveManualTrades = async function() {
+    if (await appConfirm("Are you sure you want to clear all cancelled, failed, and closed manual trades?")) {
         logLocalMessage("[SYSTEM] Clearing all inactive manual trades...");
         postAction("clear-manual-trades");
     }
@@ -1957,17 +2074,17 @@ downloadBtn.addEventListener("click", () => {
 // Handle Spread & Price High / Low Report CSV Export
 if (exportDepthSpreadBtn) {
     exportDepthSpreadBtn.addEventListener("click", () => {
-        logLocalMessage("[SYSTEM] Exporting Spread & Price High/Low report records to CSV...");
+        logLocalMessage("[SYSTEM] Exporting Depth History (month-wise Depth Buy / Sell Low-High) to CSV...");
         const httpProtocol = window.location.protocol;
         const url = `${httpProtocol}//${host}/api/export-depth-spread${getAuthTokenParam()}`;
-        
+
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = "spread_price_high_low_report.csv";
+        anchor.download = "depth_history.csv";
         document.body.appendChild(anchor);
         anchor.click();
         document.body.removeChild(anchor);
-        logLocalMessage("[SYSTEM] Spread & Price High/Low report CSV downloaded.");
+        logLocalMessage("[SYSTEM] Depth History CSV downloaded.");
     });
 }
 
@@ -2420,7 +2537,7 @@ window.renderLiveSpreads = function() {
                             <span style="font-size: 0.7rem; color: var(--text-muted);">LTP Spread:</span>
                             <span class="font-mono ${spreadClass}" style="font-size: 1.05rem; font-weight: 700;">${item.spread.toFixed(2)}</span>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.65rem; border-top: 1px dashed rgba(255,255,255,0.06); padding-top: 0.35rem; margin-top: 0.15rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.65rem; border-top: 1px dashed var(--border-color); padding-top: 0.35rem; margin-top: 0.15rem;">
                             <div style="display: flex; flex-direction: column; gap: 0.05rem;">
                                 <span style="color: var(--text-muted);">Depth Buy:</span>
                                 <strong class="font-mono text-green" style="font-size: 0.72rem;">${item.depth_buy_spread.toFixed(2)}</strong>
@@ -2468,7 +2585,7 @@ function updateMonthMasterUI(mappings) {
             mappings.forEach((m, idx) => {
                 const isCapture = m.capture_data !== false;
                 tableHtml += `
-                    <tr style="border-bottom: 1px solid rgba(255,255,255,0.02);">
+                    <tr style="border-bottom: 1px solid var(--border-color);">
                         <td data-label="Leg 1 Symbol" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_symbol}</td>
                         <td data-label="Leg 1 Token" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.petal_token}</td>
                         <td data-label="Leg 2 Symbol" style="padding: 0.5rem; font-size: 0.75rem; color: var(--text-primary); font-family: monospace;">${m.mini_symbol}</td>
@@ -2565,8 +2682,8 @@ window.toggleMonthMasterCapture = function(index, capture) {
     });
 };
 
-window.deleteMonthMasterMapping = function(index) {
-    if (!confirm("Are you sure you want to delete this month mapping?")) return;
+window.deleteMonthMasterMapping = async function(index) {
+    if (!await appConfirm("Are you sure you want to delete this month mapping?")) return;
     let currentMappings = [];
     try {
         currentMappings = JSON.parse(lastMonthMasterStr || "[]");
@@ -2741,8 +2858,8 @@ if (taAddConfigBtn) {
 }
 
 if (taClearAllTradesBtn) {
-    taClearAllTradesBtn.addEventListener("click", () => {
-        if (confirm("Are you sure you want to clear all Trade Automation orders? This will wipe all current automation trades.")) {
+    taClearAllTradesBtn.addEventListener("click", async () => {
+        if (await appConfirm("Are you sure you want to clear all Trade Automation orders? This will wipe all current automation trades.")) {
             logLocalMessage("[SYSTEM] Clearing all Trade Automation orders...");
             postAction("clear-ta-trades", {})
             .then(res => {
@@ -2763,10 +2880,10 @@ window.toggleTaConfig = function(index, enabled) {
     }
 };
 
-window.removeTaConfig = function(index) {
+window.removeTaConfig = async function(index) {
     const currentConfigs = window.taConfigs || [];
     if (index >= 0 && index < currentConfigs.length) {
-        if (confirm("Are you sure you want to remove this bot instance? This will stop future automation checks for this pair.")) {
+        if (await appConfirm("Are you sure you want to remove this bot instance? This will stop future automation checks for this pair.")) {
             currentConfigs.splice(index, 1);
             logLocalMessage("[SYSTEM] Removing Trade Automation bot instance...");
             postAction("ta-config", { configs: currentConfigs });
@@ -2786,8 +2903,8 @@ if (taSelectDirection) {
 }
 
 // Window level helper callbacks for Trade Automation manual exit & dismiss actions
-window.exitTaTrade = function(tradeId) {
-    if (confirm(`Are you sure you want to square off Trade Automation trade ID ${tradeId}?`)) {
+window.exitTaTrade = async function(tradeId) {
+    if (await appConfirm(`Are you sure you want to square off Trade Automation trade ID ${tradeId}?`)) {
         logLocalMessage(`[SYSTEM] Squaring off Trade Automation trade ID ${tradeId}...`);
         postAction("ta-exit-trade", { trade_id: tradeId });
     }
@@ -2907,8 +3024,8 @@ if (taLotsAddConfigBtn) {
 }
 
 if (taLotsClearAllTradesBtn) {
-    taLotsClearAllTradesBtn.addEventListener("click", () => {
-        if (confirm("Are you sure you want to clear all Trade Automation with Lots orders? This will wipe all current lots automation trades.")) {
+    taLotsClearAllTradesBtn.addEventListener("click", async () => {
+        if (await appConfirm("Are you sure you want to clear all Trade Automation with Lots orders? This will wipe all current lots automation trades.")) {
             logLocalMessage("[SYSTEM] Clearing all Trade Automation with Lots orders...");
             postAction("clear-ta-lots-trades", {})
             .then(res => {
@@ -2929,10 +3046,10 @@ window.toggleTaLotsConfig = function(index, enabled) {
     }
 };
 
-window.removeTaLotsConfig = function(index) {
+window.removeTaLotsConfig = async function(index) {
     const currentConfigs = window.taLotsConfigs || [];
     if (index >= 0 && index < currentConfigs.length) {
-        if (confirm("Are you sure you want to remove this lots bot instance? This will stop future lots automation checks for this pair.")) {
+        if (await appConfirm("Are you sure you want to remove this lots bot instance? This will stop future lots automation checks for this pair.")) {
             currentConfigs.splice(index, 1);
             logLocalMessage("[SYSTEM] Removing Trade Automation with Lots instance...");
             postAction("ta-lots-config", { configs: currentConfigs });
@@ -3036,7 +3153,7 @@ window.openEditTaLotsConfigModal = function(index) {
         alertBox.style.display = "block";
         const totalTradedLots = editLotsAlreadyTradedList.reduce((a, b) => a + b, 0);
         document.getElementById("ta-lots-edit-traded-alert-title").innerText = `Already Traded: Level 1 to ${tradedLevelsCount} (${totalTradedLots} Lots total)`;
-        document.getElementById("ta-lots-edit-traded-alert-desc").innerHTML = `Ye trades pehle hi market me execute ho chuke hain, isliye ye <strong>locked</strong> hain aur dobara execute <strong>nahi honge</strong>. Aap sirf aage ke upcoming levels ko edit kar sakte hain.`;
+        document.getElementById("ta-lots-edit-traded-alert-desc").innerHTML = `These trades are already executed in the market, so they are <strong>locked</strong> and will <strong>not</strong> be executed again. You can only edit the upcoming levels.`;
 
         // Lock Direction and Base Entry
         dirSelect.disabled = true;
@@ -3191,8 +3308,8 @@ window.saveEditTaLotsConfig = async function() {
     }
 };
 
-window.exitTaLotsTrade = function(tradeId) {
-    if (confirm(`Are you sure you want to square off Trade Automation with Lots trade ID ${tradeId}?`)) {
+window.exitTaLotsTrade = async function(tradeId) {
+    if (await appConfirm(`Are you sure you want to square off Trade Automation with Lots trade ID ${tradeId}?`)) {
         logLocalMessage(`[SYSTEM] Squaring off Trade Automation with Lots trade ID ${tradeId}...`);
         postAction("ta-lots-exit-trade", { trade_id: tradeId });
     }
@@ -3491,7 +3608,7 @@ function initWorkstationCollapse() {
 // =========================================================================
 // Master Hold / Resume Toggle — pauses ALL trade triggers safely
 // =========================================================================
-window.toggleHoldSystem = function() {
+window.toggleHoldSystem = async function() {
     const btn = document.getElementById("btn-system-hold");
     const isCurrentlyHold = btn && btn.dataset.state === "hold";
     const action = isCurrentlyHold ? "resume" : "hold";
@@ -3499,7 +3616,7 @@ window.toggleHoldSystem = function() {
     const confirmMsg = isCurrentlyHold
         ? "Resume trading? All bots and pending triggers will activate again from the current saved state."
         : "HOLD all trades? All bot triggers, pending entries, and automations will be PAUSED. You can safely delete or add orders before resuming.";
-    if (!confirm(confirmMsg)) return;
+    if (!await appConfirm(confirmMsg)) return;
     postAction("toggle-hold-system", { action })
         .then(res => {
             if (res && res.status === "SUCCESS") {
@@ -3602,6 +3719,29 @@ window.switchRightTab = function(tabName) {
 // Manual BOT (Multi-Pair Slicer with 10s Cooldown)
 // ==========================================
 window.manualBotTasksCache = [];
+
+// "Laga" = asli order kis spread par fill hua (broker avg price se). Trigger = jis spread par bot ne order bheja.
+function mbotActualSpreadHtml(bt) {
+    if (bt.actual_spread === undefined || bt.actual_spread === null) {
+        return `<div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); padding: 0 0.15rem;">Filled: -- (old order, actual spread not recorded)</div>`;
+    }
+    const actual = parseFloat(bt.actual_spread);
+    const trig = parseFloat(bt.filled_spread);
+    let fark = "";
+    if (!isNaN(trig)) {
+        // BUY spread (Expansion) me zyada dena nuksan, SELL spread (Contraction) me kam milna nuksan
+        const against = bt.direction === "Contraction" ? trig - actual : actual - trig;
+        const col = against > 0.5 ? "#dc2626" : "#059669";
+        const word = against > 0.5 ? "worse" : (against < -0.5 ? "better" : "same");
+        fark = ` <span style="color: ${col};">(${Math.abs(against).toFixed(2)} pts ${word})</span>`;
+    }
+    const verify = bt.spread_status === "PENDING"
+        ? `<span title="Real avg price from the broker is pending - updates when the API is free" style="color: #d97706;">⏳ verifying</span>`
+        : `<span title="From the broker avg fill price" style="color: #059669;">✅ actual</span>`;
+    return `<div style="display: flex; justify-content: space-between; gap: 0.4rem; flex-wrap: wrap; font-size: 0.74rem; font-family: var(--font-mono); padding: 0.3rem 0.5rem; border-radius: 5px; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.25);">
+        <span><strong style="color: var(--text-primary);">Filled at: ${actual.toFixed(2)}</strong>${fark}</span>${verify}
+    </div>`;
+}
 
 function updateManualBotUI(mb, mbs) {
     if (!mb && !mbs) return;
@@ -3710,29 +3850,30 @@ function updateManualBotUI(mb, mbs) {
 
                 const reasonText = t.why_waiting || t.status_message || "";
 
-                // Actions buttons
-                let actionBtns = `
-                    <button onclick="window.editManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #2563eb; border-color: rgba(37,99,235,0.3);" title="Edit parameters">✏️</button>
-                `;
+                // Actions buttons (own row so they are never cut off on narrow screens)
+                const btnBase = "flex: 1 1 0; min-width: 72px; padding: 0.35rem 0.5rem; font-size: 0.74rem; font-weight: 700; cursor: pointer; border-radius: 6px; width: auto;";
+                let actionBtns = "";
                 if (t.active) {
-                    actionBtns += `<button onclick="window.stopManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #dc2626; border-color: rgba(220,38,38,0.3); font-weight: 700;" title="Cancel / Stop Task">🛑 Stop</button>`;
-                } else {
-                    actionBtns += `<button onclick="window.deleteManualBotTask('${tId}')" class="metallic-button" style="padding: 2px 6px; font-size: 0.68rem; cursor: pointer; color: #64748b; border-color: rgba(100,116,139,0.3);" title="Delete Task">🗑️</button>`;
+                    actionBtns += `<button type="button" onclick="window.stopManualBotTask('${tId}')" class="metallic-button" style="${btnBase} color: #dc2626; background: rgba(239,68,68,0.08); border: 1px solid rgba(220,38,38,0.35);" title="Pause this task">⏸ Stop</button>`;
+                } else if (filled < total) {
+                    actionBtns += `<button type="button" onclick="window.resumeManualBotTask('${tId}')" class="metallic-button" style="${btnBase} color: #059669; background: rgba(16,185,129,0.1); border: 1px solid rgba(5,150,105,0.4);" title="Start this task again (only the remaining orders)">▶ Start</button>`;
+                }
+                actionBtns += `<button type="button" onclick="window.editManualBotTask('${tId}')" class="metallic-button" style="${btnBase} color: #2563eb; border: 1px solid rgba(37,99,235,0.3);" title="Edit parameters">✏️ Edit</button>`;
+                if (!t.active) {
+                    actionBtns += `<button type="button" onclick="window.deleteManualBotTask('${tId}')" class="metallic-button" style="${btnBase} color: #64748b; border: 1px solid rgba(100,116,139,0.3);" title="Delete task">🗑️ Delete</button>`;
                 }
 
                 card.innerHTML = `
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 0.45rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.35rem;">
+                        <div style="display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; min-width: 0;">
                             <span class="font-mono" style="font-weight: 800; color: var(--text-primary); font-size: 0.78rem;">#${tId}</span>
-                            <strong style="font-size: 0.75rem; color: var(--text-primary); font-family: var(--font-mono);">${pairStr}</strong>
+                            <strong style="font-size: 0.75rem; color: var(--text-primary); font-family: var(--font-mono); word-break: break-all;">${pairStr}</strong>
                             <span style="font-weight: 700; font-size: 0.65rem; color: ${dirColor}; background: ${dirBg}; padding: 1px 6px; border-radius: 4px; text-transform: uppercase;">${dir}</span>
                         </div>
-                        <div style="display: flex; align-items: center; gap: 0.4rem;">
-                            ${statusBadge}
-                            <div style="display: flex; gap: 0.25rem;">${actionBtns}</div>
-                        </div>
+                        ${statusBadge}
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; background: var(--bg-tertiary); padding: 0.35rem 0.55rem; border-radius: 5px; border: 1px solid var(--border-color); font-family: var(--font-mono);">
+                    <div class="mbot-task-actions" style="display: flex; gap: 0.35rem; flex-wrap: wrap;">${actionBtns}</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.25rem 0.6rem; font-size: 0.72rem; background: var(--bg-tertiary); padding: 0.35rem 0.55rem; border-radius: 5px; border: 1px solid var(--border-color); font-family: var(--font-mono);">
                         <div><span style="color: var(--text-muted);">Target:</span> <strong>${targetWindow}</strong></div>
                         <div><span style="color: var(--text-muted);">Progress:</span> <strong style="color: #2563eb;">${progressStr}</strong></div>
                         <div><span style="color: var(--text-muted);">Spread:</span> <strong style="color: #059669;">${liveSpread}</strong></div>
@@ -3790,6 +3931,7 @@ function updateManualBotUI(mb, mbs) {
                 const pPrice = bt.petal_fill_price ? parseFloat(bt.petal_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
                 const mPrice = bt.mini_fill_price ? parseFloat(bt.mini_fill_price).toLocaleString('en-IN', { minimumFractionDigits: 2 }) : "--";
                 const statusBadge = `<span style="background-color: rgba(52,211,153,0.15); color: #059669; padding: 2px 7px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.3);">FILLED</span>`;
+                const lagaHtml = mbotActualSpreadHtml(bt);
 
                 const card = document.createElement("div");
                 card.className = "mbot-order-card";
@@ -3808,9 +3950,10 @@ function updateManualBotUI(mb, mbs) {
                         <span style="font-weight: 700; color: var(--text-primary); font-family: var(--font-mono); font-size: 0.73rem;">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</span>
                         <div style="display: flex; gap: 0.6rem; font-family: var(--font-mono); font-size: 0.73rem;">
                             <span style="color: var(--text-secondary);">Tgt: <strong>${targetDiff}</strong></span>
-                            <span style="color: #059669; font-weight: 800;">Spread: ${filledSpread}</span>
+                            <span style="color: var(--text-secondary);">Trigger: <strong>${filledSpread}</strong></span>
                         </div>
                     </div>
+                    ${lagaHtml}
                     <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary); font-family: var(--font-mono); padding: 0 0.15rem;">
                         <span>Petal: <strong style="color: var(--text-primary);">₹${pPrice}</strong></span>
                         <span>Mini: <strong style="color: var(--text-primary);">₹${mPrice}</strong></span>
@@ -3862,8 +4005,9 @@ function updateManualBotUI(mb, mbs) {
                             </div>
                             <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.73rem; background: var(--bg-tertiary); padding: 0.3rem 0.5rem; border-radius: 5px;">
                                 <span>${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</span>
-                                <div>Tgt: <strong>${targetDiff}</strong> | Spread: <strong style="color: #059669;">${filledSpread}</strong></div>
+                                <div>Tgt: <strong>${targetDiff}</strong> | Trigger: <strong>${filledSpread}</strong></div>
                             </div>
+                            ${mbotActualSpreadHtml(bt)}
                             <div style="display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-secondary);">
                                 <span>P: ₹${pPrice}</span>
                                 <span>M: ₹${mPrice}</span>
@@ -3878,7 +4022,7 @@ function updateManualBotUI(mb, mbs) {
                     <td data-label="Pair" class="desktop-only" style="padding: 0.5rem; font-size: 0.73rem; font-weight: 600;">${pairStr.replace('GOLDPETAL','PETAL').replace('GOLDM','M')}</td>
                     <td data-label="Direction" class="desktop-only" style="padding: 0.5rem; font-weight: 700; color: ${dirColor};">${dirStr}</td>
                     <td data-label="Target" class="font-mono desktop-only" style="padding: 0.5rem;">${targetDiff}</td>
-                    <td data-label="Spread" class="font-mono desktop-only" style="padding: 0.5rem; font-weight: 700; color: #059669;">${filledSpread}</td>
+                    <td data-label="Spread" class="font-mono desktop-only" style="padding: 0.5rem;">${filledSpread} → <strong style="color: #059669;">${bt.actual_spread != null ? parseFloat(bt.actual_spread).toFixed(2) : "--"}</strong>${bt.spread_status === "PENDING" ? ' <span title="Pending broker verification">⏳</span>' : (bt.actual_spread != null ? ' <span title="Broker avg price se">✅</span>' : '')}</td>
                     <td data-label="Prices" class="font-mono desktop-only" style="padding: 0.5rem; font-size: 0.72rem; color: var(--text-secondary);">P: ${pPrice} / M: ${mPrice}</td>
                     <td data-label="Status" class="desktop-only" style="padding: 0.5rem; text-align: center;">${statusBadge}</td>
                     ${mobileCardHTML}
@@ -3928,8 +4072,8 @@ window.editManualBotTask = function(taskId) {
     }
 };
 
-window.stopManualBotTask = function(taskId) {
-    if (!confirm(`Are you sure you want to stop/cancel Bot Task #${taskId}?`)) return;
+window.stopManualBotTask = async function(taskId) {
+    if (!await appConfirm(`Are you sure you want to stop/cancel Bot Task #${taskId}?`)) return;
     logLocalMessage(`[MANUAL BOT] Stopping Task #${taskId}...`);
     postAction("manual-bot/stop", { id: taskId }).then(res => {
         if (res && res.status === "SUCCESS") {
@@ -3938,8 +4082,23 @@ window.stopManualBotTask = function(taskId) {
     });
 };
 
-window.deleteManualBotTask = function(taskId) {
-    if (!confirm(`Are you sure you want to delete Bot Task #${taskId}?`)) return;
+// ▶ Play: rukka hua task wahi settings se dobara chalu (bache hue orders hi lagenge)
+window.resumeManualBotTask = async function(taskId) {
+    const payload = taskId ? { id: taskId } : { stop_all: true };
+    const label = taskId ? `Task #${taskId}` : "all stopped tasks";
+    if (!await appConfirm(`▶ Start ${label} again? Only the remaining orders will be placed.`)) return;
+    logLocalMessage(`[MANUAL BOT] Resuming ${label}...`);
+    postAction("manual-bot/resume", payload).then(res => {
+        if (res && res.status === "SUCCESS") {
+            logLocalMessage(`[MANUAL BOT] ${res.message}`);
+        } else if (res && res.message) {
+            alert(res.message);
+        }
+    });
+};
+
+window.deleteManualBotTask = async function(taskId) {
+    if (!await appConfirm(`Are you sure you want to delete Bot Task #${taskId}?`)) return;
     logLocalMessage(`[MANUAL BOT] Deleting Task #${taskId}...`);
     postAction("manual-bot/delete", { id: taskId }).then(res => {
         if (res && res.status === "SUCCESS") {
@@ -3960,8 +4119,8 @@ if (mbotCancelEditBtn) {
 }
 
 if (mbotStopAllBtn) {
-    mbotStopAllBtn.addEventListener("click", () => {
-        if (!confirm("Are you sure you want to STOP ALL running Manual Bot tasks?")) return;
+    mbotStopAllBtn.addEventListener("click", async () => {
+        if (!await appConfirm("Are you sure you want to STOP ALL running Manual Bot tasks?")) return;
         logLocalMessage("[MANUAL BOT] Stopping all bot tasks...");
         postAction("manual-bot/stop", { stop_all: true }).then(res => {
             if (res && res.status === "SUCCESS") {
@@ -3972,7 +4131,7 @@ if (mbotStopAllBtn) {
 }
 
 if (mbotStartBtn) {
-    mbotStartBtn.addEventListener("click", () => {
+    mbotStartBtn.addEventListener("click", async () => {
         const triggerDiffVal = parseFloat(mbotTriggerDiff ? mbotTriggerDiff.value : 0);
         const diffGapVal = parseFloat(mbotDiffGap ? mbotDiffGap.value : 0);
         const totalOrdersVal = parseInt(mbotTotalOrders ? mbotTotalOrders.value : 1);
@@ -4019,7 +4178,7 @@ if (mbotStartBtn) {
 
         const actionText = editIdVal ? `Update Bot Task #${editIdVal}` : `Start / Add New Bot Task`;
         const confirmMsg = `${actionText}?\nPair: ${symText}\nDirection: ${directionVal}\nTrigger Window: [${minP} to ${maxP}] (Target: ${triggerDiffVal}, Gap: ${diffGapVal})\nTotal Orders: ${totalOrdersVal} (Strict 10s cooldown)\nLots Per Order: ${lotsPerOrderVal}`;
-        if (!confirm(confirmMsg)) return;
+        if (!await appConfirm(confirmMsg)) return;
 
         logLocalMessage(`[MANUAL BOT] ${actionText} for ${symText}...`);
         postAction("manual-bot/start", {
@@ -4050,7 +4209,7 @@ if (mbotStartBtn) {
 
 // =========================================================================
 // 🧠 AI ASSISTANT CLIENT
-// /api/ai/dashboard-data  -> scanner signals
+// /api/ai/dashboard-data  -> paper trader report (kaagazi trades + reasons)
 // /api/ai/analyze-claude  -> har month ka suggestion (local rules); sawaal ho to Claude ka jawab bhi
 // /api/ai/monitor         -> khuli positions ka haal
 // /api/ai/journal         -> din ka trade journal
@@ -4085,7 +4244,7 @@ function switchAITab(name) {
         p.style.display = p.id === `ai-tab-${name}` ? "block" : "none";
     });
     document.querySelectorAll(".ai-tab-btn").forEach(b => {
-        b.classList.toggle("active", b.dataset.tab === name);
+        b.classList.toggle("active", b.dataset.aiTab === name);
     });
     if (name === "journal") fetchAIJournal();
     if (name === "alerts") {
@@ -4140,16 +4299,7 @@ function fetchAIHubData() {
         .then(data => {
             if (!data || data.status !== "SUCCESS") return;
             window._hasClaudeApiKey = !!data.has_claude_api_key;
-            renderAISignals(data.signals || [], data.summary || {}, data.threshold);
-
-            const count = (data.signals || []).length;
-            const topAiBadge = document.getElementById("header-ai-opp-badge");
-            const mobileAiBadge = document.getElementById("mobile-ai-badge");
-            if (topAiBadge) topAiBadge.innerText = count;
-            if (mobileAiBadge) {
-                mobileAiBadge.innerText = count;
-                mobileAiBadge.style.display = count > 0 ? "inline-block" : "none";
-            }
+            if (data.paper) renderAIPaper(data.paper);
         })
         .catch(err => console.error("Error fetching AI dashboard data:", err))
         .finally(() => {
@@ -4164,12 +4314,12 @@ function fetchAIHubData() {
 
 // ---------- Open trade monitor ----------
 const AI_MONITOR_STATUS = {
-    "EXPIRY": ["⛔ Expiry paas", "#FEF3C7", "#92400E"],
-    "ADVERSE": ["🔻 Ulta gaya", "#FEE2E2", "#B91C1C"],
-    "STUCK": ["⏳ Fasa hua", "#FFEDD5", "#C2410C"],
-    "LOSS": ["Loss me", "#F1F5F9", "#B91C1C"],
-    "PROFIT": ["Profit me", "#DCFCE7", "#15803D"],
-    "NO_DATA": ["Data nahi", "#F1F5F9", "#64748B"]
+    "EXPIRY": ["⛔ Near expiry", "#FEF3C7", "#92400E"],
+    "ADVERSE": ["🔻 Moved against", "#FEE2E2", "#B91C1C"],
+    "STUCK": ["⏳ Stuck", "#FFEDD5", "#C2410C"],
+    "LOSS": ["In loss", "#F1F5F9", "#B91C1C"],
+    "PROFIT": ["In profit", "#DCFCE7", "#15803D"],
+    "NO_DATA": ["No data", "#F1F5F9", "#64748B"]
 };
 
 function fetchAIMonitor() {
@@ -4187,32 +4337,32 @@ function renderAIMonitor(data) {
     const summaryEl = document.getElementById("ai-monitor-summary");
     if (summaryEl) {
         summaryEl.innerHTML = data.total_open
-            ? `${data.total_open} positions khuli hain (${data.total_lots} lots) | Kul unrealized: <strong style="color: ${aiMoneyColor(data.total_unrealized)};">${aiMoney(data.total_unrealized)}</strong> | Alerts: ${data.alert_count}`
-            : "Abhi koi position khuli nahi hai.";
+            ? `${data.total_open} positions open (${data.total_lots} lots) | Total unrealized: <strong style="color: ${aiMoneyColor(data.total_unrealized)};">${aiMoney(data.total_unrealized)}</strong> | Alerts: ${data.alert_count}`
+            : "No open positions right now.";
     }
     const rulesEl = document.getElementById("ai-monitor-rules");
     if (rulesEl) rulesEl.innerText = data.rules || "";
     const tbody = document.getElementById("ai-monitor-tbody");
     if (!tbody) return;
     if (!data.trades.length) {
-        tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">Koi khuli position nahi.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">No open positions.</td></tr>`;
         return;
     }
     tbody.innerHTML = data.trades.map(t => {
         const st = AI_MONITOR_STATUS[t.status] || AI_MONITOR_STATUS["NO_DATA"];
         const moved = t.moved_pts === null ? "--" : `${t.moved_pts > 0 ? "+" : ""}${t.moved_pts} pts`;
         const target = t.target_spread === null
-            ? `<span style="color: #64748B;">Target set nahi</span>`
-            : `${aiNum(t.target_spread)}<br><span style="color: #64748B;">${t.to_target_pts === null ? "--" : (t.to_target_pts <= 0 ? "Target cross" : t.to_target_pts + " pts door")}${t.progress_pct === null ? "" : ` · ${t.progress_pct}%`}</span>`;
+            ? `<span style="color: #64748B;">No target set</span>`
+            : `${aiNum(t.target_spread)}<br><span style="color: #64748B;">${t.to_target_pts === null ? "--" : (t.to_target_pts <= 0 ? "Target cross" : t.to_target_pts + " pts away")}${t.progress_pct === null ? "" : ` · ${t.progress_pct}%`}</span>`;
         const alerts = (t.alerts || []).map(a => `<div style="color: ${a.type === 'NEAR_TARGET' ? '#1D4ED8' : '#B45309'}; font-weight: 600;">⚠️ ${aiEsc(a.text)}</div>`).join("");
         return `<tr>
-            <td>${aiEsc(t.source)}<br><span style="color: #64748B; font-size: 0.7rem;">${aiEsc(t.entry_date)} ${aiEsc(t.entry_time)}${t.days_held ? ` · ${t.days_held} din` : ""}</span></td>
+            <td>${aiEsc(t.source)}<br><span style="color: #64748B; font-size: 0.7rem;">${aiEsc(t.entry_date)} ${aiEsc(t.entry_time)}${t.days_held ? ` · ${t.days_held} days` : ""}</span></td>
             <td style="font-weight: 700;">${aiEsc(t.pair)}</td>
             <td>${aiEsc(t.direction)} · ${aiEsc(t.quantity)}</td>
             <td style="font-family: monospace;">${aiNum(t.entry_spread)} → ${aiNum(t.exit_spread_now)}<br><span style="color: ${Number(t.moved_pts) > 0 ? '#059669' : '#DC2626'};">${moved}</span></td>
             <td style="font-family: monospace;">${target}</td>
             <td style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(t.unrealized_pnl)};">${aiMoney(t.unrealized_pnl)}</td>
-            <td style="white-space: nowrap;">${t.expiry_date ? `${aiEsc(t.expiry_date)}<br><span style="color: #64748B; font-size: 0.7rem;">${t.days_to_expiry} din</span>` : "--"}</td>
+            <td style="white-space: nowrap;">${t.expiry_date ? `${aiEsc(t.expiry_date)}<br><span style="color: #64748B; font-size: 0.7rem;">${t.days_to_expiry} days</span>` : "--"}</td>
             <td><span class="ai-pill" style="background: ${st[1]}; color: ${st[2]};">${st[0]}</span>${alerts}</td>
         </tr>`;
     }).join("");
@@ -4246,10 +4396,10 @@ function renderAIJournal(data) {
     if (s.best) extra.push(`🏆 Sabse achha: ${aiEsc(s.best.direction)} ${aiEsc(s.best.entry_time)}–${aiEsc(s.best.exit_time)}, ${s.best.points} pts, ${aiMoney(s.best.net)}`);
     if (s.worst && s.trades > 1) extra.push(`📉 Sabse kharab: ${aiEsc(s.worst.direction)} ${aiEsc(s.worst.entry_time)}–${aiEsc(s.worst.exit_time)}, ${s.worst.points} pts, ${aiMoney(s.worst.net)}`);
     const src = Object.entries(s.by_source || {}).map(([k, v]) => `${aiEsc(k)}: ${v.trades} trades, ${aiMoney(v.net)}`);
-    if (src.length) extra.push(`Kahan se: ${src.join(" | ")}`);
+    if (src.length) extra.push(`By source: ${src.join(" | ")}`);
     if (s.failed_attempts) extra.push(`❌ Fail / cancel hui koshish: ${s.failed_attempts} (${(data.failed || []).map(f => aiEsc(f.reason)).join("; ")})`);
-    if (s.open_positions !== null && s.open_positions !== undefined) extra.push(`📈 Abhi khuli positions: ${s.open_positions}, unrealized ${aiMoney(s.open_unrealized)}`);
-    if (s.scanner) extra.push(`📡 Scanner: ${s.scanner.total_opportunities} signals, ${s.scanner.reverted_count} success, ${s.scanner.stopped_count} stopped`);
+    if (s.open_positions !== null && s.open_positions !== undefined) extra.push(`📈 Open positions now: ${s.open_positions}, unrealized ${aiMoney(s.open_unrealized)}`);
+    if (s.paper) extra.push(`📝 Paper trades (closed this day): ${s.paper.trades}, profit ${s.paper.profit}, loss ${s.paper.trades - s.paper.profit}, net ${aiMoney(s.paper.net)}`);
     const extraEl = document.getElementById("ai-journal-extra");
     if (extraEl) extraEl.innerHTML = extra.map(x => `<div>${x}</div>`).join("");
 
@@ -4264,17 +4414,17 @@ function renderAIJournal(data) {
             <td style="font-family: monospace;">${aiMoney(r.gross)}</td>
             <td style="font-family: monospace;">₹${Math.round(r.charges).toLocaleString()}</td>
             <td style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(r.net)};">${aiMoney(r.net)}</td>
-        </tr>`).join("") : `<tr><td colspan="8" class="ai-empty">Is din koi trade complete nahi hua.</td></tr>`;
+        </tr>`).join("") : `<tr><td colspan="8" class="ai-empty">No trade completed on this day.</td></tr>`;
     }
     const noteEl = document.getElementById("ai-journal-note");
-    if (noteEl) noteEl.innerText = data.note + (data.available_dates.length ? ` Trade wale din: ${data.available_dates.slice(0, 10).join(", ")}` : "");
+    if (noteEl) noteEl.innerText = data.note + (data.available_dates.length ? ` Days with trades: ${data.available_dates.slice(0, 10).join(", ")}` : "");
 }
 
 // ---------- Backtest ----------
 function runAIBacktest() {
     const days = (document.getElementById("ai-backtest-days") || {}).value || 30;
     const tbody = document.getElementById("ai-backtest-tbody");
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">⏳ Backtest chal raha hai...</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">⏳ Running backtest...</td></tr>`;
     aiGet(`ai/backtest?days=${days}`).then(data => {
         if (data && data.status === "SUCCESS") renderAIBacktest(data);
     }).catch(err => console.error("AI backtest error:", err));
@@ -4289,25 +4439,25 @@ function renderAIBacktest(d) {
     if (noteEl) noteEl.innerText = d.note || "";
     if (!d.days_of_data) {
         if (kpis) kpis.innerHTML = "";
-        if (extraEl) extraEl.innerHTML = `<div>Abhi koi saved data nahi hai. Server live broker feed par market OPEN time me har minute spread save karta hai. Kuch din baad yahan result aayega.</div>`;
-        if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">Data jama ho raha hai.</td></tr>`;
+        if (extraEl) extraEl.innerHTML = `<div>No saved data yet. The server saves the spread every minute on the live broker feed during market OPEN time. Results will appear here after a few days.</div>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="ai-empty">Collecting data.</td></tr>`;
         return;
     }
     if (kpis) {
         kpis.innerHTML = [
-            aiKpi("Data", `${d.days_of_data} din`),
+            aiKpi("Data", `${d.days_of_data} days`),
             aiKpi("Trades", d.trades),
             aiKpi("Jeete / Haare", `${d.wins} / ${d.losses}`),
             aiKpi("Win rate", d.win_rate_percent === null ? "--" : `${d.win_rate_percent}%`),
-            aiKpi("Net (band trades)", aiMoney(d.net), aiMoneyColor(d.net)),
+            aiKpi("Net (closed trades)", aiMoney(d.net), aiMoneyColor(d.net)),
             aiKpi("Max drawdown", `₹${Math.round(d.max_drawdown).toLocaleString()}`, d.max_drawdown > 0 ? "#DC2626" : null),
             aiKpi("Avg hold", d.avg_hold_minutes === null ? "--" : `${d.avg_hold_minutes} min`)
         ].join("");
     }
-    const extra = [`Data: ${aiEsc(d.first_day)} se ${aiEsc(d.last_day)} (${d.snapshots} snapshots)`];
+    const extra = [`Data: ${aiEsc(d.first_day)} to ${aiEsc(d.last_day)} (${d.snapshots} snapshots)`];
     const pairs = Object.entries(d.by_pair || {}).map(([k, v]) => `${aiEsc(k)}: ${v.trades} trades, ${v.wins} jeete, ${aiMoney(v.net)}`);
     if (pairs.length) extra.push(`Month-wise: ${pairs.join(" | ")}`);
-    (d.open_at_end || []).forEach(o => extra.push(`<span style="color: #B45309; font-weight: 600;">⚠️ Data khatam hone tak khuli: ${aiEsc(o.pair)} ${aiEsc(o.direction)} @ ${aiNum(o.entry)} (${aiEsc(o.entry_at)}), abhi ${o.points > 0 ? "+" : ""}${o.points} pts. Yeh Net me shamil nahi.</span>`));
+    (d.open_at_end || []).forEach(o => extra.push(`<span style="color: #B45309; font-weight: 600;">⚠️ Still open at end of data: ${aiEsc(o.pair)} ${aiEsc(o.direction)} @ ${aiNum(o.entry)} (${aiEsc(o.entry_at)}), now ${o.points > 0 ? "+" : ""}${o.points} pts. Not included in Net.</span>`));
     if (extraEl) extraEl.innerHTML = extra.map(x => `<div>${x}</div>`).join("");
     if (tbody) {
         tbody.innerHTML = d.closed_trades.length ? d.closed_trades.slice().reverse().map(t => `<tr>
@@ -4319,7 +4469,7 @@ function renderAIBacktest(d) {
             <td style="font-family: monospace;">${t.points > 0 ? "+" : ""}${t.points}</td>
             <td style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(t.net)};">${aiMoney(t.net)}</td>
             <td>${aiEsc(t.result)}</td>
-        </tr>`).join("") : `<tr><td colspan="8" class="ai-empty">Is data me rule ne koi trade complete nahi kiya.</td></tr>`;
+        </tr>`).join("") : `<tr><td colspan="8" class="ai-empty">The rule completed no trades in this data.</td></tr>`;
     }
 }
 
@@ -4343,13 +4493,13 @@ function renderAIAlerts() {
     list.innerHTML = window._aiAlerts.length ? window._aiAlerts.map(a => `
         <div style="border-left: 4px solid ${colors[a.level] || '#64748B'}; background: #F8FAFC; border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.82rem;">
             <span style="font-family: monospace; color: #64748B;">${aiEsc(a.time)}</span> &nbsp;${aiEsc(a.text)}
-        </div>`).join("") : `<div class="ai-empty">Aaj abhi tak koi alert nahi.</div>`;
+        </div>`).join("") : `<div class="ai-empty">No alerts today so far.</div>`;
 }
 
 function showAIAlertToast(alerts) {
     const toast = document.getElementById("ai-alert-toast");
     if (!toast || !alerts.length) return;
-    toast.innerHTML = `<strong>🔔 AI Alert${alerts.length > 1 ? ` (${alerts.length})` : ""}</strong><br>${aiEsc(alerts[0].text)}<br><span style="font-size: 0.7rem; color: #CBD5E1;">Click karein - Alerts dekhein</span>`;
+    toast.innerHTML = `<strong>🔔 AI Alert${alerts.length > 1 ? ` (${alerts.length})` : ""}</strong><br>${aiEsc(alerts[0].text)}<br><span style="font-size: 0.7rem; color: #CBD5E1;">Click to see alerts</span>`;
     toast.style.display = "block";
     clearTimeout(window._aiToastTimer);
     window._aiToastTimer = setTimeout(() => { toast.style.display = "none"; }, 12000);
@@ -4377,13 +4527,13 @@ function pollAIAlerts() {
 
 function enableAINotifications() {
     if (!("Notification" in window)) {
-        alert("Is browser me notification support nahi hai.");
+        alert("This browser does not support notifications.");
         return;
     }
     Notification.requestPermission().then(p => {
         updateAINotifyButton();
-        if (p === "granted") new Notification("Gold Trade - AI Alerts on", { body: "Naye signal / position alerts yahan aayenge (jab tak terminal khula hai).", icon: "/icon.svg" });
-        else alert("Notification permission nahi mili. Browser settings se allow karein.");
+        if (p === "granted") new Notification("Gold Trade - AI Alerts on", { body: "New signal / position alerts will appear here (while the terminal is open).", icon: "/icon-192.png" });
+        else alert("Notification permission was denied. Allow it in browser settings.");
     });
 }
 window.enableAINotifications = enableAINotifications;
@@ -4391,7 +4541,7 @@ window.enableAINotifications = enableAINotifications;
 function updateAINotifyButton() {
     const btn = document.getElementById("ai-notify-btn");
     if (btn && "Notification" in window && Notification.permission === "granted") {
-        btn.innerText = "🔔 Notification on hai";
+        btn.innerText = "🔔 Notifications on";
         btn.disabled = true;
         btn.style.cursor = "default";
     }
@@ -4402,7 +4552,7 @@ pollAIAlerts();
 setInterval(pollAIAlerts, 30000);
 setInterval(() => {
     const modal = document.getElementById("ai-hub-modal");
-    if (modal && modal.style.display !== "none") fetchAIMonitor();
+    if (modal && modal.style.display !== "none") fetchAIHubData();
 }, 30000);
 
 function promptSetClaudeKey() {
@@ -4437,7 +4587,7 @@ const AI_DECISION_STYLES = {
     "Expansion": ["🟢 BUY SPREAD", "#16A34A", "#FFFFFF"],
     "Contraction": ["🔴 SELL SPREAD", "#DC2626", "#FFFFFF"],
     "WAIT": ["⏸ WAIT", "#F1F5F9", "#334155"],
-    "EXPIRY": ["⛔ EXPIRY PAAS", "#FEF3C7", "#92400E"]
+    "EXPIRY": ["⛔ NEAR EXPIRY", "#FEF3C7", "#92400E"]
 };
 
 function renderClaudeAdvisory(adv, userQuery = "") {
@@ -4446,19 +4596,36 @@ function renderClaudeAdvisory(adv, userQuery = "") {
 
     const sourceLine = document.getElementById("ai-source-line");
     if (sourceLine) {
-        const keyTxt = window._hasClaudeApiKey ? "Claude key: set" : "Claude key: set nahi";
+        const keyTxt = window._hasClaudeApiKey ? "Claude key: set" : "Claude key: not set";
         sourceLine.innerText = `Source: ${adv.source || "--"} | Updated: ${adv.time || "--"} | ${keyTxt}`;
+    }
+
+    // Header / mobile badge = kitne months me abhi BUY/SELL signal hai
+    const sigCount = adv.signal_count || 0;
+    const topAiBadge = document.getElementById("header-ai-opp-badge");
+    const mobileAiBadge = document.getElementById("mobile-ai-badge");
+    if (topAiBadge) topAiBadge.innerText = sigCount;
+    if (mobileAiBadge) {
+        mobileAiBadge.innerText = sigCount;
+        mobileAiBadge.style.display = sigCount > 0 ? "inline-block" : "none";
     }
 
     const summaryEl = document.getElementById("ai-suggestions-summary");
     if (summaryEl) {
         const n = adv.signal_count || 0;
         const exp = adv.expiry_blocked_count || 0;
-        summaryEl.innerText = suggestions.length
-            ? `${suggestions.length} months check kiye: ${n} me signal hai, ${suggestions.length - n - exp} me WAIT` +
-              (exp ? `, ${exp} expiry ke paas (suggestion band).` : ".") +
-              (n > 1 ? " ⭐ = sabse achhi position wala month." : "")
-            : "Koi pair set nahi hai. Month Master me pair add karein.";
+        const holdNote = adv.live_feed === false
+            ? "⚠️ No live broker feed: the AI uses only real market data, so nothing is suggested until the broker is connected. "
+            : adv.market_session === "SUSPENDED"
+            ? "🌙 Market is closed: suggestions start when the market opens. "
+            : adv.market_session === "HOLD"
+            ? "⏸ Market HOLD window right now: prices are unusual, so suggestions are paused until it ends. "
+            : "";
+        summaryEl.innerText = holdNote + (suggestions.length
+            ? `${suggestions.length} months checked: ${n} with a signal, ${suggestions.length - n - exp} WAIT` +
+              (exp ? `, ${exp} near expiry (no suggestion).` : ".") +
+              (n > 1 ? " ⭐ = month with the best position." : "")
+            : "No pair set. Add pairs in Month Master.");
     }
 
     const rulesEl = document.getElementById("ai-rules-text");
@@ -4470,7 +4637,7 @@ function renderClaudeAdvisory(adv, userQuery = "") {
     const replyBox = document.getElementById("ai-assistant-reply-box");
     if (replyBox && userQuery) {
         replyBox.style.display = "block";
-        replyBox.innerText = adv.claude_reply || `⚠️ ${adv.api_error || "Claude se jawab nahi mila."}`;
+        replyBox.innerText = adv.claude_reply || `⚠️ ${adv.api_error || "No reply from Claude."}`;
     }
 }
 
@@ -4489,7 +4656,7 @@ function submitAIAssistantQuestion() {
     const replyBox = document.getElementById("ai-assistant-reply-box");
     if (replyBox) {
         replyBox.style.display = "block";
-        replyBox.innerText = "⏳ Claude soch raha hai...";
+        replyBox.innerText = "⏳ Claude is thinking...";
     }
     callClaudeAnalysis(q);
 }
@@ -4500,31 +4667,32 @@ function renderAISuggestions(suggestions) {
     const tbody = document.getElementById("ai-suggestions-tbody");
     if (!tbody) return;
     if (!suggestions.length) {
-        tbody.innerHTML = `<tr><td colspan="7" style="padding: 0.8rem; text-align: center; color: #64748B;">Koi pair nahi. Month Master me pair add karein.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" style="padding: 0.8rem; text-align: center; color: #64748B;">No pairs. Add pairs in Month Master.</td></tr>`;
         return;
     }
-    const pct = v => (v === null || v === undefined) ? "--" : `${Math.round(v)}%`;
     tbody.innerHTML = suggestions.map((s, idx) => {
         const st = AI_DECISION_STYLES[s.decision] || AI_DECISION_STYLES["WAIT"];
         const plan = s.plan;
+        const hasWarn = plan && ((plan.warnings || []).length || ((plan.risk || {}).warnings || []).length);
         const planCell = plan
-            ? `${aiNum(plan.entry_spread)} → ${aiNum(plan.target_spread)}<br><strong style="color: ${plan.est_net_profit >= 0 ? '#059669' : '#DC2626'};">Net ₹${Number(plan.est_net_profit).toLocaleString()}</strong>${((plan.warnings || []).length || ((plan.risk || {}).warnings || []).length) ? ' <span title="Warning hai - detail dekhein">⚠️</span>' : ''}`
-            : "--";
+            ? `${s.decision === "Expansion" ? "Buy" : "Sell"} <strong>${aiNum(plan.entry_spread)}</strong> → exit <strong>${aiNum(plan.target_spread)}</strong><br><span style="color: ${plan.est_net_profit >= 0 ? '#059669' : '#DC2626'}; font-weight: 700;">~₹${Math.round(plan.est_net_profit).toLocaleString()} / 100g</span>${hasWarn ? ' <span title="Has a warning - see details">⚠️</span>' : ''}`
+            : `<span style="color: #64748B;">--</span>`;
+        const shortWhy = aiShortReason(s);
         const btn = plan
-            ? `<button type="button" onclick="event.stopPropagation(); applyAISuggestionToBot(${idx})" style="padding: 4px 10px; font-size: 0.74rem; font-weight: 800; background: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">Form me bharo</button>`
+            ? `<button type="button" onclick="event.stopPropagation(); applyAISuggestionToBot(${idx})" style="padding: 4px 10px; font-size: 0.74rem; font-weight: 800; background: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer; white-space: nowrap;">Fill bot form</button>`
             : "";
         const detailParts = [`<div style="font-weight: 600; color: #0F172A;">${aiEsc(s.reason)}</div>`];
         if (plan) {
             detailParts.push(`<div style="margin-top: 0.35rem;"><strong>Entry:</strong> ${aiEsc(plan.entry_text)} @ ${aiNum(plan.entry_spread)} pts</div>`);
             detailParts.push(`<div><strong>Exit:</strong> ${aiEsc(plan.exit_text)} @ ${aiNum(plan.target_spread)} pts (${plan.target_pts} pts move)</div>`);
             detailParts.push(`<div><strong>Bot settings:</strong> Step ${plan.step} pts | Lots ${aiEsc(plan.lots)}</div>`);
-            detailParts.push(`<div><strong>Target hit hua to (1 unit):</strong> Gross ₹${Number(plan.gross_profit).toLocaleString()} − Charges ₹${plan.charges} − Slippage ₹${plan.slippage_cushion} = Net ₹${Number(plan.est_net_profit).toLocaleString()} (${plan.grams}g)</div>`);
+            detailParts.push(`<div><strong>If target hits (1 unit):</strong> Gross ₹${Number(plan.gross_profit).toLocaleString()} − Charges ₹${plan.charges} − Slippage ₹${plan.slippage_cushion} = Net ₹${Number(plan.est_net_profit).toLocaleString()} (${plan.grams}g)</div>`);
             (plan.warnings || []).forEach(w => detailParts.push(`<div style="color: #B45309; font-weight: 600;">⚠️ ${aiEsc(w)}</div>`));
             const risk = plan.risk;
             if (risk) {
-                detailParts.push(`<div style="margin-top: 0.35rem;"><strong>Risk check:</strong> ${risk.total_lots} lots × ₹50,000 = margin ~₹${Math.round(risk.margin_needed).toLocaleString()} | Available ₹${Math.round(risk.available_balance).toLocaleString()} | Is month me pehle se ${risk.open_lots_same_pair} lots khule</div>`);
+                detailParts.push(`<div style="margin-top: 0.35rem;"><strong>Risk check:</strong> ${risk.total_lots} lots × ₹50,000 = margin ~₹${Math.round(risk.margin_needed).toLocaleString()} | Available ₹${Math.round(risk.available_balance).toLocaleString()} | Already open in this month: ${risk.open_lots_same_pair} lots</div>`);
                 if (risk.warnings.length) risk.warnings.forEach(w => detailParts.push(`<div style="color: #B91C1C; font-weight: 600;">🛑 ${aiEsc(w)}</div>`));
-                else detailParts.push(`<div style="color: #15803D; font-weight: 600;">✅ Risk check me koi problem nahi mili.</div>`);
+                else detailParts.push(`<div style="color: #15803D; font-weight: 600;">✅ Risk check found no problems.</div>`);
             }
         }
         detailParts.push(`<ul style="margin: 0.4rem 0 0 0; padding-left: 1.1rem; font-family: monospace; color: #475569;">${(s.facts || []).map(f => `<li>${aiEsc(f)}</li>`).join("")}</ul>`);
@@ -4532,18 +4700,33 @@ function renderAISuggestions(suggestions) {
         const rowBg = s.is_best ? "rgba(79, 70, 229, 0.06)" : "#FFFFFF";
         return `
             <tr onclick="toggleAISuggestionDetail(${idx})" style="cursor: pointer; background: ${rowBg}; border-top: 1px solid #E2E8F0;">
-                <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${s.is_best ? "⭐ " : ""}${aiEsc(s.pair)}${s.is_active ? ' <span style="font-size: 0.65rem; color: #64748B;">(active)</span>' : ''}</td>
-                <td style="padding: 0.5rem 0.6rem; white-space: nowrap; ${s.decision === 'EXPIRY' ? 'color: #B45309; font-weight: 700;' : ''}">${s.expiry_date ? `${aiEsc(s.expiry_date)}<br><span style="font-size: 0.7rem; color: #64748B;">${s.days_to_expiry} din baaki</span>` : '--'}</td>
+                <td style="padding: 0.5rem 0.6rem; font-weight: 700;">${s.is_best ? "⭐ " : ""}${aiEsc(aiShortPair(s.pair))}${s.is_active ? ' <span style="font-size: 0.65rem; color: #64748B;">(active)</span>' : ''}<br><span style="font-size: 0.7rem; font-weight: 500; color: ${s.decision === 'EXPIRY' ? '#B45309' : '#64748B'};">${s.expiry_date ? `Expiry ${aiEsc(s.expiry_date)} · ${s.days_to_expiry} days` : 'Expiry: --'}</span></td>
                 <td style="padding: 0.5rem 0.6rem;"><span style="font-size: 0.72rem; font-weight: 800; padding: 2px 8px; border-radius: 5px; background: ${st[1]}; color: ${st[2]}; white-space: nowrap;">${st[0]}</span></td>
-                <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #15803D;">${aiNum(s.depth_buy_spread)}</strong> <span style="color: #64748B;">(${aiNum(s.depth_buy_low)}–${aiNum(s.depth_buy_high)})</span> · ${pct(s.buy_pos_pct)}</td>
-                <td style="padding: 0.5rem 0.6rem; font-family: monospace;"><strong style="color: #B91C1C;">${aiNum(s.depth_sell_spread)}</strong> <span style="color: #64748B;">(${aiNum(s.depth_sell_low)}–${aiNum(s.depth_sell_high)})</span> · ${pct(s.sell_pos_pct)}</td>
-                <td style="padding: 0.5rem 0.6rem; font-family: monospace;">${planCell}</td>
+                <td style="padding: 0.5rem 0.6rem; font-size: 0.78rem; color: #334155; min-width: 180px;">${shortWhy}</td>
+                <td style="padding: 0.5rem 0.6rem; font-family: monospace; white-space: nowrap;">${planCell}</td>
                 <td style="padding: 0.5rem 0.6rem; text-align: right;">${btn}</td>
             </tr>
             <tr id="ai-sugg-detail-${idx}" style="display: ${s.is_best ? 'table-row' : 'none'}; background: ${rowBg};">
-                <td colspan="7" style="padding: 0.2rem 0.8rem 0.7rem 0.8rem; font-size: 0.76rem; line-height: 1.5; color: #334155;">${detailParts.join("")}</td>
+                <td colspan="5" style="padding: 0.2rem 0.8rem 0.7rem 0.8rem; font-size: 0.76rem; line-height: 1.5; color: #334155;">${detailParts.join("")}</td>
             </tr>`;
     }).join("");
+}
+
+function aiShortPair(pair) {
+    return String(pair || "").replace(/GOLDPETAL/g, "PETAL ").replace(/GOLDTEN/g, "TEN ").replace(/GOLDGUINEA/g, "GUINEA ").replace(/GOLDM/g, "MINI ").replace(/FUT/g, "");
+}
+
+// Ek line me seedha "kyun" - poori detail row khulne par
+function aiShortReason(s) {
+    if (s.decision === "EXPIRY") return `Near expiry (${s.days_to_expiry} days). No new entry in this month.`;
+    if (s.on_hold) return "⏸ Market HOLD window. This time is ignored.";
+    if (s.decision === "WAIT" && s.reason && (s.reason.startsWith("Not connected") || s.reason.startsWith("Market is closed"))) return s.reason;
+    if (!s.has_live_data) return "No live price.";
+    if (s.depth_buy_spread === null || s.depth_sell_spread === null) return "No real order book (depth) from the broker.";
+    if (s.decision === "Expansion") return `Spread is near today's Low (${Math.round(s.buy_pos_pct)}%). Cheap.`;
+    if (s.decision === "Contraction") return `Spread is near today's High (${Math.round(s.sell_pos_pct)}%). Expensive.`;
+    if (s.buy_pos_pct === null && s.sell_pos_pct === null) return "Today's range is still too small.";
+    return `Spread is mid-range (${s.buy_pos_pct === null ? "--" : Math.round(s.buy_pos_pct) + "%"}). Neither cheap nor expensive.`;
 }
 
 function toggleAISuggestionDetail(idx) {
@@ -4552,47 +4735,162 @@ function toggleAISuggestionDetail(idx) {
 }
 window.toggleAISuggestionDetail = toggleAISuggestionDetail;
 
-function renderAISignals(signals, summary, threshold) {
-    const summaryEl = document.getElementById("ai-scanner-summary");
-    if (summaryEl) {
-        const win = (summary.win_rate_percent === null || summary.win_rate_percent === undefined) ? "--" : `${summary.win_rate_percent}%`;
-        summaryEl.innerText =
-            `Jab spread apne 60-min average se ${threshold} pts se zyada door jaata hai, scanner signal likhta hai. ` +
-            `Aaj: ${summary.total_opportunities || 0} signals | ${summary.reverted_count || 0} success | ` +
-            `${summary.stopped_count || 0} stopped | ${summary.active_count || 0} chal rahe | Win rate ${win}`;
-    }
-    const tbody = document.getElementById("ai-signals-tbody");
-    if (!tbody) return;
-    if (!signals.length) {
-        tbody.innerHTML = `<tr><td colspan="5" style="padding: 0.8rem; text-align: center; color: #64748B;">Aaj abhi tak koi signal nahi.</td></tr>`;
-        return;
-    }
-    tbody.innerHTML = signals.map(o => {
-        let result = "⏳ Chal raha hai";
-        if ((o.status || "").includes("Reverted")) result = `✅ +${aiNum(o.captured_pts)} pts (Net ₹${aiEsc(o.net_profit)})`;
-        else if ((o.status || "").includes("Stopped")) result = `❌ ${aiNum(o.captured_pts)} pts (Net ₹${aiEsc(o.net_profit)})`;
-        return `<tr style="border-bottom: 1px solid #E2E8F0;">
-            <td style="padding: 0.45rem 0.6rem; font-family: monospace;">${aiEsc(o.timestamp)}</td>
-            <td style="padding: 0.45rem 0.6rem;">${aiEsc(o.pair)}</td>
-            <td style="padding: 0.45rem 0.6rem;">${aiEsc(o.direction)}</td>
-            <td style="padding: 0.45rem 0.6rem; font-family: monospace;">${aiNum(o.trigger_spread)} / ${aiNum(o.rolling_mean)}</td>
-            <td style="padding: 0.45rem 0.6rem;">${result}</td>
-        </tr>`;
-    }).join("");
+// ---------- Paper Trader (kaagaz par trade, insaan jaisi kahani) ----------
+window._aiPaper = null;
+window._aiPaperFilter = "all";
+
+function aiTimeOnly(ts) {
+    // "2026-11-02 10:15:30" -> "02 Nov 10:15"
+    if (!ts) return "--";
+    const [d, t] = String(ts).split(" ");
+    const parts = (d || "").split("-");
+    const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(parts[1]) - 1] || "";
+    return `${parts[2] || ""} ${mon} ${(t || "").slice(0, 5)}`;
 }
 
-function applyAISuggestionToBot(idx) {
+// Ek trade ki kahani: kab kya liya, kab kya becha
+function aiPaperStory(t) {
+    const exp = t.direction === "Expansion";
+    const inWord = exp ? "Depth Buy" : "Depth Sell";
+    const outWord = exp ? "Depth Sell" : "Depth Buy";
+    const inVerb = exp ? "bought" : "sold";
+    const outVerb = exp ? "sold" : "bought back";
+    const steps = [];
+    t.levels.forEach(lv => {
+        if (lv.entry === null) {
+            if (lv.result === "NOT_FILLED" || t.status === "OPEN") {
+                steps.push(`<li style="color: #94A3B8;">Level ${lv.level}: ${lv.lots} lot to ${inVerb === "bought" ? "buy" : "sell"} at ${aiNum(lv.trigger)}, ${t.status === "OPEN" ? "spread has not reached it yet" : "spread never reached it"}</li>`);
+            }
+            return;
+        }
+        let line = `<strong>${aiTimeOnly(lv.entry_at)}</strong>: ${inVerb} ${lv.lots} lot at ${inWord} <strong>${aiNum(lv.entry)}</strong>`;
+        if (lv.result && lv.exit !== null) {
+            const tag = lv.result === "TARGET" ? "🎯 target" : (lv.result === "STOP" ? "🛑 stop loss" : "⛔ expiry");
+            line += ` → <strong>${aiTimeOnly(lv.exit_at)}</strong>: ${outVerb} at ${outWord} <strong>${aiNum(lv.exit)}</strong> (${tag}) = <span style="color: ${aiMoneyColor(lv.points)}; font-weight: 700;">${lv.points > 0 ? "+" : ""}${lv.points} pts, ${aiMoney(lv.net)}</span>`;
+        } else {
+            line += ` → <span style="color: #64748B;">still open, target ${aiNum(exp ? lv.entry + t.target_pts : lv.entry - t.target_pts)}</span>`;
+        }
+        steps.push(`<li>${line}</li>`);
+    });
+    return `<ul style="margin: 0.35rem 0 0 0; padding-left: 1.1rem; line-height: 1.6;">${steps.join("")}</ul>`;
+}
+
+function renderAIPaper(p) {
+    window._aiPaper = p;
+    const s = p.summary;
+    const badge = document.getElementById("ai-paper-badge");
+    if (badge) {
+        badge.innerText = s.open;
+        badge.style.display = s.open > 0 ? "inline" : "none";
+    }
+    const note = document.getElementById("ai-paper-livenote");
+    if (note) {
+        note.innerHTML = p.live_feed ? "" : `<div style="margin: 0.4rem 0; padding: 0.5rem 0.7rem; border-radius: 6px; background: #FFFBEB; color: #92400E; font-size: 0.78rem; font-weight: 600;">⚠️ The paper trader runs only on the real (live) broker feed. It does not trade on simulation data, so results are never fake.</div>`;
+    }
+    const kpis = document.getElementById("ai-paper-kpis");
+    if (kpis) {
+        kpis.innerHTML = [
+            aiKpi("Closed trades", s.trades),
+            aiKpi("✅ Profit book", s.profit, "#15803D"),
+            aiKpi("❌ Loss book", s.loss, "#B91C1C"),
+            aiKpi("Win rate", s.win_rate_percent === null ? "--" : `${s.win_rate_percent}%`),
+            aiKpi("Total net", aiMoney(s.net), aiMoneyColor(s.net)),
+            aiKpi("Avg profit", s.avg_profit === null ? "--" : aiMoney(s.avg_profit), "#15803D"),
+            aiKpi("Avg loss", s.avg_loss === null ? "--" : aiMoney(s.avg_loss), "#B91C1C"),
+            aiKpi("Open now", s.open)
+        ].join("");
+    }
+
+    const reasonsEl = document.getElementById("ai-paper-reasons");
+    if (reasonsEl) {
+        const good = ["Profit at target"];
+        reasonsEl.innerHTML = Object.entries(p.close_reasons || {}).map(([k, v]) =>
+            `<div class="ai-paper-reason" style="border-left-color: ${good.includes(k) ? '#16A34A' : '#DC2626'};"><strong>${v}</strong><span>${aiEsc(k)}</span></div>`
+        ).join("");
+    }
+
+    const byPair = document.getElementById("ai-paper-bypair");
+    if (byPair) {
+        const rows = Object.entries(p.by_pair || {});
+        byPair.innerHTML = rows.length ? rows.map(([k, v]) => `<tr>
+            <td style="font-weight: 700;">${aiEsc(aiShortPair(k))}</td>
+            <td>${v.trades}</td>
+            <td style="color: #15803D; font-weight: 700;">${v.profit}</td>
+            <td style="color: #B91C1C; font-weight: 700;">${v.loss}</td>
+            <td>${v.win_rate_percent === null ? "--" : v.win_rate_percent + "%"}</td>
+            <td style="font-weight: 800; color: ${aiMoneyColor(v.net)};">${aiMoney(v.net)}</td>
+        </tr>`).join("") : `<tr><td colspan="6" class="ai-empty">No paper trade closed yet.</td></tr>`;
+    }
+
+    const openEl = document.getElementById("ai-paper-open");
+    if (openEl) {
+        openEl.innerHTML = p.open_trades.length ? p.open_trades.map(t => {
+            const label = t.direction === "Expansion" ? "🟢 BUY SPREAD" : "🔴 SELL SPREAD";
+            const pts = t.points_now;
+            return `<div class="ai-paper-card" style="border-left-color: #4F46E5;">
+                <div class="ai-paper-head">
+                    <span><strong>#${t.id} ${aiEsc(aiShortPair(t.pair))}</strong> · ${label}</span>
+                    <span style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(pts)};">${pts === null ? "--" : (pts > 0 ? "+" : "") + pts + " pts (" + t.open_lots + " lot)"}</span>
+                </div>
+                <div style="color: #64748B; font-size: 0.74rem;">Opened: ${aiTimeOnly(t.opened_at)} · Stop loss ${aiNum(t.stop_spread)} · Why: ${aiEsc(t.entry_why)}</div>
+                ${aiPaperStory(t)}
+            </div>`;
+        }).join("") : `<div class="ai-empty">No open paper trades.</div>`;
+    }
+
+    const rulesEl = document.getElementById("ai-paper-rules");
+    if (rulesEl) rulesEl.innerText = p.rules || "";
+    renderAIPaperClosed();
+}
+
+function renderAIPaperClosed() {
+    const p = window._aiPaper;
+    const el = document.getElementById("ai-paper-closed");
+    if (!p || !el) return;
+    document.querySelectorAll(".ai-paper-filter").forEach(b => b.classList.toggle("active", b.dataset.f === window._aiPaperFilter));
+    const list = p.closed_trades.filter(t => window._aiPaperFilter === "all" || t.status === window._aiPaperFilter);
+    el.innerHTML = list.length ? list.map(t => {
+        const win = t.status === "PROFIT";
+        const label = t.direction === "Expansion" ? "BUY SPREAD" : "SELL SPREAD";
+        return `<div class="ai-paper-card" style="border-left-color: ${win ? '#16A34A' : '#DC2626'};">
+            <div class="ai-paper-head">
+                <span><strong style="color: ${win ? '#15803D' : '#B91C1C'};">${win ? "✅ PROFIT BOOK" : "❌ LOSS BOOK"}</strong> · #${t.id} ${aiEsc(aiShortPair(t.pair))} · ${label}</span>
+                <span style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(t.net)};">${aiMoney(t.net)}</span>
+            </div>
+            <div style="color: #64748B; font-size: 0.74rem;">${aiTimeOnly(t.opened_at)} → ${aiTimeOnly(t.closed_at)} · ${t.lots} lot · avg entry ${aiNum(t.avg_entry)}</div>
+            ${aiPaperStory(t)}
+            <div style="margin-top: 0.35rem; font-weight: 700; font-size: 0.78rem;">${win ? "Why it made a profit:" : "Why it made a loss:"}</div>
+            <ol style="margin: 0.2rem 0 0 0; padding-left: 1.2rem; line-height: 1.55;">${(t.reasons || []).map(r => `<li>${aiEsc(r)}</li>`).join("")}</ol>
+        </div>`;
+    }).join("") : `<div class="ai-empty">${window._aiPaperFilter === "all" ? "No paper trade closed yet." : "No trades for this filter."}</div>`;
+}
+
+function setAIPaperFilter(f) {
+    window._aiPaperFilter = f;
+    renderAIPaperClosed();
+}
+window.setAIPaperFilter = setAIPaperFilter;
+
+async function resetAIPaperTrades() {
+    if (!await appConfirm("Clear all paper trades? Real trades are not affected.")) return;
+    postAction("ai/paper-reset", {}).then(res => {
+        if (res && res.status === "SUCCESS") fetchAIHubData();
+    });
+}
+window.resetAIPaperTrades = resetAIPaperTrades;
+
+async function applyAISuggestionToBot(idx) {
     const s = (window._aiSuggestions || [])[idx];
     const payload = s && s.plan ? s.plan.actionable_payload : null;
     if (!payload) {
-        alert("Is month me abhi koi suggestion nahi hai (decision WAIT hai).");
+        alert("No suggestion for this month right now (decision is WAIT).");
         return;
     }
 
     // Risk check: koi problem ho to pehle dikhao, user ke OK ke bina form mat bharo
     const riskWarnings = (s.plan.risk && s.plan.risk.warnings) || [];
     if (riskWarnings.length) {
-        const ok = confirm(`⚠️ Risk check (${s.pair}):\n\n• ${riskWarnings.join("\n• ")}\n\nPhir bhi Lots Bot form bharna hai?`);
+        const ok = await appConfirm(`⚠️ Risk check (${s.pair}):\n\n• ${riskWarnings.join("\n• ")}\n\nFill the Lots Bot form anyway?`);
         if (!ok) return;
     }
 
@@ -4609,7 +4907,7 @@ function applyAISuggestionToBot(idx) {
         }
     }
     if (matchIdx === -1) {
-        alert(`❌ Pair "${wanted}" Lots Bot ki month list me nahi mila.\n\nPehle Month Master me yeh pair add karein. Form me kuch nahi bhara gaya.`);
+        alert(`❌ Pair "${wanted}" is not in the Lots Bot month list.\n\nAdd this pair in Month Master first. Nothing was filled in the form.`);
         return;
     }
 
@@ -4637,8 +4935,8 @@ function applyAISuggestionToBot(idx) {
     const formCard = document.getElementById("card-trade-automation-lots");
     if (formCard) formCard.scrollIntoView({ behavior: "smooth", block: "center" });
 
-    logLocalMessage(`[AI] Form bhara: ${wanted} | ${payload.direction} | Entry ${payload.entry_diff} | Target +${payload.exit_gap} | Step ${payload.step} | Lots ${payload.lots}. Bot abhi start NAHI hua.`);
-    alert(`Lots Bot form bhar diya:\n\n• Pair: ${wanted}\n• Direction: ${payload.direction}\n• Entry: ${payload.entry_diff}\n• Target: +${payload.exit_gap} pts\n• Step: ${payload.step} pts\n• Lots: ${payload.lots}\n\nBot abhi start NAHI hua. Check karke khud 'Add Bot Instance' dabayein.`);
+    logLocalMessage(`[AI] Form filled: ${wanted} | ${payload.direction} | Entry ${payload.entry_diff} | Target +${payload.exit_gap} | Step ${payload.step} | Lots ${payload.lots}. Bot NOT started yet.`);
+    alert(`Lots Bot form filled:\n\n• Pair: ${wanted}\n• Direction: ${payload.direction}\n• Entry: ${payload.entry_diff}\n• Target: +${payload.exit_gap} pts\n• Step: ${payload.step} pts\n• Lots: ${payload.lots}\n\nThe bot has NOT started. Check it and press 'Add Bot Instance' yourself.`);
 }
 
 

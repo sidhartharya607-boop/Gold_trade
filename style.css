@@ -866,7 +866,7 @@ body {
 .metric-footer {
     font-size: 0.7rem;
     color: var(--text-secondary);
-    border-top: 1px solid rgba(255,255,255,0.04);
+    border-top: 1px solid var(--border-color);
     padding-top: 0.6rem;
     font-weight: 500;
 }
@@ -1412,7 +1412,7 @@ body {
 
 .history-table td {
     padding: 0.45rem 0.75rem;
-    border-bottom: 1px solid rgba(255,255,255,0.03);
+    border-bottom: 1px solid var(--border-color);
     color: var(--text-primary);
     font-family: var(--font-mono);
 }
@@ -1761,7 +1761,7 @@ body {
     border: 1px solid rgba(239, 68, 68, 0.3);
     border-radius: 8px;
     padding: 0.65rem 1rem;
-    color: #F87171;
+    color: #B91C1C;
     font-size: 0.78rem;
     font-weight: 500;
     margin-bottom: 0.1rem;
@@ -2688,6 +2688,52 @@ body {
     cursor: pointer;
     font-weight: 700;
 }
+.ai-chip.active {
+    background: #1E293B;
+    color: #FFFFFF;
+    border-color: #1E293B;
+}
+/* Paper trader */
+.ai-paper-reason-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+.ai-paper-reason {
+    background: #F8FAFC;
+    border: 1.5px solid #E2E8F0;
+    border-left: 4px solid #64748B;
+    border-radius: 8px;
+    padding: 0.45rem 0.65rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    color: #334155;
+}
+.ai-paper-reason strong {
+    font-size: 1.15rem;
+    color: #0F172A;
+}
+.ai-paper-card {
+    background: #FFFFFF;
+    border: 1.5px solid #E2E8F0;
+    border-left: 4px solid #64748B;
+    border-radius: 8px;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.78rem;
+    color: #334155;
+}
+.ai-paper-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.84rem;
+    margin-bottom: 0.15rem;
+}
 .ai-pill {
     font-size: 0.72rem;
     font-weight: 800;
@@ -2705,6 +2751,183 @@ body {
         opacity: 1;
         transform: scale(1) translateY(0);
     }
+}
+
+/* =========================================================================
+   PWA / mobile polish
+   ========================================================================= */
+.mobile-only-inline { display: none; }
+
+/* Server link (WebSocket) banner: amber, stays on top while scrolling */
+.server-link-banner {
+    position: sticky;
+    top: env(safe-area-inset-top, 0px);
+    z-index: 9000;
+    background-color: #FFFBEB;
+    border-color: #F59E0B;
+    color: #92400E;
+    animation: none;
+}
+
+/* In-app confirm / alert dialog */
+.app-dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    animation: aiModalFadeIn 0.15s ease-out;
+}
+.app-dialog {
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    box-shadow: var(--shadow-md);
+    width: 100%;
+    max-width: 420px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.app-dialog-msg {
+    padding: 1.1rem 1.15rem 0.9rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
+    white-space: pre-line;
+    overflow-y: auto;
+}
+.app-dialog-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1.15rem 1rem;
+    border-top: 1px solid var(--border-color);
+}
+.app-dialog-btn {
+    flex: 1;
+    min-height: 44px;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+}
+.app-dialog-ok {
+    background: #0F172A;
+    border-color: #0F172A;
+    color: #FFFFFF;
+}
+.app-dialog-ok.danger {
+    background: var(--accent-red-hover);
+    border-color: var(--accent-red-hover);
+}
+
+@media (max-width: 768px) {
+    .desktop-only-inline { display: none !important; }
+    .mobile-only-inline { display: inline; }
+
+    body {
+        padding-left: calc(0.45rem + env(safe-area-inset-left, 0px));
+        padding-right: calc(0.45rem + env(safe-area-inset-right, 0px));
+    }
+
+    /* Compact header: row 1 = name + status + logout, row 2 = win ratio / hold / mode */
+    .dashboard-header {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.4rem;
+        padding-bottom: 0.45rem;
+    }
+    .dashboard-header::after {
+        content: "";
+        order: 4;
+        flex-basis: 100%;
+        height: 0;
+    }
+    .dashboard-header .header-left {
+        width: auto;
+        flex: 1 1 auto;
+        order: 1;
+    }
+    .dashboard-header h1 { font-size: 1.1rem; }
+    .dashboard-header .header-right,
+    .dashboard-header .stats-badge-container {
+        display: contents;
+    }
+    #status-badge { order: 2; padding: 0.3rem 0.65rem; }
+    #btn-logout { order: 3; margin-left: 0; min-height: 36px; padding: 0 0.65rem; font-size: 0.75rem; }
+    .dashboard-header .stat-badge { order: 5; min-height: 36px; font-size: 0.75rem; }
+    #btn-system-hold { order: 6; min-height: 36px; font-size: 0.75rem !important; }
+    #trading-mode-badge { order: 7; min-height: 36px; display: inline-flex; align-items: center; font-size: 0.72rem !important; }
+
+    /* Pipeline steps: only the current step on phone (no side scroll) */
+    .workflow-banner { overflow-x: visible; }
+    .workflow-flow-top { min-width: 0 !important; justify-content: flex-start; }
+    .workflow-flow-top .wf-arrow,
+    .workflow-flow-top .wf-step:not(.active):not(.failed) { display: none; }
+    .workflow-flow-top:not(:has(.wf-step.active, .wf-step.failed)) #wf-step-scan { display: flex; }
+
+    /* Finger-sized tap targets */
+    .panel-tab-btn,
+    .nav-tab,
+    .ai-tab-btn,
+    .ai-chip,
+    .col-collapse-btn,
+    .dock-toggle-btn {
+        min-height: 40px;
+    }
+    .history-table button,
+    .ai-table button,
+    [id^="mbot-"] button,
+    #mbot-tasks-body button,
+    .mcard button,
+    .tacard button {
+        min-height: 36px;
+        min-width: 36px;
+    }
+
+    /* Readable small text (nothing below ~11px on phone) */
+    .nav-tab-label { font-size: 0.7rem; }
+    .nav-badge,
+    .tab-badge,
+    .ai-tab-badge { font-size: 0.68rem; }
+    .rule-label,
+    .footer-label,
+    .asset-type,
+    .badge-label,
+    .ob-hdr-item,
+    .ob-row-placeholder,
+    .depth-pct-badge,
+    .depth-buyer-lbl,
+    .depth-seller-lbl,
+    .depth-details strong,
+    .badge-open,
+    .tacc-arr,
+    .nav-badge,
+    [style*="font-size: 0.58rem"], [style*="font-size:0.58rem"],
+    [style*="font-size: 0.6rem"], [style*="font-size:0.6rem"],
+    [style*="font-size: 0.62rem"], [style*="font-size:0.62rem"],
+    [style*="font-size: 0.65rem"], [style*="font-size:0.65rem"],
+    [style*="font-size: 0.66rem"], [style*="font-size:0.66rem"] {
+        font-size: 0.7rem !important;
+    }
+
+    /* Small icon buttons in trade panels (🗑️ 📥 ✏️) */
+    .panel-header button,
+    .metallic-button,
+    #clear-manual-inactive-btn {
+        min-height: 36px !important;
+        min-width: 36px;
+    }
+    .panel-header .metallic-button { width: auto; display: inline-flex; margin-right: 0.35rem !important; }
 }
 
 

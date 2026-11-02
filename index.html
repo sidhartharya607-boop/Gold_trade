@@ -2,28 +2,29 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#3B82F6">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#FFFFFF">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Gold Trade">
     <link rel="manifest" href="/manifest.json">
-    <link rel="apple-touch-icon" href="/icon.svg">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
     <link rel="icon" type="image/svg+xml" href="/icon.svg">
     <!-- Premium Google Fonts: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=3.0">
+    <link rel="stylesheet" href="style.css?v=3.2">
 </head>
 <body>
     <div class="dashboard-container">
         <!-- Header -->
         <header class="dashboard-header">
             <div class="header-left">
-                <h1>Gold Spread Arbitrage Terminal</h1>
-                <p class="subtitle">Leg Multipliers: GOLD_PETAL (100x) | GOLD_MINI (10x)</p>
+                <h1><span class="desktop-only-inline">Gold Spread Arbitrage Terminal</span><span class="mobile-only-inline">Gold Trade</span></h1>
+                <p class="subtitle desktop-only">P&amp;L multiplier: Petal 100x | Mini 10x (price: Petal x10, Mini x1)</p>
             </div>
             
             <div class="header-right">
@@ -68,7 +69,11 @@
         <!-- Connection Status Banner -->
         <div id="connection-error-banner" class="connection-banner" style="display: none;">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-right: 0.5rem;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></svg>
-            <span><strong>API Server Not Connected:</strong> Live MCX broker market data feed is offline. Simulated ticks halted.</span>
+            <span><strong>No live rates from the broker.</strong> Prices shown may be old. Check the broker login (Settings).</span>
+        </div>
+        <!-- Server / internet link status (WebSocket) -->
+        <div id="server-link-banner" class="connection-banner server-link-banner" style="display: none;" role="status">
+            <span id="server-link-text"><strong>Connection to the server lost.</strong> Reconnecting…</span>
         </div>
 
         <!-- 3-Column Professional Workstation Layout -->
@@ -90,7 +95,7 @@
                 </div>
 
                 <!-- Segmented Mode Pill Switcher -->
-                <div class="panel-tab-switcher">
+                <div class="panel-tab-switcher" data-tab="automation">
                     <button type="button" class="panel-tab-btn active tab-accent-amber" id="left-btn-lots" onclick="switchLeftTab('lots')">
                         <span>🎯 Lots Bot</span>
                         <span class="tab-badge" id="left-badge-lots" style="display: none;">0</span>
@@ -188,7 +193,7 @@
                             <button id="ta-lots-add-config-btn" class="update-button" style="width: 100%; padding: 0.5rem 1rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem; background: #f59e0b; color: #000; font-weight: 700; font-size: 0.85rem; border-radius: 6px; box-shadow: 0 2px 6px rgba(245,158,11,0.25);">➕ Add Bot Instance (Lots)</button>
 
                             <!-- Active Lots Bot Instances Table -->
-                            <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem; margin-top: 0.25rem;">
+                            <div style="border-top: 1px dashed var(--border-color); padding-top: 0.75rem; margin-top: 0.25rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
                                     <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🎯 Configured Lots Bot Instances</h3>
                                 </div>
@@ -321,7 +326,7 @@
                             <button id="ta-add-config-btn" class="update-button" style="width: 100%; padding: 0.5rem 1rem; display: flex; align-items: center; justify-content: center; gap: 0.35rem; font-size: 0.85rem; font-weight: 700; border-radius: 6px;">➕ Add Bot Instance (Grid)</button>
 
                             <!-- Active Bot Instances Table -->
-                            <div style="border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.75rem; margin-top: 0.25rem;">
+                            <div style="border-top: 1px dashed var(--border-color); padding-top: 0.75rem; margin-top: 0.25rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
                                     <h3 style="font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin: 0;">🤖 Configured Grid Instances</h3>
                                 </div>
@@ -388,27 +393,28 @@
                             </div>
 
                             <!-- Actions -->
-                            <div style="display: flex; gap: 0.6rem; justify-content: flex-end; align-items: center; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.65rem;">
+                            <div style="display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: flex-end; align-items: center; border-top: 1px dashed var(--border-color); padding-top: 0.65rem;">
                                 <button id="mbot-cancel-edit-btn" class="metallic-button" style="padding: 0.4rem 0.85rem; font-size: 0.74rem; background: rgba(148,163,184,0.15); color: #94a3b8; display: none;">✖ Cancel</button>
-                                <button id="mbot-stop-all-btn" class="metallic-button" style="padding: 0.4rem 1rem; font-size: 0.76rem; font-weight: 700; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px;">🛑 Stop All</button>
+                                <button id="mbot-play-all-btn" type="button" onclick="window.resumeManualBotTask()" class="metallic-button" style="padding: 0.4rem 1rem; font-size: 0.76rem; font-weight: 700; background: rgba(16, 185, 129, 0.12); color: #059669; border: 1px solid rgba(16,185,129,0.35); border-radius: 6px;">▶ Start All</button>
+                                <button id="mbot-stop-all-btn" class="metallic-button" style="padding: 0.4rem 1rem; font-size: 0.76rem; font-weight: 700; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 6px;">⏸ Stop All</button>
                                 <button id="mbot-start-btn" class="update-button" style="width: auto; padding: 0.4rem 1.35rem; font-size: 0.76rem; font-weight: 700; background: #10b981; border-radius: 6px;">🚀 Start Task</button>
                             </div>
 
                             <!-- Multi-Pair Bot Tasks Section -->
-                            <div style="margin-top: 0.35rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.65rem;">
+                            <div style="margin-top: 0.35rem; border-top: 1px dashed var(--border-color); padding-top: 0.65rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
                                     <span style="font-size: 0.76rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
                                         <span>⚡</span> Configured Bot Tasks
                                     </span>
                                     <span id="mbot-tasks-badge" style="font-size: 0.65rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: rgba(16,185,129,0.15); color: #34d399; font-weight: 600;">0 Tasks</span>
                                 </div>
-                                <div id="mbot-tasks-body" style="max-height: 200px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 0.45rem; padding: 0.25rem 0;">
+                                <div id="mbot-tasks-body" style="max-height: 360px; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 0.45rem; padding: 0.25rem 0;">
                                     <div class="empty-table" style="text-align: center; padding: 1.25rem 0.5rem; color: var(--text-muted); font-size: 0.73rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">No bot tasks added yet. Configure above and click "Start / Add Bot Task".</div>
                                 </div>
                             </div>
 
                             <!-- Manual BOT Executed Trades Window (Zero-Scroll Card Feed) -->
-                            <div style="margin-top: 0.35rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.65rem;">
+                            <div style="margin-top: 0.35rem; border-top: 1px dashed var(--border-color); padding-top: 0.65rem;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.45rem;">
                                     <span style="font-size: 0.76rem; font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 0.35rem;">
                                         <span>📋</span> Bot Executed Orders
@@ -491,7 +497,7 @@
                             <span id="current-spread" class="price-value">0.00</span>
                             <span class="currency">Diff</span>
                         </div>
-                        <div class="depth-spreads-subpanel" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.72rem; margin-top: 0.4rem; border-top: 1px dashed rgba(255,255,255,0.08); padding-top: 0.45rem; width: 100%;">
+                        <div class="depth-spreads-subpanel" style="display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.72rem; margin-top: 0.4rem; border-top: 1px dashed var(--border-color); padding-top: 0.45rem; width: 100%;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <span style="color: var(--text-secondary);">Depth Buy Diff (Buy P / Sell M):</span>
                                 <strong id="depth-buy-spread" class="font-mono" style="color: var(--accent-green);">0.00</strong>
@@ -523,9 +529,9 @@
                             <span class="symbol-name" id="petal-symbol-name">GOLD_PETAL</span>
                             <div class="tooltip-container">
                                 <span>ⓘ</span>
-                                <span class="tooltip-text">Gold Petal contract on MCX. Price is per 10 grams (Multiplier = 10x).</span>
+                                <span class="tooltip-text">Gold Petal contract on MCX. Quote is per 1 gram; it is multiplied by 10 to compare per 10 grams in the spread. P&amp;L: 100 x points.</span>
                             </div>
-                            <span class="asset-type">10x Mult</span>
+                            <span class="asset-type">Price x10</span>
                         </div>
                         <div class="metric-body">
                             <span id="petal-ltp" class="price-value">0.00</span>
@@ -571,9 +577,9 @@
                             <span class="symbol-name" id="mini-symbol-name">GOLD_MINI</span>
                             <div class="tooltip-container">
                                 <span>ⓘ</span>
-                                <span class="tooltip-text">Gold Mini contract on MCX. Price is per 10 grams (Multiplier = 1x).</span>
+                                <span class="tooltip-text">Gold Mini contract on MCX. Quote is already per 10 grams (x1). P&amp;L: 10 x points.</span>
                             </div>
-                            <span class="asset-type">1x Mult</span>
+                            <span class="asset-type">Price x1</span>
                         </div>
                         <div class="metric-body">
                             <span id="mini-ltp" class="price-value">0.00</span>
@@ -837,7 +843,7 @@
                                             <th style="padding: 0.5rem; text-align: left;">Pair</th>
                                             <th style="padding: 0.5rem; text-align: left; width: 85px;">Direction</th>
                                             <th style="padding: 0.5rem; text-align: left; width: 90px;">Target Diff</th>
-                                            <th style="padding: 0.5rem; text-align: left; width: 100px;">Filled Spread</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 150px;">Trigger → Filled (actual)</th>
                                             <th style="padding: 0.5rem; text-align: left;">Execution Prices (P / M)</th>
                                             <th style="padding: 0.5rem; text-align: center; width: 90px;">Status</th>
                                         </tr>
@@ -846,6 +852,49 @@
                                         <tr>
                                             <td colspan="8" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No bot orders executed yet.</td>
                                         </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ==========================================
+                     TRADE TABLE 5: Order Fills - har order asli kitne spread par laga (sab bots + manual)
+                     ========================================== -->
+                <section class="automation-trades-section" data-tab="trades" style="width: 100%;">
+                    <div class="data-card automation-trades-panel" id="card-order-fills" style="width: 100%; border-top: 3px solid #059669;">
+                        <div class="panel-header"
+                            onclick="(function(){
+                                var body = document.getElementById('order-fills-panel-body');
+                                var arrow = document.getElementById('order-fills-panel-arrow');
+                                var open = body.style.display !== 'none';
+                                body.style.display = open ? 'none' : 'block';
+                                arrow.style.transform = open ? 'rotate(0deg)' : 'rotate(180deg)';
+                            })()"
+                            style="cursor: pointer; user-select: none; padding-bottom: 0.65rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <h2>📌 Order Fill Spreads (all trades)</h2>
+                                <span id="order-fills-badge" style="background: rgba(5, 150, 105, 0.12); color: #059669; border: 1px solid rgba(5, 150, 105, 0.3); font-size: 0.65rem; font-weight: 700; padding: 0.15rem 0.45rem; border-radius: 4px;">0 ORDERS</span>
+                            </div>
+                            <span id="order-fills-panel-arrow" style="font-size: 0.75rem; color: var(--text-muted); transition: transform 0.25s; display: inline-block; transform: rotate(180deg);">▼</span>
+                        </div>
+                        <div id="order-fills-panel-body">
+                            <p style="margin: 0 0 0.5rem 0; font-size: 0.7rem; color: var(--text-muted);">Expected = depth spread when the order was sent. Filled = actual broker avg fill price. Diff (+) = against you. If a live order's actual price is not available right away it shows ⏳ and updates from the broker automatically once orders are done and the API is free.</p>
+                            <div class="table-container" style="max-height: 260px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 6px;">
+                                <table class="history-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead>
+                                        <tr>
+                                            <th style="padding: 0.5rem; text-align: left; width: 90px;">Time</th>
+                                            <th style="padding: 0.5rem; text-align: left;">Pair</th>
+                                            <th style="padding: 0.5rem; text-align: left;">Action</th>
+                                            <th style="padding: 0.5rem; text-align: left;">Expected → Filled</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 70px;">Diff</th>
+                                            <th style="padding: 0.5rem; text-align: left; width: 120px;">Price</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="order-fills-body">
+                                        <tr><td colspan="6" class="empty-table" style="text-align: center; padding: 1rem; color: var(--text-muted); font-size: 0.75rem;">No orders filled yet.</td></tr>
                                     </tbody>
                                 </table>
                             </div>
@@ -870,7 +919,7 @@
                 </div>
 
                 <!-- Segmented Settings Tab Switcher -->
-                <div class="panel-tab-switcher">
+                <div class="panel-tab-switcher" data-tab="settings">
                     <button type="button" class="panel-tab-btn active" id="right-btn-broker" onclick="switchRightTab('broker')">
                         <span>⚙️ Broker</span>
                     </button>
@@ -1141,7 +1190,7 @@
                             </button>
                             <button id="export-depth-spread-btn" class="csv-export-button" style="background-color: var(--accent-light, #3b82f6); color: white; width: 100%; justify-content: center; padding: 0.5rem; font-weight: 700;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                Spread &amp; Price High / Low Report (CSV)
+                                Depth History: Month-wise Depth Buy / Sell Low–High (CSV)
                             </button>
                             <button id="export-csv-btn" class="csv-export-button" style="width: 100%; justify-content: center; padding: 0.5rem; font-weight: 700;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
@@ -1324,7 +1373,7 @@
                         <span>🔒</span> <span id="ta-lots-edit-traded-alert-title">Already Traded Levels Locked</span>
                     </div>
                     <div id="ta-lots-edit-traded-alert-desc" style="color: var(--text-secondary); font-size: 0.7rem;">
-                        Pehle se execute ho chuke trades dobara nahi liye jayenge. Aap sirf aage ke remaining levels edit kar sakte hain.
+                        Trades already executed will not be taken again. You can only edit the remaining levels.
                     </div>
                 </div>
 
@@ -1368,7 +1417,7 @@
                     <div>
                         <label id="ta-lots-edit-remaining-label" class="rule-label" style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.2rem; display: block;">Upcoming Lots Sequence (Comma Separated)</label>
                         <input type="text" id="ta-lots-edit-lots-input" class="rule-input font-mono" placeholder="e.g. 3, 4" style="width: 100%; box-sizing: border-box; font-weight: 700; color: #f59e0b; font-size: 0.88rem;">
-                        <small id="ta-lots-edit-lots-hint" style="color: var(--text-muted); font-size: 0.66rem; margin-top: 0.25rem; display: block;">Har level ke lots comma se alag karein (e.g. 3, 4). Ye aage aane wale steps par 1-1 lot karke 10s gap pe execute honge.</small>
+                        <small id="ta-lots-edit-lots-hint" style="color: var(--text-muted); font-size: 0.66rem; margin-top: 0.25rem; display: block;">Separate each level's lots with commas (e.g. 3, 4). They execute on the upcoming steps, 1 lot at a time with a 10s gap.</small>
                     </div>
 
                     <!-- Dynamic Sequence Flow Preview -->
@@ -1393,21 +1442,21 @@
 
     <!-- =========================================================================
          🧠 AI ASSISTANT - FULL PAGE VIEW (sirf asli data, koi fake number nahi)
-         Tabs: Suggestions | Open Trades | Journal | Backtest | Claude | Scanner | Alerts
+         Tabs: Abhi kya karein | Paper Trades | Meri Positions | Journal | Backtest | Claude | Alerts
          ========================================================================= -->
     <div id="ai-hub-modal" style="display: none; position: fixed; inset: 0; z-index: 9999; flex-direction: column; background: #F1F5F9; color: #0F172A;">
 
         <!-- Header bar -->
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap; background: #FFFFFF; border-bottom: 1.5px solid #E2E8F0; padding: 0.7rem 1rem;">
             <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <button type="button" onclick="closeAIHubModal()" title="Terminal par wapas (Esc)" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; font-weight: 700; background: #F8FAFC; color: #334155; border: 1.5px solid #CBD5E1; border-radius: 6px; cursor: pointer;">← Terminal</button>
+                <button type="button" onclick="closeAIHubModal()" title="Back to terminal (Esc)" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; font-weight: 700; background: #F8FAFC; color: #334155; border: 1.5px solid #CBD5E1; border-radius: 6px; cursor: pointer;">← Terminal</button>
                 <div>
                     <h3 style="margin: 0; font-size: 1.15rem; font-weight: 800;">🧠 AI Assistant</h3>
                     <p id="ai-source-line" style="margin: 2px 0 0 0; font-size: 0.74rem; color: #64748B;">Loading...</p>
                 </div>
             </div>
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-                <button type="button" id="ai-notify-btn" onclick="enableAINotifications()" style="padding: 0.4rem 0.7rem; font-size: 0.76rem; font-weight: 700; background: #FFFBEB; color: #92400E; border: 1.5px solid #FCD34D; border-radius: 6px; cursor: pointer;">🔔 Notification on karein</button>
+                <button type="button" id="ai-notify-btn" onclick="enableAINotifications()" style="padding: 0.4rem 0.7rem; font-size: 0.76rem; font-weight: 700; background: #FFFBEB; color: #92400E; border: 1.5px solid #FCD34D; border-radius: 6px; cursor: pointer;">🔔 Turn on notifications</button>
                 <button type="button" onclick="promptSetClaudeKey()" style="padding: 0.4rem 0.7rem; font-size: 0.76rem; font-weight: 700; background: #EFF6FF; color: #1D4ED8; border: 1.5px solid #93C5FD; border-radius: 6px; cursor: pointer;">🔑 Claude API Key</button>
                 <button type="button" onclick="fetchAIHubData()" style="padding: 0.4rem 0.7rem; font-size: 0.76rem; font-weight: 700; background: #F8FAFC; color: #334155; border: 1.5px solid #CBD5E1; border-radius: 6px; cursor: pointer;"><span id="ai-refresh-spinner" style="display: inline-block;">🔄</span> Refresh</button>
             </div>
@@ -1415,13 +1464,13 @@
 
         <!-- Tabs -->
         <div id="ai-tabs-bar" style="display: flex; gap: 0.25rem; overflow-x: auto; background: #FFFFFF; border-bottom: 1.5px solid #E2E8F0; padding: 0 1rem;">
-            <button type="button" class="ai-tab-btn" data-tab="suggest" onclick="switchAITab('suggest')">💡 Suggestions</button>
-            <button type="button" class="ai-tab-btn" data-tab="monitor" onclick="switchAITab('monitor')">📈 Open Trades <span id="ai-monitor-badge" class="ai-tab-badge" style="display: none;">0</span></button>
-            <button type="button" class="ai-tab-btn" data-tab="journal" onclick="switchAITab('journal')">📒 Journal</button>
-            <button type="button" class="ai-tab-btn" data-tab="backtest" onclick="switchAITab('backtest')">🧪 Backtest</button>
-            <button type="button" class="ai-tab-btn" data-tab="claude" onclick="switchAITab('claude')">💬 Claude se poocho</button>
-            <button type="button" class="ai-tab-btn" data-tab="scanner" onclick="switchAITab('scanner')">📡 Scanner</button>
-            <button type="button" class="ai-tab-btn" data-tab="alerts" onclick="switchAITab('alerts')">🔔 Alerts <span id="ai-alerts-badge" class="ai-tab-badge" style="display: none;">0</span></button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="suggest" onclick="switchAITab('suggest')">💡 What to do now</button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="paper" onclick="switchAITab('paper')">📝 Paper Trades <span id="ai-paper-badge" class="ai-tab-badge" style="display: none;">0</span></button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="monitor" onclick="switchAITab('monitor')">📈 My Positions <span id="ai-monitor-badge" class="ai-tab-badge" style="display: none;">0</span></button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="journal" onclick="switchAITab('journal')">📒 Journal</button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="backtest" onclick="switchAITab('backtest')">🧪 Backtest</button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="claude" onclick="switchAITab('claude')">💬 Ask Claude</button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="alerts" onclick="switchAITab('alerts')">🔔 Alerts <span id="ai-alerts-badge" class="ai-tab-badge" style="display: none;">0</span></button>
         </div>
 
         <div style="flex: 1; overflow-y: auto;">
@@ -1430,29 +1479,27 @@
             <!-- TAB: Suggestions -->
             <div class="ai-tab-panel" id="ai-tab-suggest">
                 <div class="ai-card">
-                    <strong class="ai-card-title">Har month ka suggestion</strong>
+                    <strong class="ai-card-title">Every month: what to do now?</strong>
                     <p id="ai-suggestions-summary" class="ai-muted">Loading...</p>
-                    <p class="ai-muted" style="font-size: 0.72rem;">Position = spread aaj ke range me kahan hai (0% = aaj ka Low, 100% = aaj ka High). Kisi row par click karein to detail khulegi. "Form me bharo" se pehle risk check dikhega.</p>
+                    <p class="ai-muted" style="font-size: 0.74rem;">Simple rule: spread <strong>near today's Low</strong> = cheap = <strong style="color: #15803D;">BUY SPREAD</strong>. <strong>Near today's High</strong> = expensive = <strong style="color: #B91C1C;">SELL SPREAD</strong>. In the middle = <strong>WAIT</strong>. Click a row for full details.</p>
                     <div style="overflow-x: auto;">
                         <table class="ai-table">
                             <thead>
                                 <tr>
-                                    <th>Month (Pair)</th>
-                                    <th>Expiry</th>
-                                    <th>Suggestion</th>
-                                    <th>Depth Buy (Aaj Low–High) · Pos</th>
-                                    <th>Depth Sell (Aaj Low–High) · Pos</th>
-                                    <th>Entry → Target · Net</th>
+                                    <th>Month</th>
+                                    <th>Action</th>
+                                    <th>Why</th>
+                                    <th>Entry → Exit</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody id="ai-suggestions-tbody">
-                                <tr><td colspan="7" class="ai-empty">Loading...</td></tr>
+                                <tr><td colspan="5" class="ai-empty">Loading...</td></tr>
                             </tbody>
                         </table>
                     </div>
                     <details style="margin-top: 0.7rem; font-size: 0.76rem; color: #64748B;">
-                        <summary style="cursor: pointer; font-weight: 700;">Rule kya hai?</summary>
+                        <summary style="cursor: pointer; font-weight: 700;">What is the rule?</summary>
                         <p id="ai-rules-text" style="margin: 0.35rem 0 0 0;"></p>
                     </details>
                 </div>
@@ -1461,20 +1508,20 @@
             <!-- TAB: Open trade monitor -->
             <div class="ai-tab-panel" id="ai-tab-monitor" style="display: none;">
                 <div class="ai-card">
-                    <strong class="ai-card-title">Khuli positions ka haal</strong>
+                    <strong class="ai-card-title">Open positions status</strong>
                     <p id="ai-monitor-summary" class="ai-muted">Loading...</p>
                     <div style="overflow-x: auto;">
                         <table class="ai-table">
                             <thead>
                                 <tr>
-                                    <th>Kahan se</th>
+                                    <th>Source</th>
                                     <th>Month (Pair)</th>
                                     <th>Direction · Lots</th>
-                                    <th>Entry → Abhi exit spread</th>
-                                    <th>Target · Kitna door</th>
+                                    <th>Entry → Exit spread now</th>
+                                    <th>Target · Distance</th>
                                     <th>Unrealized</th>
                                     <th>Expiry</th>
-                                    <th>Haal</th>
+                                    <th>Status</th>
                                 </tr>
                             </thead>
                             <tbody id="ai-monitor-tbody"></tbody>
@@ -1498,7 +1545,7 @@
                             <thead>
                                 <tr>
                                     <th>Entry → Exit time</th>
-                                    <th>Kahan se</th>
+                                    <th>Source</th>
                                     <th>Direction</th>
                                     <th>Entry → Exit spread</th>
                                     <th>Points</th>
@@ -1518,13 +1565,13 @@
             <div class="ai-tab-panel" id="ai-tab-backtest" style="display: none;">
                 <div class="ai-card">
                     <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                        <strong class="ai-card-title">Backtest: yahi rule pichhle dino par kaisa chalta</strong>
+                        <strong class="ai-card-title">Backtest: how this rule did on past days</strong>
                         <select id="ai-backtest-days" style="padding: 0.3rem 0.5rem; border: 1.5px solid #CBD5E1; border-radius: 6px; font-size: 0.8rem;">
-                            <option value="7">Last 7 din</option>
-                            <option value="30" selected>Last 30 din</option>
-                            <option value="90">Last 90 din</option>
+                            <option value="7">Last 7 days</option>
+                            <option value="30" selected>Last 30 days</option>
+                            <option value="90">Last 90 days</option>
                         </select>
-                        <button type="button" onclick="runAIBacktest()" style="padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 800; background: #1E293B; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer;">Backtest chalao</button>
+                        <button type="button" onclick="runAIBacktest()" style="padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 800; background: #1E293B; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer;">Run backtest</button>
                     </div>
                     <div id="ai-backtest-kpis" class="ai-kpis"></div>
                     <div id="ai-backtest-extra" style="font-size: 0.8rem; color: #334155; line-height: 1.6;"></div>
@@ -1542,7 +1589,7 @@
                                     <th>Result</th>
                                 </tr>
                             </thead>
-                            <tbody id="ai-backtest-tbody"><tr><td colspan="8" class="ai-empty">"Backtest chalao" dabayein.</td></tr></tbody>
+                            <tbody id="ai-backtest-tbody"><tr><td colspan="8" class="ai-empty">Press "Run backtest".</td></tr></tbody>
                         </table>
                     </div>
                     <p id="ai-backtest-note" class="ai-muted" style="font-size: 0.72rem; margin-top: 0.6rem;"></p>
@@ -1552,55 +1599,80 @@
             <!-- TAB: Claude -->
             <div class="ai-tab-panel" id="ai-tab-claude" style="display: none;">
                 <div class="ai-card">
-                    <strong class="ai-card-title">Claude se poocho</strong>
-                    <p class="ai-muted">Claude ko suggestions, khuli positions aur aaj ka journal milta hai. Woh sirf isi data ko samjhata hai, numbers ya news khud nahi banata.</p>
+                    <strong class="ai-card-title">Ask Claude</strong>
+                    <p class="ai-muted">Claude gets the suggestions, open positions and today's journal. It only explains this data and never makes up numbers or news.</p>
                     <div style="display: flex; gap: 0.4rem; margin-bottom: 0.55rem; flex-wrap: wrap;">
-                        <button type="button" class="ai-chip" onclick="askAIAssistant('Saare months ke suggestions compare karke simple bhasha me samjhao. Kis month me kya risk hai?')">Months compare karo</button>
-                        <button type="button" class="ai-chip" onclick="askAIAssistant('Meri khuli positions ka haal batao. Kaunsi position par dhyan dena chahiye aur kyun?')">Meri positions kaisi hain?</button>
-                        <button type="button" class="ai-chip" onclick="askAIAssistant('Aaj ka journal dekh ke batao aaj kya achha hua aur kya galat.')">Aaj ka din kaisa raha?</button>
-                        <button type="button" class="ai-chip" onclick="askAIAssistant('Aaj ke data ke hisaab se 110 pts ka target realistic hai?')">Target realistic hai?</button>
+                        <button type="button" class="ai-chip" onclick="askAIAssistant('Compare the suggestions for all months in simple words. What is the risk in each month?')">Compare months</button>
+                        <button type="button" class="ai-chip" onclick="askAIAssistant('How are my open positions doing? Which position needs attention and why?')">How are my positions?</button>
+                        <button type="button" class="ai-chip" onclick="askAIAssistant('Look at today\'s journal: what went well and what went wrong today?')">How was today?</button>
+                        <button type="button" class="ai-chip" onclick="askAIAssistant('Based on today\'s data, is a 110 pts target realistic?')">Is the target realistic?</button>
                     </div>
                     <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" id="ai-assistant-query-input" placeholder="Apna sawal likhein..." style="flex: 1; min-width: 0; padding: 0.5rem 0.8rem; font-size: 0.84rem; border: 1.5px solid #CBD5E1; border-radius: 8px; background: #F8FAFC;" onkeydown="if(event.key === 'Enter') submitAIAssistantQuestion()">
-                        <button type="button" id="btn-ask-ai-assistant" onclick="submitAIAssistantQuestion()" style="padding: 0.5rem 1.1rem; font-size: 0.84rem; font-weight: 800; background: #1E293B; color: #FFFFFF; border: none; border-radius: 8px; cursor: pointer;">Poocho</button>
+                        <input type="text" id="ai-assistant-query-input" placeholder="Type your question..." style="flex: 1; min-width: 0; padding: 0.5rem 0.8rem; font-size: 0.84rem; border: 1.5px solid #CBD5E1; border-radius: 8px; background: #F8FAFC;" onkeydown="if(event.key === 'Enter') submitAIAssistantQuestion()">
+                        <button type="button" id="btn-ask-ai-assistant" onclick="submitAIAssistantQuestion()" style="padding: 0.5rem 1.1rem; font-size: 0.84rem; font-weight: 800; background: #1E293B; color: #FFFFFF; border: none; border-radius: 8px; cursor: pointer;">Ask</button>
                     </div>
                     <div id="ai-assistant-reply-box" style="display: none; margin-top: 0.7rem; background: #F8FAFC; border-left: 4px solid #4F46E5; border-radius: 8px; padding: 0.75rem 0.9rem; font-size: 0.84rem; line-height: 1.5; white-space: pre-wrap;"></div>
                 </div>
             </div>
 
-            <!-- TAB: Scanner -->
-            <div class="ai-tab-panel" id="ai-tab-scanner" style="display: none;">
+            <!-- TAB: Paper Trades (kaagaz par trade - asli order nahi) -->
+            <div class="ai-tab-panel" id="ai-tab-paper" style="display: none;">
                 <div class="ai-card">
-                    <strong class="ai-card-title">Scanner signals aaj</strong>
-                    <p id="ai-scanner-summary" class="ai-muted">--</p>
-                    <div style="overflow-x: auto; max-height: 420px; overflow-y: auto;">
+                    <strong class="ai-card-title">📝 Paper Trader: AI takes trades on paper, exactly like your system</strong>
+                    <p class="ai-muted">No real order is sent. When "What to do now" shows BUY/SELL, the AI takes the same trade on paper (like the Lots Bot: 1, 2, 2 lots, averaging every 35 pts, each lot books profit at 110 pts). See here how many times it booked a profit or a loss, and why.</p>
+                    <div id="ai-paper-livenote"></div>
+                    <div id="ai-paper-kpis" class="ai-kpis"></div>
+                </div>
+
+                <div class="ai-card">
+                    <strong class="ai-card-title">How many times, for which reason</strong>
+                    <div id="ai-paper-reasons" class="ai-paper-reason-grid"></div>
+                </div>
+
+                <div class="ai-card">
+                    <strong class="ai-card-title">Month-wise results</strong>
+                    <div style="overflow-x: auto;">
                         <table class="ai-table">
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Pair</th>
-                                    <th>Direction</th>
-                                    <th>Spread / Avg</th>
-                                    <th>Result</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ai-signals-tbody"></tbody>
+                            <thead><tr><th>Month (Pair)</th><th>Trades</th><th>Profit</th><th>Loss</th><th>Win rate</th><th>Net</th></tr></thead>
+                            <tbody id="ai-paper-bypair"></tbody>
                         </table>
                     </div>
+                </div>
+
+                <div class="ai-card">
+                    <strong class="ai-card-title">Open paper trades</strong>
+                    <div id="ai-paper-open" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+                </div>
+
+                <div class="ai-card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                        <strong class="ai-card-title" style="margin: 0;">Closed paper trades</strong>
+                        <div style="display: flex; gap: 0.3rem;">
+                            <button type="button" class="ai-chip ai-paper-filter" data-f="all" onclick="setAIPaperFilter('all')">All</button>
+                            <button type="button" class="ai-chip ai-paper-filter" data-f="PROFIT" onclick="setAIPaperFilter('PROFIT')">✅ Profit</button>
+                            <button type="button" class="ai-chip ai-paper-filter" data-f="LOSS" onclick="setAIPaperFilter('LOSS')">❌ Loss</button>
+                        </div>
+                    </div>
+                    <div id="ai-paper-closed" style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.6rem;"></div>
+                    <details style="margin-top: 0.8rem; font-size: 0.76rem; color: #64748B;">
+                        <summary style="cursor: pointer; font-weight: 700;">Paper trader rules</summary>
+                        <p id="ai-paper-rules" style="margin: 0.35rem 0 0.5rem 0;"></p>
+                        <button type="button" onclick="resetAIPaperTrades()" style="padding: 0.3rem 0.7rem; font-size: 0.74rem; font-weight: 700; background: #FEF2F2; color: #B91C1C; border: 1.5px solid #FCA5A5; border-radius: 6px; cursor: pointer;">🗑 Clear paper trades</button>
+                    </details>
                 </div>
             </div>
 
             <!-- TAB: Alerts -->
             <div class="ai-tab-panel" id="ai-tab-alerts" style="display: none;">
                 <div class="ai-card">
-                    <strong class="ai-card-title">Aaj ke alerts</strong>
-                    <p class="ai-muted">Server har 30 sec check karta hai: kisi month me naya signal, ya khuli position me expiry / ulta move / target paas. Har alert din me ek baar aata hai, terminal ke log me bhi likha jaata hai. "🔔 Notification on karein" dabane par browser notification bhi aayega (jab tak yeh page khula hai).</p>
+                    <strong class="ai-card-title">Today's alerts</strong>
+                    <p class="ai-muted">The server checks every 30 sec: a new signal in any month, or expiry / adverse move / near target on an open position. Each alert comes once a day and is also written to the terminal log. Press "🔔 Turn on notifications" to also get browser notifications (while this page is open).</p>
                     <div id="ai-alerts-list" style="display: flex; flex-direction: column; gap: 0.4rem;"></div>
                 </div>
             </div>
 
             <div style="font-size: 0.74rem; color: #64748B; text-align: center; padding-bottom: 0.5rem;">
-                AI kabhi khud trade nahi karta. Yeh sirf suggestion hai, guarantee nahi. Final decision aapka.
+                The AI never trades by itself. This is only a suggestion, not a guarantee. The final decision is yours.
             </div>
         </div>
         </div>
@@ -1619,6 +1691,6 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
     </button>
     
-    <script src="script.js?v=3.6"></script>
+    <script src="script.js?v=4.1"></script>
 </body>
 </html>

@@ -486,12 +486,6 @@ class TradingSystem:
 
         self.load_angel_master()
         self.load_rules()
-
-        # AI Arbitrage Quantitative Engine State
-        self.ai_divergence_threshold = 80.0  # Dynamic threshold (default 80.0 pts, user configurable)
-        self.ai_opportunities_log = []
-        self.load_ai_opportunities()
-        
     def load_rules(self):
         try:
             filepath = get_data_filepath("rules_config.json")
@@ -832,28 +826,6 @@ class TradingSystem:
             filepath = get_data_filepath("daily_spread_stats.json")
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(self.daily_spread_stats, f, indent=4)
-        except Exception as e:
-            pass
-
-    def load_ai_opportunities(self):
-        try:
-            filepath = get_data_filepath("ai_opportunities.json")
-            if os.path.exists(filepath):
-                with open(filepath, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    today_str = get_ist_time_str("%Y-%m-%d")
-                    # Keep today's opportunities
-                    self.ai_opportunities_log = [o for o in data if o.get("date") == today_str]
-                self.log(f"[AI ENGINE] Loaded {len(self.ai_opportunities_log)} opportunities for today.")
-        except Exception as e:
-            self.log(f"[AI ENGINE] Could not load ai_opportunities.json: {e}")
-            self.ai_opportunities_log = []
-
-    def save_ai_opportunities(self):
-        try:
-            filepath = get_data_filepath("ai_opportunities.json")
-            with open(filepath, "w", encoding="utf-8") as f:
-                json.dump(self.ai_opportunities_log, f, indent=4)
         except Exception as e:
             pass
 
@@ -1285,7 +1257,8 @@ async def auth_middleware(request: Request, call_next):
     path = request.url.path
     
     # 1. Allow public files/endpoints
-    if path in ["/api/login", "/style.css", "/script.js", "/favicon.ico"]:
+    if path in ["/api/login", "/style.css", "/script.js", "/favicon.ico", "/manifest.json", "/sw.js",
+                "/icon.svg", "/icon-192.png", "/icon-512.png", "/icon-maskable-512.png", "/apple-touch-icon.png"]:
         return await call_next(request)
         
     # 2. Allow WS routes to authenticate themselves
@@ -1474,9 +1447,8 @@ async def broadcast_system_state(force: bool = False):
         "ta_lots_trades": getattr(system_state, "ta_lots_trades", []),
         "manual_bot": system_state.manual_bot,
         "manual_bots": getattr(system_state, "manual_bots", []),
-        "ai_divergence_threshold": getattr(system_state, "ai_divergence_threshold", 80.0),
-        "ai_opportunities_count": len(getattr(system_state, "ai_opportunities_log", [])),
-        
+        "order_fills": getattr(system_state, "order_fills", [])[:50],
+
         "logs": system_state.logs
     })
 
@@ -1697,6 +1669,149 @@ async def cancel_groww_order(order_id: str):
     except Exception as e:
         system_state.log(f"[GROWW LIVE ORDER ERROR] Failed to cancel order {order_id}: {e}")
 
+# ----------------- Order fill log: har trade asli kitne spread par laga -----------------
+# Har successful order (kisi bhi bot / manual) ka ek record: expected spread (depth VWAP) vs asli fill spread.
+# Live order me broker ka avg price turant na mile to record "verify pending" rehta hai; background loop
+# baad me broker order book se asli price laata hai - sirf tab jab koi order chal nahi raha aur rate limit free ho.
+ORDER_FILLS_MAX = 300
+FILL_VERIFY_GAP_SECONDS = 20.0         # do order-book calls ke beech kam se kam itna gap
+FILL_VERIFY_QUIET_SECONDS = 15.0       # last order ke itne sec baad hi verify (orders ke liye API free rahe)
+FILL_VERIFY_GIVE_UP_SECONDS = 1800.0   # 30 min me bhi na mile to chhod do
+
+def load_order_fills():
+    try:
+        filepath = get_data_filepath("order_fills.json")
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                system_state.order_fills = json.load(f)
+            return
+    except Exception as e:
+        logger.warning(f"[ORDER FILLS] load failed: {e}")
+    system_state.order_fills = []
+
+def save_order_fills():
+    try:
+        with open(get_data_filepath("order_fills.json"), "w", encoding="utf-8") as f:
+            json.dump(getattr(system_state, "order_fills", [])[:ORDER_FILLS_MAX], f, indent=2)
+    except Exception as e:
+        logger.warning(f"[ORDER FILLS] save failed: {e}")
+
+def _apply_fill_prices(fill: dict, petal_price: float, mini_price: float):
+    p_scale = get_gold_contract_specs(fill["petal_symbol"])["price_scale_to_10g"]
+    m_scale = get_gold_contract_specs(fill["mini_symbol"])["price_scale_to_10g"]
+    fill["petal_fill_price"] = round(petal_price, 2)
+    fill["mini_fill_price"] = round(mini_price, 2)
+    fill["actual_spread"] = round(petal_price * p_scale - mini_price * m_scale, 2)
+    # Fark: BUY spread me zyada dena = nuksan; SELL spread me kam milna = nuksan. (+) = aapke against
+    diff = fill["actual_spread"] - fill["expected_spread"]
+    fill["slippage_pts"] = round(diff if fill["side"] == "BUY SPREAD" else -diff, 2)
+
+def record_order_fill(petal_symbol: str, mini_symbol: str, petal_action: str, is_entry: bool, qty: int,
+                      expected_petal: float, expected_mini: float, petal_price: float, mini_price: float,
+                      paper: bool, confirmed: bool, petal_order_id: str = "", mini_order_id: str = "") -> dict:
+    # Yeh sirf record hai - isme koi error aaye to bhi order ka result kabhi nahi rukna chahiye
+    try:
+        return _record_order_fill(petal_symbol, mini_symbol, petal_action, is_entry, qty, expected_petal, expected_mini,
+                                  petal_price, mini_price, paper, confirmed, petal_order_id, mini_order_id)
+    except Exception as e:
+        logger.error(f"[ORDER FILLS] record failed: {e}")
+        return {"fill_id": "", "actual_spread": None, "verify_status": "UNKNOWN"}
+
+def _record_order_fill(petal_symbol, mini_symbol, petal_action, is_entry, qty, expected_petal, expected_mini,
+                       petal_price, mini_price, paper, confirmed, petal_order_id, mini_order_id) -> dict:
+    if not hasattr(system_state, "order_fills"):
+        load_order_fills()
+    p_scale = get_gold_contract_specs(petal_symbol)["price_scale_to_10g"]
+    m_scale = get_gold_contract_specs(mini_symbol)["price_scale_to_10g"]
+    fill = {
+        "fill_id": f"F{int(time.time() * 1000)}{random.randint(10, 99)}",
+        "date": get_ist_time_str("%Y-%m-%d"),
+        "time": get_ist_time_str("%H:%M:%S"),
+        "ts": time.time(),
+        "petal_symbol": petal_symbol,
+        "mini_symbol": mini_symbol,
+        "side": "BUY SPREAD" if petal_action == "BUY" else "SELL SPREAD",
+        "leg": "Entry" if is_entry else "Exit",
+        "quantity": qty,
+        "mode": "Paper" if paper else "Live",
+        "expected_spread": round(expected_petal * p_scale - expected_mini * m_scale, 2),
+        "petal_order_id": petal_order_id or "",
+        "mini_order_id": mini_order_id or "",
+        # Paper fill = depth VWAP (wahi asli hai). Live = broker avg price mila to confirmed.
+        "verify_status": "CONFIRMED" if (paper or confirmed) else "PENDING",
+        "verify_attempts": 0
+    }
+    _apply_fill_prices(fill, petal_price, mini_price)
+    system_state.order_fills.insert(0, fill)
+    del system_state.order_fills[ORDER_FILLS_MAX:]
+    save_order_fills()
+    return fill
+
+def _update_linked_bot_trades(fill: dict):
+    """Slicer ke trade cards me bhi verify hua spread dikhe."""
+    for bot in [system_state.manual_bot] + list(getattr(system_state, "manual_bots", [])):
+        for tr in bot.get("trades", []) or []:
+            if fill["fill_id"] in (tr.get("fill_ids") or []):
+                tr["actual_spread"] = fill["actual_spread"]
+                tr["petal_fill_price"] = fill["petal_fill_price"]
+                tr["mini_fill_price"] = fill["mini_fill_price"]
+                tr["spread_status"] = fill["verify_status"]
+
+async def verify_pending_fills_once() -> bool:
+    """Ek baar: pending live fills ka asli avg price broker se. True = kuch badla."""
+    fills = [f for f in getattr(system_state, "order_fills", []) if f.get("verify_status") == "PENDING"]
+    if not fills:
+        return False
+    now = time.time()
+    # Rate limit orders ke liye free rakho: koi order chal raha ho ya abhi abhi gaya ho to ruko
+    if (getattr(system_state, "order_execution_in_progress", False) or getattr(system_state, "execution_in_progress", False)
+            or getattr(system_state, "mbot_execution_in_progress", False)
+            or now - getattr(system_state, "last_global_order_time", 0.0) < FILL_VERIFY_QUIET_SECONDS
+            or now - getattr(system_state, "_last_fill_verify_time", 0.0) < FILL_VERIFY_GAP_SECONDS):
+        return False
+    system_state._last_fill_verify_time = now
+
+    changed = False
+    for f in fills:
+        if now - f.get("ts", now) > FILL_VERIFY_GIVE_UP_SECONDS:
+            f["verify_status"] = "UNVERIFIED"
+            changed = True
+    fills = [f for f in fills if f["verify_status"] == "PENDING"]
+    if system_state.broker == "Groww":
+        fills = fills[:1]          # Groww me har order ki alag call lagti hai
+        check_func = check_groww_orders_status
+    elif system_state.broker == "Dhan":
+        check_func = check_dhan_orders_status
+    else:
+        check_func = check_real_orders_status
+    ids = [oid for f in fills for oid in (f["petal_order_id"], f["mini_order_id"]) if oid]
+    if not ids:
+        return changed
+    status_map = await check_func(ids)
+    for f in fills:
+        f["verify_attempts"] = f.get("verify_attempts", 0) + 1
+        p_avg = (status_map.get(f["petal_order_id"]) or {}).get("average_price") or 0.0
+        m_avg = (status_map.get(f["mini_order_id"]) or {}).get("average_price") or 0.0
+        if p_avg > 0 and m_avg > 0:
+            _apply_fill_prices(f, p_avg, m_avg)
+            f["verify_status"] = "CONFIRMED"
+            f["verified_at"] = get_ist_time_str("%H:%M:%S")
+            _update_linked_bot_trades(f)
+            system_state.log(f"[ORDER FILL] {f['petal_symbol']}/{f['mini_symbol']} {f['side']} actual spread {f['actual_spread']:.2f} (expected {f['expected_spread']:.2f}) verified from broker.")
+            changed = True
+    return changed
+
+async def fill_verifier_loop():
+    while True:
+        await asyncio.sleep(5)
+        try:
+            if await verify_pending_fills_once():
+                save_order_fills()
+                system_state.save_manual_bot()
+                await broadcast_system_state()
+        except Exception as e:
+            logger.error(f"[ORDER FILL VERIFY] {e}")
+
 def record_failed_attempt(direction: str, status: str, reason: str, is_entry: bool):
     system_state.trade_counter += 1
     t_time = get_ist_time_str("%H:%M:%S")
@@ -1824,7 +1939,9 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
         # Paper Trading execution: fill instantly at average price
         system_state.log(f"[PAPER MARKET FILL] {target_petal_symbol} {petal_action} filled @ MARKET {petal_price:.2f}")
         system_state.log(f"[PAPER MARKET FILL] {target_mini_symbol} {mini_action} filled @ MARKET {mini_price:.2f}")
-        
+        fill = record_order_fill(target_petal_symbol, target_mini_symbol, petal_action, is_entry, qty,
+                                 petal_price, mini_price, petal_price, mini_price, paper=True, confirmed=True)
+
         return {
             "success": True,
             "status": "COMPLETED",
@@ -1832,7 +1949,10 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             "petal_fill_price": petal_price,
             "mini_fill_price": mini_price,
             "petal_order_type": "MARKET",
-            "mini_order_type": "MARKET"
+            "mini_order_type": "MARKET",
+            "fill_id": fill["fill_id"],
+            "actual_spread": fill["actual_spread"],
+            "spread_status": fill["verify_status"]
         }
     else:
         # Determine the broker methods dynamically
@@ -1995,6 +2115,8 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
             mini_fill_price = mini_price
             petal_type = "MARKET"
             mini_type = "MARKET"
+            petal_price_confirmed = False   # broker ka asli avg price mila? (order fill log ke liye)
+            mini_price_confirmed = False
             
             # Initial grace period: exchange processes market orders in ~50-100ms
             await asyncio.sleep(0.8)
@@ -2018,6 +2140,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                         petal_filled = True
                         if avg_p and avg_p > 0:
                             petal_fill_price = avg_p
+                            petal_price_confirmed = True
                         else:
                             petal_fill_price = petal_ltp
                         system_state.log(f"[LIVE MARKET FILL] Leg 1: {target_petal_symbol} filled @ MARKET {petal_fill_price:.2f} (Traded Avg)")
@@ -2033,6 +2156,7 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                         mini_filled = True
                         if avg_p and avg_p > 0:
                             mini_fill_price = avg_p
+                            mini_price_confirmed = True
                         else:
                             mini_fill_price = mini_ltp
                         system_state.log(f"[LIVE MARKET FILL] Leg 2: {target_mini_symbol} filled @ MARKET {mini_fill_price:.2f} (Traded Avg)")
@@ -2059,10 +2183,12 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                         final_status = await check_status_func([petal_order_id, mini_order_id])
                         if petal_order_id in final_status and final_status[petal_order_id].get("average_price"):
                             petal_fill_price = final_status[petal_order_id]["average_price"]
+                            petal_price_confirmed = True
                         elif petal_ltp > 0:
                             petal_fill_price = petal_ltp
                         if mini_order_id in final_status and final_status[mini_order_id].get("average_price"):
                             mini_fill_price = final_status[mini_order_id]["average_price"]
+                            mini_price_confirmed = True
                         elif mini_ltp > 0:
                             mini_fill_price = mini_ltp
                     except Exception:
@@ -2093,7 +2219,12 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                 await place_order_func(target_mini_symbol, target_mini_token, rollback_action, required_mini)
                 record_failed_attempt(direction, "FAILED", "Leg 2 filled, Leg 1 failed. Rolled back.", is_entry)
                 return {"success": False, "status": "FAILED", "reason": "Partial fill Leg 1 failure"}
-                
+
+            fill = record_order_fill(target_petal_symbol, target_mini_symbol, petal_action, is_entry, qty,
+                                     petal_price, mini_price, petal_fill_price, mini_fill_price, paper=False,
+                                     confirmed=petal_price_confirmed and mini_price_confirmed,
+                                     petal_order_id=str(petal_order_id), mini_order_id=str(mini_order_id))
+
             return {
                 "success": True,
                 "status": "COMPLETED",
@@ -2101,7 +2232,10 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                 "petal_fill_price": petal_fill_price,
                 "mini_fill_price": mini_fill_price,
                 "petal_order_type": petal_type,
-                "mini_order_type": mini_type
+                "mini_order_type": mini_type,
+                "fill_id": fill["fill_id"],
+                "actual_spread": fill["actual_spread"],
+                "spread_status": fill["verify_status"]
             }
         finally:
             system_state.order_execution_in_progress = False
@@ -2286,13 +2420,23 @@ def get_contract_expiry_date(symbol: str):
             return datetime.strptime(f"{m.group(1)}{m.group(2)}{m.group(3)}", "%d%b%y").date()
         except ValueError:
             return None
+    # Bina din wala symbol, e.g. GOLDTEN26OCTFUT (saal + month): month ka aakhri din maan lo
+    m = re.search(r"(\d{2})([A-Z]{3})FUT$", sym_u)
+    if m:
+        try:
+            import calendar
+            first = datetime.strptime(f"01{m.group(2)}{m.group(1)}", "%d%b%y").date()
+            return first.replace(day=calendar.monthrange(first.year, first.month)[1])
+        except ValueError:
+            return None
     return None
 
 
 class AIArbitrageEngine:
     """
     Minimal AI Assistant. Iske 4 hisse hain:
-    1. Scanner (process_tick): har pair ka spread uske pichle 60 min ke average se kitna door hai, track karta hai.
+    1. Paper Trader (process_tick): suggestion wale rule par kaagaz par trade leta hai (Lots Bot jaisa ladder),
+       profit / loss book karta hai aur har trade ka reason likhta hai. Asli order kabhi nahi.
     2. Pair table (get_multi_pair_matrix): Month Master pairs ka live depth spread + aaj ka asli High/Low.
     3. Suggestion (generate_claude_advisory): ek simple rule -
          Depth Buy spread aaj ke range ke neeche 30% me ho  -> Expansion (BUY spread)
@@ -2303,7 +2447,6 @@ class AIArbitrageEngine:
     """
     ZONE_PCT = 30.0              # range ke bottom/top 30% me signal
     MIN_RANGE_PTS = 20.0         # aaj ka range isse chhota ho to signal nahi
-    MIN_HISTORY_SECONDS = 600    # scanner ko signal dene se pehle kam se kam 10 min ka data chahiye
     DEFAULT_TARGET_PTS = 110.0
     DEFAULT_STEP_PTS = 35.0
     DEFAULT_LOTS = "1, 2, 2"
@@ -2317,11 +2460,16 @@ class AIArbitrageEngine:
     ALERT_CHECK_SECONDS = 30     # background alert check har 30 sec
     HISTORY_DIR = os.path.join(BASE_DIR, "ai_spread_history")
     CLAUDE_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5"]
+    # Paper Trader (sirf kaagaz par - koi asli order nahi)
+    PAPER_STOP_PTS = 140.0       # pehli entry se spread itna ulta jaaye to stop loss (saare lots band)
+    PAPER_COOLDOWN_MIN = 15      # ek trade band hone ke baad usi month me nayi paper entry ka gap
+    PAPER_MAX_CLOSED = 500       # itne purane band trades yaad rakhe jaate hain
 
     def __init__(self, state: TradingSystem):
         self.state = state
         self._last_tick_processed = {}
-        self._spread_history = {}  # pair_key -> list of (timestamp, spread)
+        self._paper = None              # paper trades (lazy load: ai_paper_trades.json)
+        self._paper_last_save = 0.0
         self.claude_api_url = "https://api.anthropic.com/v1/messages"
         self._last_ai_analysis = None
         self._last_ai_analysis_time = 0.0
@@ -2365,32 +2513,16 @@ class AIArbitrageEngine:
                     pass
         return ""
 
-    # ----------------- 1. Scanner -----------------
-    def calculate_rolling_mean(self, pair_key: str, cur_spread: float) -> float:
-        history = self._spread_history.setdefault(pair_key, [])
-        now = time.time()
-        history.append((now, cur_spread))
-        # Retain last 60 minutes of tick history for rolling channel calculation
-        cutoff = now - 3600
-        self._spread_history[pair_key] = [h for h in history if h[0] >= cutoff]
-        if not self._spread_history[pair_key]:
-            return cur_spread
-        spreads = [h[1] for h in self._spread_history[pair_key]]
-        return sum(spreads) / len(spreads)
-
-    def get_rolling_info(self, pair_key: str) -> dict:
-        """60-min average aur kitne minute ka data hai (server restart par reset hota hai)."""
-        history = self._spread_history.get(pair_key, [])
-        if not history:
-            return {"mean": None, "minutes": 0}
-        spreads = [h[1] for h in history]
-        return {
-            "mean": round(sum(spreads) / len(spreads), 2),
-            "minutes": int((history[-1][0] - history[0][0]) / 60)
-        }
-
+    # ----------------- 1. Paper Trader -----------------
+    # Ek insaan jaise kaagaz par trade: WAHI rule jo Suggestion deta hai (aaj ke range ka 30% zone),
+    # WAHI ladder jo Lots Bot chalata hai (lots 1,2,2 | har 35 pts par averaging | har lot apni entry se 110 pts par exit).
+    # Asli order kabhi nahi jaata. Fark sirf itna: kaagaz par loss bhi book hota hai -
+    #   (a) spread pehli entry se PAPER_STOP_PTS ulta chala jaaye, ya (b) expiry EXPIRY_BLOCK_DAYS din reh jaaye.
     def process_tick(self, petal_sym: str, mini_sym: str, spread: float, buy_spread: float, sell_spread: float):
         if not petal_sym or not mini_sym or spread == 0.0:
+            return
+        # No real order book (None = broker gave no depth / simulated depth): nothing is recorded or traded on paper
+        if buy_spread is None or sell_spread is None:
             return
 
         pair_key = f"{petal_sym}_{mini_sym}"
@@ -2401,105 +2533,311 @@ class AIArbitrageEngine:
             return
         self._last_tick_processed[pair_key] = now_ts
         self.record_spread_snapshot(petal_sym, mini_sym, buy_spread, sell_spread)
+        try:
+            self.paper_tick(petal_sym, mini_sym)
+        except Exception as e:
+            logger.error(f"[AI PAPER] {pair_key}: {e}")
 
-        rolling_mean = self.calculate_rolling_mean(pair_key, spread)
-        divergence = abs(spread - rolling_mean)
-        threshold = getattr(self.state, "ai_divergence_threshold", 80.0)
+    def _paper_store(self) -> dict:
+        if self._paper is None:
+            self._paper = {"seq": 0, "open": [], "closed": [], "last_close_ts": {}}
+            try:
+                path = get_data_filepath("ai_paper_trades.json")
+                if os.path.exists(path):
+                    with open(path, "r", encoding="utf-8") as f:
+                        self._paper.update(json.load(f))
+            except Exception as e:
+                logger.warning(f"[AI PAPER] load failed: {e}")
+        return self._paper
 
-        ch_info = calculate_trade_pair_charges(petal_sym, mini_sym, self.state.symbol_ltps.get(mini_sym, 0.0) or 0.0)
-        trade_grams = ch_info["grams"]
-        pair_charges = ch_info["total_charges"]
-        pair_slippage = ch_info["slippage_cushion"]
-        pair_mult = ch_info["multiplier_10g_scale"]
+    def _paper_save(self):
+        self._paper_last_save = time.time()
+        try:
+            with open(get_data_filepath("ai_paper_trades.json"), "w", encoding="utf-8") as f:
+                json.dump(self._paper_store(), f, indent=1)
+        except Exception as e:
+            logger.warning(f"[AI PAPER] save failed: {e}")
 
-        # 1. Update any existing ACTIVE signals for this pair
-        for opp in self.state.ai_opportunities_log:
-            if opp.get("status") == "Active" and opp.get("pair_key") == pair_key:
-                entry_spread = opp["trigger_spread"]
-                init_div = opp["divergence_pts"]
-                if opp["direction"] == "Expansion":
-                    current_gain = spread - entry_spread
-                else:
-                    current_gain = entry_spread - spread
+    def _paper_lots_list(self) -> list:
+        return [int(x) for x in str(self.DEFAULT_LOTS).split(",") if x.strip().isdigit() and int(x) > 0] or [1]
 
-                # Success: spread ne shuruaati divergence ka 60% wapas cover kar liya
-                target_reversion = max(20.0, init_div * 0.6)
-                # Stopped: spread 0.8x aur ulta chala gaya
-                stop_loss = init_div * 0.8
+    def paper_tick(self, p_sym: str, m_sym: str):
+        """Ek pair par: khuli paper trade sambhalo, ya rule mile to nayi kholo."""
+        if not self._is_live_feed() or get_market_session_status() != "OPEN":
+            return
+        row = self.build_pair_row(p_sym, m_sym)
+        if row["depth_buy_spread"] is None or row["depth_sell_spread"] is None:
+            return
+        store = self._paper_store()
+        trade = next((t for t in store["open"] if t["pair_key"] == row["pair_key"]), None)
+        changed = self._paper_manage(trade, row) if trade else self._paper_maybe_open(row)
+        if changed or (store["open"] and time.time() - self._paper_last_save > 60):
+            self._paper_save()
 
-                if current_gain >= target_reversion:
-                    opp["status"] = "Reverted (Success)"
-                elif current_gain <= -stop_loss:
-                    opp["status"] = "Breakout / Stopped"
-                else:
-                    continue
+    def _paper_maybe_open(self, row: dict) -> bool:
+        store = self._paper_store()
+        if row["days_to_expiry"] is not None and row["days_to_expiry"] < 0:
+            return False
+        last_close = store["last_close_ts"].get(row["pair_key"], 0)
+        if time.time() - last_close < self.PAPER_COOLDOWN_MIN * 60:
+            return False
+        decision, reason = self._evaluate_pair(row)
+        if decision not in ("Expansion", "Contraction"):
+            return False
 
-                gross = round(current_gain * pair_mult, 2)
-                opp["captured_pts"] = round(current_gain, 1)
-                opp["exit_spread"] = round(spread, 2)
-                opp["duration_seconds"] = int(now_ts - opp.get("created_ts", now_ts))
-                opp["gross_profit"] = gross
-                opp["charges"] = pair_charges
-                opp["slippage_cushion"] = pair_slippage
-                opp["net_profit"] = round(gross - pair_charges - pair_slippage, 2)
-                opp["grams"] = trade_grams
-                self.state.save_ai_opportunities()
+        exp = decision == "Expansion"
+        base = row["depth_buy_spread"] if exp else row["depth_sell_spread"]
+        lo, hi = (row["depth_buy_low"], row["depth_buy_high"]) if exp else (row["depth_sell_low"], row["depth_sell_high"])
+        pos = row["buy_pos_pct"] if exp else row["sell_pos_pct"]
+        step = self.DEFAULT_STEP_PTS
+        levels = []
+        for i, lots in enumerate(self._paper_lots_list()):
+            levels.append({
+                "level": i + 1, "lots": lots,
+                "trigger": round(base - i * step if exp else base + i * step, 2),
+                "entry": None, "entry_at": None, "exit": None, "exit_at": None,
+                "result": None, "points": None, "net": None
+            })
+        store["seq"] += 1
+        trade = {
+            "id": store["seq"],
+            "pair": row["label"], "pair_key": row["pair_key"],
+            "petal_symbol": row["petal_symbol"], "mini_symbol": row["mini_symbol"],
+            "direction": decision,
+            "status": "OPEN",
+            "opened_at": get_ist_time_str("%Y-%m-%d %H:%M:%S"), "opened_ts": time.time(),
+            "closed_at": None, "closed_ts": None,
+            "base": base,
+            "target_pts": self.DEFAULT_TARGET_PTS, "step": step,
+            "stop_spread": round(base - self.PAPER_STOP_PTS if exp else base + self.PAPER_STOP_PTS, 2),
+            "entry_why": reason,
+            "entry_ctx": {"pos_pct": pos, "low": lo, "high": hi,
+                          "range": round(hi - lo, 1) if lo is not None and hi is not None else None,
+                          "expiry_date": row["expiry_date"], "days_to_expiry": row["days_to_expiry"]},
+            # entry ke baad sabse door gaya entry-side spread (Expansion: sabse neeche, Contraction: sabse upar)
+            "extreme_after_entry": base,
+            "best_pts": 0.0, "worst_pts": 0.0,     # exit-side par pehli entry se sabse achha / sabse bura move
+            "last_exit_side": row["depth_sell_spread"] if exp else row["depth_buy_spread"],
+            "levels": levels,
+            "close_code": None, "reasons": [], "net": None, "gross": None, "charges": None
+        }
+        self._paper_fill_levels(trade, base)
+        store["open"].append(trade)
+        label = "BUY SPREAD" if exp else "SELL SPREAD"
+        self.state.log(f"[AI PAPER] #{trade['id']} {row['label']}: {label} @ {base} (on paper, {levels[0]['lots']} lot)")
+        return True
 
-        # 2. New signal - only once we have enough history for the average to mean something
-        history = self._spread_history.get(pair_key, [])
-        history_span = (history[-1][0] - history[0][0]) if len(history) > 1 else 0.0
-        if divergence >= threshold and history_span >= self.MIN_HISTORY_SECONDS:
-            recent_same_pair = [
-                o for o in self.state.ai_opportunities_log
-                if o.get("pair_key") == pair_key and (now_ts - o.get("created_ts", 0)) < 180.0
-            ]
-            if not recent_same_pair:
-                new_opp = {
-                    "id": f"opp_{int(now_ts)}_{random.randint(100, 999)}",
-                    "created_ts": now_ts,
-                    "timestamp": get_ist_time_str("%H:%M:%S"),
-                    "date": get_ist_time_str("%Y-%m-%d"),
-                    "pair": f"{petal_sym} vs {mini_sym}",
-                    "pair_key": pair_key,
-                    "petal_symbol": petal_sym,
-                    "mini_symbol": mini_sym,
-                    "trigger_spread": round(spread, 2),
-                    "rolling_mean": round(rolling_mean, 2),
-                    "divergence_pts": round(divergence, 1),
-                    "direction": "Expansion" if spread < rolling_mean else "Contraction",
-                    "status": "Active",
-                    "depth_buy_spread": round(buy_spread, 2),
-                    "depth_sell_spread": round(sell_spread, 2),
-                    "captured_pts": 0.0,
-                    "duration_seconds": 0,
-                    "gross_profit": 0.0,
-                    "charges": pair_charges,
-                    "slippage_cushion": pair_slippage,
-                    "net_profit": 0.0,
-                    "grams": trade_grams
-                }
-                self.state.ai_opportunities_log.insert(0, new_opp)
-                if len(self.state.ai_opportunities_log) > 50:
-                    self.state.ai_opportunities_log.pop()
-                self.state.save_ai_opportunities()
+    def _paper_fill_levels(self, trade: dict, entry_side: float) -> bool:
+        exp = trade["direction"] == "Expansion"
+        changed = False
+        for lv in trade["levels"]:
+            if lv["entry"] is None and lv["result"] is None and (entry_side <= lv["trigger"] if exp else entry_side >= lv["trigger"]):
+                lv["entry"] = round(entry_side, 2)
+                lv["entry_at"] = get_ist_time_str("%Y-%m-%d %H:%M:%S")
+                changed = True
+        return changed
 
-    def get_opportunities_summary_from_list(self, events: list) -> dict:
-        reverted = [o for o in events if "Reverted" in o.get("status", "")]
-        stopped = [o for o in events if "Stopped" in o.get("status", "")]
-        active = [o for o in events if o.get("status") == "Active"]
-        closed_count = len(reverted) + len(stopped)
-        return {
-            "total_opportunities": len(events),
-            "reverted_count": len(reverted),
-            "active_count": len(active),
-            "stopped_count": len(stopped),
-            # Win rate sirf band ho chuke signals par (active signals ka result abhi pata nahi)
-            "win_rate_percent": round(len(reverted) / closed_count * 100.0, 1) if closed_count else None,
-            "total_simulated_profit": round(sum(o.get("net_profit", 0.0) for o in reverted + stopped), 2)
+    def _paper_close_level(self, trade: dict, lv: dict, exit_side: float, result: str, ch: dict):
+        exp = trade["direction"] == "Expansion"
+        pts = (exit_side - lv["entry"]) if exp else (lv["entry"] - exit_side)
+        gross = pts * ch["multiplier_10g_scale"] * lv["lots"]
+        cost = (ch["total_charges"] + ch["slippage_cushion"]) * lv["lots"]
+        lv.update({"exit": round(exit_side, 2), "exit_at": get_ist_time_str("%Y-%m-%d %H:%M:%S"), "result": result,
+                   "points": round(pts, 1), "gross": round(gross, 2), "cost": round(cost, 2), "net": round(gross - cost, 2)})
+
+    def _paper_manage(self, trade: dict, row: dict) -> bool:
+        exp = trade["direction"] == "Expansion"
+        entry_side = row["depth_buy_spread"] if exp else row["depth_sell_spread"]
+        exit_side = row["depth_sell_spread"] if exp else row["depth_buy_spread"]
+        ch = calculate_trade_pair_charges(trade["petal_symbol"], trade["mini_symbol"], row["mini_ltp"] or 0.0)
+        changed = False
+
+        move = (exit_side - trade["base"]) if exp else (trade["base"] - exit_side)
+        trade["best_pts"] = round(max(trade["best_pts"], move), 1)
+        trade["worst_pts"] = round(min(trade["worst_pts"], move), 1)
+        trade["extreme_after_entry"] = min(trade["extreme_after_entry"], entry_side) if exp else max(trade["extreme_after_entry"], entry_side)
+        trade["last_exit_side"] = exit_side
+
+        days = row["days_to_expiry"]
+        stop_hit = exit_side <= trade["stop_spread"] if exp else exit_side >= trade["stop_spread"]
+        expiry_hit = days is not None and days <= self.EXPIRY_BLOCK_DAYS
+
+        if not stop_hit and not expiry_hit:
+            changed |= self._paper_fill_levels(trade, entry_side)
+
+        for lv in trade["levels"]:
+            if lv["entry"] is None or lv["result"] is not None:
+                continue
+            target = lv["entry"] + trade["target_pts"] if exp else lv["entry"] - trade["target_pts"]
+            if (exit_side >= target) if exp else (exit_side <= target):
+                self._paper_close_level(trade, lv, exit_side, "TARGET", ch)
+                changed = True
+            elif stop_hit or expiry_hit:
+                self._paper_close_level(trade, lv, exit_side, "STOP" if stop_hit else "EXPIRY", ch)
+                changed = True
+
+        still_open = [lv for lv in trade["levels"] if lv["entry"] is not None and lv["result"] is None]
+        if not still_open:
+            for lv in trade["levels"]:
+                if lv["entry"] is None and lv["result"] is None:
+                    lv["result"] = "NOT_FILLED"   # spread wahan tak aaya hi nahi
+            code = "STOP" if stop_hit else ("EXPIRY" if expiry_hit else "TARGET")
+            self._paper_finish(trade, code, row)
+            changed = True
+        return changed
+
+    def _paper_finish(self, trade: dict, code: str, row: dict):
+        store = self._paper_store()
+        filled = [lv for lv in trade["levels"] if lv["entry"] is not None]
+        trade["gross"] = round(sum(lv["gross"] for lv in filled), 2)
+        trade["charges"] = round(sum(lv["cost"] for lv in filled), 2)
+        trade["net"] = round(sum(lv["net"] for lv in filled), 2)
+        trade["lots"] = sum(lv["lots"] for lv in filled)
+        trade["avg_entry"] = round(sum(lv["entry"] * lv["lots"] for lv in filled) / trade["lots"], 2)
+        trade["status"] = "PROFIT" if trade["net"] > 0 else "LOSS"
+        trade["close_code"] = code
+        trade["closed_at"] = get_ist_time_str("%Y-%m-%d %H:%M:%S")
+        trade["closed_ts"] = time.time()
+        trade["reasons"] = self._paper_reasons(trade, row)
+        store["open"] = [t for t in store["open"] if t["id"] != trade["id"]]
+        store["closed"].insert(0, trade)
+        del store["closed"][self.PAPER_MAX_CLOSED:]
+        store["last_close_ts"][trade["pair_key"]] = trade["closed_ts"]
+        word = "PROFIT book" if trade["status"] == "PROFIT" else "LOSS book"
+        self.state.log(f"[AI PAPER] #{trade['id']} {trade['pair']}: {word} ₹{trade['net']:,.0f} ({code})")
+
+    @staticmethod
+    def _paper_duration(seconds: float) -> str:
+        mins = int(seconds // 60)
+        if mins < 60:
+            return f"{mins} min"
+        if mins < 24 * 60:
+            return f"{mins // 60} h {mins % 60} min"
+        return f"{mins // (24 * 60)} d {(mins % (24 * 60)) // 60} h"
+
+    def _paper_reasons(self, t: dict, row: dict) -> list:
+        """Insaan jaisa hisaab: profit / loss kyun hua - jitne reason sach me lagu hon."""
+        exp = t["direction"] == "Expansion"
+        side = "Depth Buy" if exp else "Depth Sell"
+        zone = "cheap (near the Low)" if exp else "expensive (near the High)"
+        ctx = t["entry_ctx"]
+        filled = [lv for lv in t["levels"] if lv["entry"] is not None]
+        hit = [lv for lv in filled if lv["result"] == "TARGET"]
+        cut = [lv for lv in filled if lv["result"] in ("STOP", "EXPIRY")]
+        dur = self._paper_duration((t["closed_ts"] or time.time()) - t["opened_ts"])
+        r = []
+
+        if t["status"] == "PROFIT":
+            if ctx.get("pos_pct") is not None:
+                r.append(f"Good entry point: {side} spread {t['base']} was at {ctx['pos_pct']:.0f}% of today's range ({ctx['low']} to {ctx['high']}), i.e. {zone}.")
+            r.append(f"Spread moved {'up' if exp else 'down'} and the target ({t['target_pts']:.0f} pts) was hit on {len(hit)} level(s).")
+            if len(filled) > 1:
+                r.append(f"Averaging helped: {len(filled)} levels filled, avg entry became {t['avg_entry']}, so more lots exited in profit on the way back.")
+            else:
+                r.append("No averaging needed, the first entry reached the target.")
+            if t["worst_pts"] < 0:
+                r.append(f"In between, the spread went {abs(t['worst_pts']):.0f} pts against, but the position was held and it came back.")
+            if cut:
+                r.append(f"{sum(lv['lots'] for lv in cut)} lot(s) were cut at {('stop' if t['close_code'] == 'STOP' else 'expiry')}, but the total was still in profit.")
+            r.append(f"Time taken: {dur}. Net ₹{t['net']:,.0f} after charges + slippage ₹{t['charges']:,.0f}.")
+            return r
+
+        # LOSS
+        if t["close_code"] == "STOP":
+            r.append(f"Stop loss hit: spread moved {self.PAPER_STOP_PTS:.0f} pts against the first entry ({t['base']}) (stop {t['stop_spread']}).")
+        elif t["close_code"] == "EXPIRY":
+            r.append(f"Expiry came close ({row.get('days_to_expiry')} days left), so the position was closed before the target was reached.")
+        if len(filled) == len(t["levels"]) and len(filled) > 1:
+            r.append(f"All {len(filled)} averaging levels filled ({t['lots']} lots), but the spread did not come back.")
+        day_ext = ctx.get("low") if exp else ctx.get("high")
+        if day_ext is not None and ((t["extreme_after_entry"] < day_ext) if exp else (t["extreme_after_entry"] > day_ext)):
+            r.append(f"After entry the day made a new {'Low' if exp else 'High'} ({t['extreme_after_entry']}). The spread trended one way instead of returning into the range.")
+        r.append(f"Best move after entry was only {max(t['best_pts'], 0):.0f} pts, while the target was {t['target_pts']:.0f} pts.")
+        if ctx.get("range") is not None and ctx["range"] < t["target_pts"]:
+            r.append(f"At entry, today's full range was only {ctx['range']:.0f} pts, so the target ({t['target_pts']:.0f}) was too big for that day.")
+        if hit:
+            r.append(f"{sum(lv['lots'] for lv in hit)} lot(s) exited at target in profit, but the loss on the other lots was bigger.")
+        if t["gross"] > 0:
+            r.append(f"Points were in profit (₹{t['gross']:,.0f}), but charges + slippage ₹{t['charges']:,.0f} turned it into a loss.")
+        else:
+            r.append(f"Charges + slippage ₹{t['charges']:,.0f} added to the loss.")
+        r.append(f"Trade lasted {dur}.")
+        return r
+
+    def paper_check_open(self) -> bool:
+        """Background (alert loop) se: jin pairs ka tick nahi aa raha, unki khuli paper trades ka expiry / stop bhi check ho."""
+        if not self._is_live_feed() or get_market_session_status() != "OPEN":
+            return False
+        changed = False
+        for t in list(self._paper_store()["open"]):
+            row = self.build_pair_row(t["petal_symbol"], t["mini_symbol"])
+            if row["depth_buy_spread"] is not None and row["depth_sell_spread"] is not None:
+                changed |= self._paper_manage(t, row)
+        if changed:
+            self._paper_save()
+        return changed
+
+    def get_paper_report(self) -> dict:
+        store = self._paper_store()
+        closed = store["closed"]
+        wins = [t for t in closed if t["status"] == "PROFIT"]
+        losses = [t for t in closed if t["status"] == "LOSS"]
+
+        def bucket(items):
+            w = [t for t in items if t["status"] == "PROFIT"]
+            return {"trades": len(items), "profit": len(w), "loss": len(items) - len(w),
+                    "win_rate_percent": round(len(w) / len(items) * 100.0, 1) if items else None,
+                    "net": round(sum(t["net"] for t in items), 2)}
+
+        by_pair, by_dir = {}, {}
+        for t in closed:
+            by_pair.setdefault(t["pair"], []).append(t)
+            by_dir.setdefault(t["direction"], []).append(t)
+
+        # Kitni baar kis wajah se band hua
+        close_reasons = {
+            "Profit at target": len([t for t in wins if t["close_code"] == "TARGET"]),
+            "Stop loss": len([t for t in closed if t["close_code"] == "STOP"]),
+            "Closed at expiry": len([t for t in closed if t["close_code"] == "EXPIRY"]),
+            "Loss even after all averaging": len([t for t in losses if all(lv["entry"] is not None for lv in t["levels"]) and len(t["levels"]) > 1]),
+            "Loss on a trend day (new Low/High)": len([t for t in losses if any(("naya" in x or "made a new" in x) for x in t["reasons"])]),
+            "Loss due to charges": len([t for t in losses if t["gross"] > 0])
         }
 
-    def get_opportunities_summary(self) -> dict:
-        return self.get_opportunities_summary_from_list(self.state.ai_opportunities_log)
+        open_rows = []
+        for t in store["open"]:
+            exp = t["direction"] == "Expansion"
+            now = t.get("last_exit_side")
+            filled = [lv for lv in t["levels"] if lv["entry"] is not None and lv["result"] is None]
+            pts_now = None
+            if now is not None and filled:
+                pts_now = round(sum(((now - lv["entry"]) if exp else (lv["entry"] - now)) * lv["lots"] for lv in filled), 1)
+            open_rows.append(dict(t, open_lots=sum(lv["lots"] for lv in filled), points_now=pts_now))
+
+        return {
+            "summary": {
+                "trades": len(closed), "profit": len(wins), "loss": len(losses),
+                "win_rate_percent": round(len(wins) / len(closed) * 100.0, 1) if closed else None,
+                "net": round(sum(t["net"] for t in closed), 2),
+                "avg_profit": round(sum(t["net"] for t in wins) / len(wins), 2) if wins else None,
+                "avg_loss": round(sum(t["net"] for t in losses) / len(losses), 2) if losses else None,
+                "open": len(store["open"])
+            },
+            "close_reasons": close_reasons,
+            "by_pair": {k: bucket(v) for k, v in by_pair.items()},
+            "by_direction": {k: bucket(v) for k, v in by_dir.items()},
+            "open_trades": open_rows,
+            "closed_trades": closed[:200],
+            "live_feed": self._is_live_feed(),
+            "rules": (
+                f"Entry: same rule as Suggestions (Depth Buy in the bottom {self.ZONE_PCT:.0f}% of today's range = BUY spread; "
+                f"Depth Sell in the top {self.ZONE_PCT:.0f}% = SELL spread). Averaging: every {self.DEFAULT_STEP_PTS:.0f} pts, lots {self.DEFAULT_LOTS}. "
+                f"Profit: each lot closes {self.DEFAULT_TARGET_PTS:.0f} pts from its own entry (like the Lots Bot). "
+                f"Loss: spread moves {self.PAPER_STOP_PTS:.0f} pts against the first entry, or {self.EXPIRY_BLOCK_DAYS} days to expiry remain. "
+                f"After a close, no new entry in the same month for {self.PAPER_COOLDOWN_MIN} min. "
+                f"Never an expired month. Only on the live broker feed during market OPEN time. Net is after charges + slippage."
+            )
+        }
 
     # ----------------- 2. Pair table -----------------
     def _pairs_to_evaluate(self) -> list:
@@ -2523,6 +2861,8 @@ class AIArbitrageEngine:
 
     def get_multi_pair_matrix(self) -> list:
         matrix = [self.build_pair_row(p_sym, m_sym) for p_sym, m_sym in self._pairs_to_evaluate()]
+        # Jo month expire ho chuka (e.g. OCT contract November me) woh kahin nahi dikhega
+        matrix = [r for r in matrix if r["days_to_expiry"] is None or r["days_to_expiry"] >= 0]
 
         # Live data wale pairs pehle, unme active pair sabse upar
         matrix.sort(key=lambda r: (not r["has_live_data"], not r["is_active"]))
@@ -2581,7 +2921,7 @@ class AIArbitrageEngine:
 
         p_depth = self.state.symbol_depths.get(p_sym) or (self.state.petal_depth if p_sym == self.state.petal_symbol else None)
         m_depth = self.state.symbol_depths.get(m_sym) or (self.state.mini_depth if m_sym == self.state.mini_symbol else None)
-        depth_ok = all(d and d.get("buy") and d.get("sell") for d in (p_depth, m_depth))
+        depth_ok = all(depth_is_real(d) for d in (p_depth, m_depth))
         if depth_ok:
             p_qty = p_spec["lots_per_unit_mini"]
             m_qty = m_spec["lots_per_unit_mini"]
@@ -2608,63 +2948,69 @@ class AIArbitrageEngine:
         """Returns (decision, reason). decision = Expansion / Contraction / WAIT / EXPIRY."""
         days = row["days_to_expiry"]
         if days is not None and days <= self.EXPIRY_BLOCK_DAYS:
-            when = "expire ho chuka" if days < 0 else ("aaj expiry hai" if days == 0 else f"sirf {days} din baaki")
+            when = "already expired" if days < 0 else ("expires today" if days == 0 else f"only {days} days left")
             return "EXPIRY", (
-                f"Expiry {row['expiry_date']} ko hai ({when}). Expiry ke last {self.EXPIRY_BLOCK_DAYS} din me "
-                f"is month me nayi entry ka suggestion nahi diya jaata. Agla month dekhein."
+                f"Expiry is on {row['expiry_date']} ({when}). No new entry is suggested in the last {self.EXPIRY_BLOCK_DAYS} days "
+                f"before expiry. Look at the next month."
             )
+        # Real data only: no suggestion from simulation prices or while the market is closed
+        if not self._is_live_feed():
+            return "WAIT", "Not connected to a live broker feed. The AI works only on real market data."
+        if get_market_session_status() == "SUSPENDED":
+            return "WAIT", "Market is closed. Suggestions start when the market opens."
+        # Scheduled market HOLD window: prices behave oddly, so this time is never used for a suggestion
+        if get_market_session_status() == "HOLD":
+            return "WAIT", ("Market is in a scheduled HOLD window. Prices are unusual right now, so this time is ignored. "
+                            "Suggestions resume when the window ends.")
         if not row["has_live_data"]:
-            return "WAIT", "Is pair ka live price abhi nahi aaya."
+            return "WAIT", "No live price for this pair yet."
         if row["depth_buy_spread"] is None or row["depth_sell_spread"] is None:
-            return "WAIT", "Order book depth nahi mili, isliye asli entry spread pata nahi."
+            return "WAIT", "No real order book (depth) from the broker for this month, so the real entry spread is unknown."
 
         bp = row["buy_pos_pct"]
         sp = row["sell_pos_pct"]
         if bp is None and sp is None:
-            return "WAIT", f"Aaj ka High/Low range abhi {self.MIN_RANGE_PTS:.0f} pts se chhota hai ya record nahi hua, isliye 'sasta/mehenga' tay nahi kar sakte."
+            return "WAIT", f"Today's High/Low range is still under {self.MIN_RANGE_PTS:.0f} pts or not recorded, so cheap/expensive cannot be decided."
 
         if bp is not None and bp <= self.ZONE_PCT:
             return "Expansion", (
-                f"Depth Buy spread {row['depth_buy_spread']} aaj ke range "
-                f"({row['depth_buy_low']} se {row['depth_buy_high']}) ke neeche {bp:.0f}% par hai, yaani sasta zone."
+                f"Depth Buy spread {row['depth_buy_spread']} is at {bp:.0f}% of today's range "
+                f"({row['depth_buy_low']} to {row['depth_buy_high']}), i.e. the cheap zone."
             )
         if sp is not None and sp >= 100.0 - self.ZONE_PCT:
             return "Contraction", (
-                f"Depth Sell spread {row['depth_sell_spread']} aaj ke range "
-                f"({row['depth_sell_low']} se {row['depth_sell_high']}) ke upar {sp:.0f}% par hai, yaani mehenga zone."
+                f"Depth Sell spread {row['depth_sell_spread']} is at {sp:.0f}% of today's range "
+                f"({row['depth_sell_low']} to {row['depth_sell_high']}), i.e. the expensive zone."
             )
         bp_txt = f"{bp:.0f}%" if bp is not None else "--"
         sp_txt = f"{sp:.0f}%" if sp is not None else "--"
-        return "WAIT", f"Spread range ke beech me hai (Buy {bp_txt}, Sell {sp_txt}). Na sasta, na mehenga."
+        return "WAIT", f"Spread is in the middle of the range (Buy {bp_txt}, Sell {sp_txt}). Neither cheap nor expensive."
 
-    def _build_facts(self, row: dict, summary: dict) -> list:
+    def _build_facts(self, row: dict, paper: dict) -> list:
         def fmt(v):
             return "--" if v is None else f"{v}"
 
         facts = [f"Pair: {row['label']}"]
         if row["expiry_date"]:
-            facts.append(f"Expiry: {row['expiry_date']} ({row['days_to_expiry']} din baaki)")
+            facts.append(f"Expiry: {row['expiry_date']} ({row['days_to_expiry']} days left)")
         else:
-            facts.append("Expiry: pata nahi chala (symbol/scrip master se nahi nikla)")
+            facts.append("Expiry: unknown (not found from symbol / scrip master)")
         if not row["has_live_data"]:
-            facts.append("Live price: nahi aaya")
+            facts.append("Live price: not available")
             return facts
         facts.append(f"LTP: {row['petal_ltp']} / {row['mini_ltp']} | LTP spread: {row['spread']} pts")
         facts.append(
-            f"Depth Buy spread: {fmt(row['depth_buy_spread'])} pts | Aaj Low {fmt(row['depth_buy_low'])}, High {fmt(row['depth_buy_high'])}"
+            f"Depth Buy spread: {fmt(row['depth_buy_spread'])} pts | Today Low {fmt(row['depth_buy_low'])}, High {fmt(row['depth_buy_high'])}"
         )
         facts.append(
-            f"Depth Sell spread: {fmt(row['depth_sell_spread'])} pts | Aaj Low {fmt(row['depth_sell_low'])}, High {fmt(row['depth_sell_high'])}"
+            f"Depth Sell spread: {fmt(row['depth_sell_spread'])} pts | Today Low {fmt(row['depth_sell_low'])}, High {fmt(row['depth_sell_high'])}"
         )
-        rolling = self.get_rolling_info(row["pair_key"])
-        if rolling["mean"] is not None:
-            facts.append(f"Pichle {rolling['minutes']} min ka average spread: {rolling['mean']} pts")
-        win = summary.get("win_rate_percent")
-        facts.append(
-            f"Scanner aaj (is pair me): {summary.get('total_opportunities', 0)} signals "
-            f"({summary.get('reverted_count', 0)} success, {summary.get('stopped_count', 0)} stopped, "
-            f"{summary.get('active_count', 0)} chal rahe) | Win rate: {'--' if win is None else str(win) + '%'}"
-        )
+        if paper and paper.get("trades"):
+            win = paper.get("win_rate_percent")
+            facts.append(
+                f"Paper trades (this month so far): {paper['trades']} | Profit {paper['profit']}, Loss {paper['loss']} | "
+                f"Win rate {'--' if win is None else str(win) + '%'} | Net ₹{paper['net']:,.0f}"
+            )
         return facts
 
     def _build_plan(self, row: dict, decision: str) -> dict:
@@ -2691,11 +3037,11 @@ class AIArbitrageEngine:
 
         warnings = []
         if row["days_to_expiry"] is None:
-            warnings.append("Is pair ki expiry date pata nahi chali. Entry se pehle khud expiry check karein.")
+            warnings.append("Expiry date for this pair is unknown. Check the expiry yourself before entry.")
         if day_range < target_pts:
             warnings.append(
-                f"Aaj ka poora range sirf {day_range:.0f} pts raha hai, jabki target {target_pts:.0f} pts hai. "
-                f"Aaj ke hisaab se target bada hai."
+                f"Today's full range is only {day_range:.0f} pts, while the target is {target_pts:.0f} pts. "
+                f"The target is big for today."
             )
 
         return {
@@ -2727,16 +3073,14 @@ class AIArbitrageEngine:
     def build_suggestions(self) -> list:
         """Har pair (month) ka suggestion, sorted (best upar). Claude ke bina - fast aur free."""
         matrix = self.get_multi_pair_matrix()
-        today_str = get_ist_time_str("%Y-%m-%d")
-        today_signals = [o for o in self.state.ai_opportunities_log if o.get("date") == today_str]
+        paper_by_pair = self.get_paper_report()["by_pair"]
+        on_hold = get_market_session_status() == "HOLD"
 
         # Har pair (month) ka alag suggestion, taaki compare kar sakein
         suggestions = []
         for row in matrix:
             decision, reason = self._evaluate_pair(row)
-            pair_summary = self.get_opportunities_summary_from_list(
-                [o for o in today_signals if o.get("pair_key") == row["pair_key"]]
-            )
+            pair_summary = paper_by_pair.get(row["label"])
             if decision == "Expansion":
                 zone_depth = row["buy_pos_pct"]            # 0% = bilkul Low par = sabse achha
             elif decision == "Contraction":
@@ -2751,6 +3095,7 @@ class AIArbitrageEngine:
                 "has_live_data": row["has_live_data"],
                 "decision": decision,
                 "reason": reason,
+                "on_hold": on_hold and decision == "WAIT",
                 "zone_depth_pct": zone_depth,
                 "depth_buy_spread": row["depth_buy_spread"],
                 "depth_buy_low": row["depth_buy_low"],
@@ -2788,12 +3133,17 @@ class AIArbitrageEngine:
             "suggestions": suggestions,
             "signal_count": len([s for s in suggestions if s["plan"]]),
             "expiry_blocked_count": len([s for s in suggestions if s["decision"] == "EXPIRY"]),
+            "market_session": get_market_session_status(),
+            "live_feed": self._is_live_feed(),
             "rules": (
-                f"Rule: Depth Buy spread aaj ke range ke neeche {self.ZONE_PCT:.0f}% me ho to BUY spread (Expansion); "
-                f"Depth Sell spread upar {self.ZONE_PCT:.0f}% me ho to SELL spread (Contraction); warna WAIT. "
-                f"Jis month ki expiry {self.EXPIRY_BLOCK_DAYS} din ya usse kam door ho, uska suggestion nahi aata. "
+                f"Rule: Depth Buy spread in the bottom {self.ZONE_PCT:.0f}% of today's range = BUY spread (Expansion); "
+                f"Depth Sell spread in the top {self.ZONE_PCT:.0f}% = SELL spread (Contraction); otherwise WAIT. "
+                f"No suggestion for a month with {self.EXPIRY_BLOCK_DAYS} days or less to expiry. "
                 f"Target {self.DEFAULT_TARGET_PTS:.0f} pts, Step {self.DEFAULT_STEP_PTS:.0f}, Lots {self.DEFAULT_LOTS} (default settings). "
-                f"Ek se zyada signal hon to jo spread zone me sabse andar hai (Low/High ke sabse paas) woh upar dikhta hai."
+                f"With more than one signal, the one deepest in its zone (closest to the Low/High) is shown first. "
+                f"Scheduled market HOLD windows are ignored everywhere: today's range, suggestions, alerts, paper trades and backtest data. "
+                f"Only real broker data is used: nothing in simulation mode, while the market is closed, or for a month whose order book "
+                f"(depth) did not come from the broker."
             ),
             "claude_reply": "",
             "api_error": ""
@@ -2803,7 +3153,7 @@ class AIArbitrageEngine:
         if user_query:
             api_key = self.get_api_key()
             if not api_key:
-                result["api_error"] = "Claude API key set nahi hai. '🔑 Claude API Key' se set karein."
+                result["api_error"] = "Claude API key is not set. Set it with '🔑 Claude API Key'."
             else:
                 context = {
                     "time_ist": get_ist_time_str(),
@@ -2814,7 +3164,9 @@ class AIArbitrageEngine:
                         for s in suggestions
                     ],
                     "open_trades": self.get_open_trades_monitor()["trades"],
-                    "today_journal_summary": self.get_daily_journal(get_ist_time_str("%Y-%m-%d"))["summary"]
+                    "today_journal_summary": self.get_daily_journal(get_ist_time_str("%Y-%m-%d"))["summary"],
+                    "paper_trader": {k: v for k, v in self.get_paper_report().items()
+                                     if k in ("summary", "close_reasons", "by_pair", "by_direction", "rules")}
                 }
                 reply, model, err = await self._ask_claude(api_key, context, user_query)
                 if reply:
@@ -2883,16 +3235,16 @@ class AIArbitrageEngine:
 
         warnings = []
         if margin_needed > available:
-            warnings.append(f"Margin kam hai: saare {total_lots} lots ke liye ~₹{margin_needed:,.0f} chahiye, available ₹{available:,.0f} hai.")
+            warnings.append(f"Low margin: all {total_lots} lots need ~₹{margin_needed:,.0f}, available is ₹{available:,.0f}.")
         if open_lots + total_lots > self.MAX_OPEN_LOTS_PER_PAIR:
-            warnings.append(f"Is month me pehle se {open_lots} lots khule hain; {total_lots} aur lene par {open_lots + total_lots} ho jayenge (limit {self.MAX_OPEN_LOTS_PER_PAIR}).")
+            warnings.append(f"{open_lots} lots are already open in this month; adding {total_lots} more makes {open_lots + total_lots} (limit {self.MAX_OPEN_LOTS_PER_PAIR}).")
         if same_dir:
-            warnings.append(f"Is month me pehle se {len(same_dir)} {plan['direction']} position(s) khuli hain ({sum(int(p['quantity'] or 0) for p in same_dir)} lots).")
+            warnings.append(f"{len(same_dir)} {plan['direction']} position(s) already open in this month ({sum(int(p['quantity'] or 0) for p in same_dir)} lots).")
         if opposite:
-            warnings.append(f"Is month me ulti direction ki {len(opposite)} position(s) khuli hain. Nayi entry unse takra sakti hai.")
+            warnings.append(f"{len(opposite)} opposite-direction position(s) open in this month. A new entry may conflict with them.")
         days = row.get("days_to_expiry")
         if days is not None and days <= self.EXPIRY_BLOCK_DAYS * 2:
-            warnings.append(f"Expiry {days} din me hai. Target na aaya to rollover ya expiry se pehle exit karna padega.")
+            warnings.append(f"Expiry in {days} days. If the target is not hit, you must roll over or exit before expiry.")
 
         return {
             "total_lots": total_lots,
@@ -2937,13 +3289,13 @@ class AIArbitrageEngine:
             alerts = []
             days = row["days_to_expiry"]
             if days is not None and days <= self.EXPIRY_BLOCK_DAYS:
-                alerts.append({"type": "EXPIRY", "text": f"Expiry {row['expiry_date']} ({days} din) - position abhi khuli hai. Rollover ya exit plan karein."})
+                alerts.append({"type": "EXPIRY", "text": f"Expiry {row['expiry_date']} ({days} days) - position is still open. Plan a rollover or exit."})
             if moved is not None and moved <= -self.STUCK_ADVERSE_PTS:
-                alerts.append({"type": "ADVERSE", "text": f"Spread entry se {abs(moved):.0f} pts ulta gaya hai."})
+                alerts.append({"type": "ADVERSE", "text": f"Spread has moved {abs(moved):.0f} pts against the entry."})
             elif days_held is not None and days_held >= self.STUCK_DAYS and (moved is None or moved <= 0):
-                alerts.append({"type": "STUCK", "text": f"{days_held} din se khuli hai aur abhi tak profit me nahi hai."})
+                alerts.append({"type": "STUCK", "text": f"Open for {days_held} days and still not in profit."})
             if to_target is not None and 0 < to_target <= self.NEAR_TARGET_PTS:
-                alerts.append({"type": "NEAR_TARGET", "text": f"Target sirf {to_target:.0f} pts door hai."})
+                alerts.append({"type": "NEAR_TARGET", "text": f"Target is only {to_target:.0f} pts away."})
 
             if not row["has_live_data"] or exit_now is None:
                 status = "NO_DATA"
@@ -2987,9 +3339,9 @@ class AIArbitrageEngine:
             "total_unrealized": round(sum(t["unrealized_pnl"] for t in trades), 2),
             "alert_count": sum(len(t["alerts"]) for t in trades),
             "rules": (
-                f"Alert tab: expiry {self.EXPIRY_BLOCK_DAYS} din ya kam | spread entry se {self.STUCK_ADVERSE_PTS:.0f}+ pts ulta | "
-                f"{self.STUCK_DAYS}+ din se khuli aur profit nahi | target {self.NEAR_TARGET_PTS:.0f} pts ke andar. "
-                f"Exit spread = Expansion me Depth Sell, Contraction me Depth Buy."
+                f"Alert when: expiry in {self.EXPIRY_BLOCK_DAYS} days or less | spread {self.STUCK_ADVERSE_PTS:.0f}+ pts against entry | "
+                f"open {self.STUCK_DAYS}+ days without profit | target within {self.NEAR_TARGET_PTS:.0f} pts. "
+                f"Exit spread = Depth Sell for Expansion, Depth Buy for Contraction."
             )
         }
 
@@ -3030,9 +3382,9 @@ class AIArbitrageEngine:
             b["net"] = round(b["net"] + r["net"], 2)
 
         is_today = date_str == get_ist_time_str("%Y-%m-%d")
-        signals = self.get_opportunities_summary_from_list(
-            [o for o in self.state.ai_opportunities_log if o.get("date") == date_str]
-        ) if is_today else None
+        paper_day = [t for t in self._paper_store()["closed"] if str(t.get("closed_at", ""))[:10] == date_str]
+        paper = {"trades": len(paper_day), "profit": len([t for t in paper_day if t["status"] == "PROFIT"]),
+                 "net": round(sum(t["net"] for t in paper_day), 2)} if paper_day else None
         monitor = self.get_open_trades_monitor() if is_today else None
 
         summary = {
@@ -3050,7 +3402,7 @@ class AIArbitrageEngine:
             "by_source": by_source,
             "open_positions": monitor["total_open"] if monitor else None,
             "open_unrealized": monitor["total_unrealized"] if monitor else None,
-            "scanner": signals
+            "paper": paper
         }
         dates = sorted({str(t.get("date", ""))[:10] for t in self.state.trade_history if t.get("date")}, reverse=True)
         return {
@@ -3059,7 +3411,7 @@ class AIArbitrageEngine:
             "failed": [{"time": t.get("entry_time") if t.get("entry_time") != "--" else t.get("exit_time"),
                         "direction": t.get("direction"), "reason": t.get("reason")} for t in failed],
             "available_dates": dates[:60],
-            "note": "Trade usi din me dikhta hai jis din uski entry hui thi (trade history ki 'date')."
+            "note": "A trade is shown on the day it was entered (trade history 'date')."
         }
 
     # ----------------- 8. Spread history recording + Backtest -----------------
@@ -3170,7 +3522,7 @@ class AIArbitrageEngine:
                 last_date, last = snaps[-1]
                 exit_now = last["s"] if pos["direction"] == "Expansion" else last["b"]
                 pts = (exit_now - pos["entry"]) if pos["direction"] == "Expansion" else (pos["entry"] - exit_now)
-                still_open.append(dict(pos, exit=exit_now, points=round(pts, 1), result="Abhi khuli (data khatam)"))
+                still_open.append(dict(pos, exit=exit_now, points=round(pts, 1), result="Still open (end of data)"))
 
         closed.sort(key=lambda t: t["ts"])
         equity = peak = max_dd = 0.0
@@ -3203,9 +3555,9 @@ class AIArbitrageEngine:
             "closed_trades": [{k: v for k, v in t.items() if k != "ts"} for t in closed[-100:]],
             "open_at_end": [{k: v for k, v in t.items() if k != "ts"} for t in still_open],
             "note": (
-                "Data har minute ka snapshot hai (sirf live broker feed, market OPEN time). "
-                f"Rule wahi hai jo live suggestion ka hai; target {target_pts:.0f} pts, 1 unit, ek pair me ek waqt par ek position, "
-                "averaging ladder simulate nahi hoti. Charges + slippage cushion kaat ke Net."
+                "Data is a snapshot every minute (live broker feed only, market OPEN time). "
+                f"Same rule as the live suggestion; target {target_pts:.0f} pts, 1 unit, one position per pair at a time, "
+                "averaging ladder is not simulated. Net is after charges + slippage cushion."
             )
         }
 
@@ -3227,7 +3579,8 @@ class AIArbitrageEngine:
         self.state.log(f"[AI ALERT] {text}")
 
     def check_alerts(self):
-        if get_market_session_status() == "SUSPENDED":
+        # Market HOLD window / closed / no live broker feed: no signal or position alert
+        if get_market_session_status() in ("SUSPENDED", "HOLD") or not self._is_live_feed():
             return
         for s in self.build_suggestions():
             if s["plan"]:
@@ -3245,6 +3598,7 @@ class AIArbitrageEngine:
         while True:
             await asyncio.sleep(self.ALERT_CHECK_SECONDS)
             try:
+                self.paper_check_open()
                 self.check_alerts()
             except Exception as e:
                 logger.error(f"[AI ALERT LOOP] {e}")
@@ -3256,15 +3610,15 @@ class AIArbitrageEngine:
     async def _ask_claude(self, api_key: str, context: dict, question: str) -> tuple:
         """Returns (reply_text, model, error)."""
         system_prompt = (
-            "Tum AccuStock MCX Gold spread trading terminal ke assistant ho. Trader Hinglish me baat karta hai, "
-            "tum bhi simple Hinglish me jawab do.\n"
+            "You are the assistant of the AccuStock MCX Gold spread trading terminal. "
+            "Answer in simple, plain English.\n"
             "Rules:\n"
-            "1. Sirf diye gaye DATA ka use karo. Koi number, probability, news ya event khud se mat banao.\n"
-            "2. Jawab ke liye data na ho to saaf bolo: 'yeh data mere paas nahi hai'.\n"
-            "3. Tum trade execute nahi karte. Final decision trader ka hai. Risk hamesha batao.\n"
-            "4. Jawab chhota rakho (6-8 lines), plain text, koi table nahi."
+            "1. Use only the DATA given. Never invent numbers, probabilities, news or events.\n"
+            "2. If the data needed is missing, say clearly: 'I do not have this data'.\n"
+            "3. You do not execute trades. The final decision is the trader's. Always mention the risk.\n"
+            "4. Keep the answer short (6-8 lines), plain text, no tables."
         )
-        user_message = f"DATA:\n{json.dumps(context, indent=2, default=str)}\n\nSAWAL: {question}"
+        user_message = f"DATA:\n{json.dumps(context, indent=2, default=str)}\n\nQUESTION: {question}"
         headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
@@ -3277,7 +3631,7 @@ class AIArbitrageEngine:
             models.append(env_model)
         models += [m for m in self.CLAUDE_MODELS if m not in models]
 
-        last_err = "Claude se jawab nahi mila"
+        last_err = "No reply from Claude"
         try:
             async with aiohttp.ClientSession() as session:
                 for model in models:
@@ -3295,7 +3649,7 @@ class AIArbitrageEngine:
                                 text = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text").strip()
                                 if text:
                                     return text, model, ""
-                                last_err = "Claude ne khaali jawab diya"
+                                last_err = "Claude returned an empty reply"
                                 continue
                             err_text = await resp.text()
                             try:
@@ -3303,9 +3657,9 @@ class AIArbitrageEngine:
                             except Exception:
                                 err_msg = err_text[:200] or f"HTTP {resp.status}"
                             if resp.status == 401:
-                                return "", model, "API key galat hai (Anthropic ne reject kiya)."
+                                return "", model, "API key is invalid (rejected by Anthropic)."
                             if resp.status == 404:
-                                logger.info(f"[CLAUDE API] Model '{model}' available nahi, agla try kar rahe hain.")
+                                logger.info(f"[CLAUDE API] Model '{model}' not available, trying the next one.")
                                 last_err = err_msg
                                 continue
                             return "", model, err_msg
@@ -4372,7 +4726,24 @@ async def execute_netting_manual_trades(new_direction: str, qty: int, expected_e
         return {"success": False, "reason": net_reason}
     if not open_success:
         return {"success": False, "reason": open_reason}
-    return {"success": True}
+
+    # Asli fill info (slicer card me "kitne pe laga" dikhane ke liye). Netting + open dono hue to qty-weighted.
+    done_parts = []
+    if net_qty > 0:
+        done_parts.append((net_qty, result))
+    if open_qty > 0:
+        done_parts.append((open_qty, result_open))
+    total_q = sum(q for q, _ in done_parts) or 1
+    fill_info = {"success": True, "fill_ids": [r.get("fill_id") for _, r in done_parts if r.get("fill_id")]}
+    if done_parts:
+        fill_info["petal_fill_price"] = round(sum(q * r["petal_fill_price"] for q, r in done_parts) / total_q, 2)
+        fill_info["mini_fill_price"] = round(sum(q * r["mini_fill_price"] for q, r in done_parts) / total_q, 2)
+        spreads = [(q, r.get("actual_spread")) for q, r in done_parts if r.get("actual_spread") is not None]
+        if spreads:
+            fill_info["actual_spread"] = round(sum(q * s for q, s in spreads) / sum(q for q, _ in spreads), 2)
+        statuses = [r.get("spread_status") for _, r in done_parts]
+        fill_info["spread_status"] = "PENDING" if "PENDING" in statuses else (statuses[0] if statuses else None)
+    return fill_info
 
 async def trigger_manual_trade_execution(trade: dict, expected_entry_spread: float = None):
     global system_state
@@ -4557,7 +4928,10 @@ async def run_manual_bot_check():
                 "mini_symbol": m_sym,
                 "direction": direction,
                 "target_diff": trigger_diff,
-                "filled_spread": live_spread,
+                "filled_spread": live_spread,          # jis spread par trigger hua
+                "actual_spread": result.get("actual_spread"),   # jis spread par asli order laga
+                "spread_status": result.get("spread_status"),   # CONFIRMED / PENDING (broker se verify baaki)
+                "fill_ids": result.get("fill_ids", []),
                 "petal_fill_price": result.get("petal_fill_price", 0.0),
                 "mini_fill_price": result.get("mini_fill_price", 0.0),
                 "quantity": qty,
@@ -4679,13 +5053,17 @@ def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp
                 h_changed = True
 
             # Explicit Depth Buy Spread High / Low (What you pay to BUY the spread)
+            # (*_time = kis waqt woh High/Low bana - Depth History report ke liye)
+            hhmm = now_ist.strftime("%H:%M:%S")
             if buy_spread is not None:
                 cur_b = round(buy_spread, 2)
                 if rec.get("high_depth_buy_spread") is None or cur_b > rec["high_depth_buy_spread"]:
                     rec["high_depth_buy_spread"] = cur_b
+                    rec["high_depth_buy_time"] = hhmm
                     h_changed = True
                 if rec.get("low_depth_buy_spread") is None or cur_b < rec["low_depth_buy_spread"]:
                     rec["low_depth_buy_spread"] = cur_b
+                    rec["low_depth_buy_time"] = hhmm
                     h_changed = True
 
             # Explicit Depth Sell Spread High / Low (What you receive to SELL the spread)
@@ -4693,10 +5071,16 @@ def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp
                 cur_s = round(sell_spread, 2)
                 if rec.get("high_depth_sell_spread") is None or cur_s > rec["high_depth_sell_spread"]:
                     rec["high_depth_sell_spread"] = cur_s
+                    rec["high_depth_sell_time"] = hhmm
                     h_changed = True
                 if rec.get("low_depth_sell_spread") is None or cur_s < rec["low_depth_sell_spread"]:
                     rec["low_depth_sell_spread"] = cur_s
+                    rec["low_depth_sell_time"] = hhmm
                     h_changed = True
+            if buy_spread is not None:
+                rec["last_depth_buy_spread"] = round(buy_spread, 2)
+            if sell_spread is not None:
+                rec["last_depth_sell_spread"] = round(sell_spread, 2)
 
             # Petal Price High / Low
             if cur_p is not None and cur_p > 0:
@@ -4783,21 +5167,25 @@ async def process_market_data(data: dict):
     
     # Track Daily High / Low for Spread & Prices
     if petal_ltp > 0 and mini_ltp > 0:
+        # Depth Low/High + AI only from the broker's real order book, never from simulated depth
+        real_depth = depth_is_real(system_state.petal_depth) and depth_is_real(system_state.mini_depth)
+        stat_buy = system_state.depth_buy_spread if real_depth else None
+        stat_sell = system_state.depth_sell_spread if real_depth else None
         update_daily_high_low_stats(
             system_state.petal_symbol,
             system_state.mini_symbol,
             spread,
             petal_ltp,
             mini_ltp,
-            buy_spread=system_state.depth_buy_spread,
-            sell_spread=system_state.depth_sell_spread
+            buy_spread=stat_buy,
+            sell_spread=stat_sell
         )
         ai_arbitrage_engine.process_tick(
             system_state.petal_symbol,
             system_state.mini_symbol,
             spread,
-            system_state.depth_buy_spread,
-            system_state.depth_sell_spread
+            stat_buy,
+            stat_sell
         )
             
     # Live leg and portfolio P&L calculations (Corrected to dynamic contract multipliers)
@@ -5052,7 +5440,12 @@ def generate_simulated_depth(ltp: float) -> dict:
             "quantity": random.randint(10, 250),
             "orders": random.randint(1, 8)
         })
-    return {"buy": buy_levels, "sell": sell_levels}
+    # "simulated" marks this as made-up depth so AI / Low-High stats never treat it as real market data
+    return {"buy": buy_levels, "sell": sell_levels, "simulated": True}
+
+def depth_is_real(depth) -> bool:
+    """True only for an order book that came from the broker (not generate_simulated_depth)."""
+    return bool(depth and depth.get("buy") and depth.get("sell") and not depth.get("simulated"))
 
 def calculate_month_master_live_stats(quotes_map: dict) -> list:
     res = []
@@ -5125,8 +5518,12 @@ def calculate_month_master_live_stats(quotes_map: dict) -> list:
 
             # Record Daily High / Low statistics for Spread and Prices (Petal & Mini)
             if mapping.get("capture_data", True):
-                update_daily_high_low_stats(p_sym, m_sym, mm_spread, p_ltp, m_ltp, buy_spread=mm_buy_spread, sell_spread=mm_sell_spread)
-                ai_arbitrage_engine.process_tick(p_sym, m_sym, mm_spread, mm_buy_spread, mm_sell_spread)
+                # Depth Low/High + AI only from the broker's real order book, never from simulated depth
+                real_depth = depth_is_real(p_depth) and depth_is_real(m_depth)
+                stat_buy = mm_buy_spread if real_depth else None
+                stat_sell = mm_sell_spread if real_depth else None
+                update_daily_high_low_stats(p_sym, m_sym, mm_spread, p_ltp, m_ltp, buy_spread=stat_buy, sell_spread=stat_sell)
+                ai_arbitrage_engine.process_tick(p_sym, m_sym, mm_spread, stat_buy, stat_sell)
             
             res.append({
                 "petal_symbol": p_sym,
@@ -5672,6 +6069,8 @@ async def startup_event():
     asyncio.create_task(search_active_mcx_tokens())
     asyncio.create_task(live_mcx_ticker_task())
     asyncio.create_task(ai_arbitrage_engine.alert_loop())
+    load_order_fills()
+    asyncio.create_task(fill_verifier_loop())
     system_state.log("Live MCX market tick simulator running.")
 
 # ----------------- REST and WebSocket Endpoints -----------------
@@ -5771,7 +6170,8 @@ async def live_data_endpoint(websocket: WebSocket):
             "ta_lots_trades": getattr(system_state, "ta_lots_trades", []),
             "manual_bot": system_state.manual_bot,
             "manual_bots": getattr(system_state, "manual_bots", []),
-            
+            "order_fills": getattr(system_state, "order_fills", [])[:50],
+
             "logs": system_state.logs
         })
         while True:
@@ -6530,6 +6930,32 @@ async def api_manual_bot_stop(payload: Optional[ManualBotStopPayload] = None, to
     await broadcast_system_state()
     return {"status": "SUCCESS", "message": "Manual BOT stopped."}
 
+@app.post("/api/manual-bot/resume")
+async def api_manual_bot_resume(payload: Optional[ManualBotStopPayload] = None, token: str = None, authorization: str = Header(None)):
+    """Rukka hua task (ya saare) wapas chalu - wahi settings, jitne orders bache hain utne hi."""
+    verify_token(token, authorization)
+    bot_id = payload.id if payload else None
+    resume_all = (payload.stop_all if payload else False) or not bot_id
+    resumed = []
+    for b in getattr(system_state, "manual_bots", []):
+        if not resume_all and str(b.get("id")) != str(bot_id):
+            continue
+        if b.get("active") or int(b.get("filled_orders", 0)) >= int(b.get("total_orders", 0)):
+            continue  # pehle se chal raha hai ya saare orders bhar chuke
+        trig = float(b.get("trigger_diff", 0.0))
+        gap = float(b.get("diff_gap", 0.0))
+        min_p, max_p = (trig - gap, trig) if b.get("direction") == "Expansion" else (trig, trig + gap)
+        b["active"] = True
+        b["status_message"] = f"Resumed: Scanning {b.get('direction')} spread [{min_p:.1f} - {max_p:.1f}]"
+        b["why_waiting"] = f"Scanning spread in [{min_p:.1f} - {max_p:.1f}]"
+        resumed.append(str(b.get("id")))
+    if not resumed:
+        return {"status": "ERROR", "message": "No stopped task found (or all its orders are already filled)."}
+    system_state.log(f"[MANUAL BOT] Task(s) resumed by user: {', '.join(resumed)}")
+    system_state.save_manual_bot()
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "message": f"Task(s) {', '.join(resumed)} started again."}
+
 @app.post("/api/manual-bot/delete")
 async def api_manual_bot_delete(payload: ManualBotDeletePayload, token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
@@ -7190,23 +7616,66 @@ def generate_spread_price_high_low_csv() -> StringIO:
     csv_buffer.seek(0)
     return csv_buffer
 
-# REST CSV Spread & Price High / Low Report exporter endpoint
+def generate_depth_history_csv() -> str:
+    """
+    Depth History (naya format): har din, har month pair ki ek line -
+    Depth Buy spread kitna Low/High gaya aur Depth Sell spread kitna Low/High gaya (kis time par).
+    Purane records jinme Depth Buy/Sell record nahi tha, woh is report me nahi aate.
+    """
+    def num(v):
+        return f"{v:.2f}" if isinstance(v, (int, float)) else ""
+
+    def rng(lo, hi):
+        return f"{hi - lo:.2f}" if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) else ""
+
+    buf = StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Date", "Month", "Petal / Ten Symbol", "Mini Symbol", "Expiry",
+        "Depth Buy LOW", "Low Time", "Depth Buy HIGH", "High Time", "Depth Buy Range (pts)",
+        "Depth Sell LOW", "Low Time", "Depth Sell HIGH", "High Time", "Depth Sell Range (pts)",
+        "Last Depth Buy", "Last Depth Sell", "Last Updated"
+    ])
+    for d in sorted(system_state.daily_spread_stats.keys(), reverse=True):
+        rows = []
+        for pair_key, rec in system_state.daily_spread_stats[d].items():
+            b_lo, b_hi = rec.get("low_depth_buy_spread"), rec.get("high_depth_buy_spread")
+            s_lo, s_hi = rec.get("low_depth_sell_spread"), rec.get("high_depth_sell_spread")
+            if b_lo is None and s_lo is None:
+                continue  # purana record - depth data nahi tha
+            key_parts = pair_key.split("_", 1) + [""]
+            p_sym = rec.get("petal_symbol") or key_parts[0]
+            m_sym = rec.get("mini_symbol") or key_parts[1]
+            expiries = [x for x in (get_contract_expiry_date(p_sym), get_contract_expiry_date(m_sym)) if x]
+            rows.append([
+                rec.get("date", d),
+                rec.get("month") or extract_month_from_symbol(p_sym),
+                p_sym, m_sym,
+                min(expiries).strftime("%d-%b-%Y") if expiries else "",
+                num(b_lo), rec.get("low_depth_buy_time", ""), num(b_hi), rec.get("high_depth_buy_time", ""), rng(b_lo, b_hi),
+                num(s_lo), rec.get("low_depth_sell_time", ""), num(s_hi), rec.get("high_depth_sell_time", ""), rng(s_lo, s_hi),
+                num(rec.get("last_depth_buy_spread")), num(rec.get("last_depth_sell_spread")),
+                rec.get("last_updated", "")
+            ])
+        rows.sort(key=lambda r: (datetime.strptime(r[4], "%d-%b-%Y") if r[4] else datetime.max, r[2]))
+        writer.writerows(rows)
+    return buf.getvalue()
+
+# REST CSV Depth History exporter endpoint (har month ka Depth Buy / Depth Sell Low-High)
 @app.get("/api/export-depth-spread")
 async def api_export_depth_spread(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    
-    csv_buffer = generate_spread_price_high_low_csv()
-    content = csv_buffer.getvalue()
-    
+    content = generate_depth_history_csv()
     try:
-        csv_file = get_data_filepath("depth_spread_history.csv")
-        with open(csv_file, "w", encoding="utf-8") as f:
+        # Purani depth_spread_history.csv (old format) har export par naye format se replace hoti hai
+        with open(get_data_filepath("depth_spread_history.csv"), "w", encoding="utf-8") as f:
             f.write(content)
     except Exception:
         pass
-
-    headers = {"Content-Disposition": "attachment; filename=spread_price_high_low_report.csv"}
-    return StreamingResponse(iter([content]), media_type="text/csv", headers=headers)
+    fname = f"depth_history_{get_ist_time_str('%Y-%m-%d')}.csv"
+    headers = {"Content-Disposition": f"attachment; filename={fname}"}
+    # utf-8-sig: Excel me seedha sahi khule
+    return StreamingResponse(iter([content.encode("utf-8-sig")]), media_type="text/csv", headers=headers)
 
 # REST CSV Active & Pending Manual Trades exporter endpoint (Cleaned with IST Timestamps)
 @app.get("/api/export-manual-csv")
@@ -7375,15 +7844,9 @@ async def api_export_all_trades_csv(token: str = None, authorization: str = Head
 @app.get("/api/ai/dashboard-data")
 async def api_get_ai_dashboard_data(token: str = None, authorization: str = Header(None)):
     verify_token(token, authorization)
-    today_str = get_ist_time_str("%Y-%m-%d")
-    # Sirf scanner ke asli signals (aaj ke) - koi simulated/demo entry nahi
-    signals = [o for o in system_state.ai_opportunities_log if o.get("date") == today_str]
     return {
         "status": "SUCCESS",
-        "matrix": ai_arbitrage_engine.get_multi_pair_matrix(),
-        "signals": signals,
-        "summary": ai_arbitrage_engine.get_opportunities_summary_from_list(signals),
-        "threshold": getattr(system_state, "ai_divergence_threshold", 80.0),
+        "paper": ai_arbitrage_engine.get_paper_report(),
         "has_claude_api_key": bool(ai_arbitrage_engine.get_api_key())
     }
 
@@ -7467,21 +7930,6 @@ async def api_set_claude_key(payload: SetClaudeKeyPayload, token: str = None, au
         "advisory": new_advisory
     }
 
-class SetThresholdPayload(BaseModel):
-    threshold: float
-
-@app.post("/api/ai/set-threshold")
-async def api_set_ai_threshold(payload: SetThresholdPayload, token: str = None, authorization: str = Header(None)):
-    verify_token(token, authorization)
-    if payload.threshold < 10.0 or payload.threshold > 500.0:
-        raise HTTPException(status_code=400, detail="Threshold must be between 10.0 and 500.0 points")
-    system_state.ai_divergence_threshold = round(payload.threshold, 1)
-    return {
-        "status": "SUCCESS",
-        "threshold": system_state.ai_divergence_threshold,
-        "message": f"AI Scanner threshold set to {system_state.ai_divergence_threshold} pts."
-    }
-
 class AnalyzeClaudePayload(BaseModel):
     query: Optional[str] = ""
 
@@ -7495,12 +7943,14 @@ async def api_analyze_claude(payload: AnalyzeClaudePayload = None, token: str = 
         "advisory": advisory
     }
 
-@app.post("/api/ai/clear-opportunities")
-async def api_clear_opportunities(token: str = None, authorization: str = Header(None)):
+@app.post("/api/ai/paper-reset")
+async def api_ai_paper_reset(token: str = None, authorization: str = Header(None)):
+    """Paper trader ka saara hisaab saaf (sirf kaagazi trades - asli trades par koi asar nahi)."""
     verify_token(token, authorization)
-    system_state.ai_opportunities_log = []
-    system_state.save_ai_opportunities()
-    return {"status": "SUCCESS", "message": "Today's opportunity log cleared."}
+    ai_arbitrage_engine._paper = {"seq": 0, "open": [], "closed": [], "last_close_ts": {}}
+    ai_arbitrage_engine._paper_save()
+    system_state.log("[AI PAPER] Paper trades reset by user.")
+    return {"status": "SUCCESS", "message": "Paper trades cleared."}
 
 @app.get("/api/ai/monitor")
 async def api_ai_monitor(token: str = None, authorization: str = Header(None)):
@@ -7559,7 +8009,25 @@ async def get_icon():
 
 @app.get("/apple-touch-icon.png")
 async def get_apple_touch_icon():
-    return FileResponse(os.path.join(BASE_DIR, "icon.svg"), media_type="image/svg+xml")
+    return FileResponse(os.path.join(BASE_DIR, "apple-touch-icon.png"), media_type="image/png")
+
+@app.get("/icon-192.png")
+async def get_icon_192():
+    return FileResponse(os.path.join(BASE_DIR, "icon-192.png"), media_type="image/png")
+
+@app.get("/icon-512.png")
+async def get_icon_512():
+    return FileResponse(os.path.join(BASE_DIR, "icon-512.png"), media_type="image/png")
+
+@app.get("/icon-maskable-512.png")
+async def get_icon_maskable():
+    return FileResponse(os.path.join(BASE_DIR, "icon-maskable-512.png"), media_type="image/png")
+
+@app.get("/sw.js")
+async def get_service_worker():
+    # no-cache so a new deploy's worker is picked up on next load
+    return FileResponse(os.path.join(BASE_DIR, "sw.js"), media_type="application/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
 
 if __name__ == "__main__":
     host = os.getenv("HOST", "127.0.0.1")
