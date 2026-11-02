@@ -74,6 +74,11 @@ def get_ist_time() -> datetime:
 def get_ist_time_str(fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
     return get_ist_time().strftime(fmt)
 
+# Market band hone ka cutoff (IST). Market ab 12 baje band hoti hai, isliye 23:55 par sab band (pehle 23:27 tha).
+MARKET_CLOSE_HOUR = 23
+MARKET_CLOSE_MINUTE = 55
+MARKET_CLOSE_STR = f"{MARKET_CLOSE_HOUR:02d}:{MARKET_CLOSE_MINUTE:02d}"
+
 def get_market_session_status() -> str:
     """
     Returns:
@@ -83,7 +88,7 @@ def get_market_session_status() -> str:
                - 13:27:00 to 13:32:59 IST (1:27 PM to 1:33 PM London open)
                - 16:58:00 to 17:04:59 IST (4:58 PM to 5:05 PM Evening session)
                - 17:58:00 to 18:09:59 IST (5:58 PM to 6:10 PM US open)
-      "SUSPENDED" - if evening/night suspension time (23:27:00 to 08:59:59 IST)
+      "SUSPENDED" - if evening/night suspension time (23:55:00 to 08:59:59 IST)
       "OPEN" - otherwise (trading allowed)
     """
     now = get_ist_time()
@@ -110,8 +115,8 @@ def get_market_session_status() -> str:
     if (h == 17 and m >= 58) or (h == 18 and m < 10):
         return "HOLD"
         
-    # 6. Evening / Overnight suspension: 23:27:00 to 08:59:59 next day
-    if (h == 23 and m >= 27) or (h < 9):
+    # 6. Evening / Overnight suspension: 23:55:00 to 08:59:59 next day
+    if (h == MARKET_CLOSE_HOUR and m >= MARKET_CLOSE_MINUTE) or (h < 9):
         return "SUSPENDED"
         
     return "OPEN"
@@ -333,8 +338,6 @@ class TradingSystem:
         self.auto_sl_enabled = False
         self.auto_sl_val = -3000.0       # Net PnL stop loss in INR (negative)
         
-        self.auto_square_off_enabled = False
-        self.auto_square_off_time = "23:30"  # Market close auto-squareoff
         
         self.spread_buffer = 0.0
         self.auto_contraction_enabled = False
@@ -506,8 +509,6 @@ class TradingSystem:
                     if "auto_target_val" in data: self.auto_target_val = float(data["auto_target_val"])
                     if "auto_sl_enabled" in data: self.auto_sl_enabled = bool(data["auto_sl_enabled"])
                     if "auto_sl_val" in data: self.auto_sl_val = float(data["auto_sl_val"])
-                    if "auto_square_off_enabled" in data: self.auto_square_off_enabled = bool(data["auto_square_off_enabled"])
-                    if "auto_square_off_time" in data: self.auto_square_off_time = str(data["auto_square_off_time"])
                     if "broker" in data: self.broker = str(data["broker"])
                     if "groww_api_key" in data: self.groww_api_key = str(data["groww_api_key"])
                     if "groww_client_id" in data: self.groww_client_id = str(data["groww_client_id"])
@@ -546,8 +547,6 @@ class TradingSystem:
                 "auto_target_val": self.auto_target_val,
                 "auto_sl_enabled": self.auto_sl_enabled,
                 "auto_sl_val": self.auto_sl_val,
-                "auto_square_off_enabled": self.auto_square_off_enabled,
-                "auto_square_off_time": self.auto_square_off_time,
                 "broker": self.broker,
                 "groww_api_key": self.groww_api_key,
                 "groww_client_id": self.groww_client_id,
@@ -1388,8 +1387,6 @@ async def broadcast_system_state(force: bool = False):
         "auto_target_val": system_state.auto_target_val,
         "auto_sl_enabled": system_state.auto_sl_enabled,
         "auto_sl_val": system_state.auto_sl_val,
-        "auto_square_off_enabled": system_state.auto_square_off_enabled,
-        "auto_square_off_time": system_state.auto_square_off_time,
         "spread_buffer": system_state.spread_buffer,
         "auto_contraction_enabled": system_state.auto_contraction_enabled,
         "auto_spread_exit_enabled": system_state.auto_spread_exit_enabled,
@@ -2461,7 +2458,8 @@ class AIArbitrageEngine:
     HISTORY_DIR = os.path.join(BASE_DIR, "ai_spread_history")
     CLAUDE_MODELS = ["claude-sonnet-5-5", "claude-haiku-5-5"]
     # Paper Trader (sirf kaagaz par - koi asli order nahi)
-    PAPER_STOP_PTS = 140.0       # pehli entry se spread itna ulta jaaye to stop loss (saare lots band)
+    PAPER_STOP_PTS = 140.0       # entry ke waqt ke exit-side spread se itna ulta jaaye to stop loss (saare lots band)
+    MAX_DEPTH_GAP_PTS = 40.0     # Depth Buy aur Depth Sell spread me isse zyada fark ho to order book patla hai -> entry nahi
     PAPER_COOLDOWN_MIN = 15      # ek trade band hone ke baad usi month me nayi paper entry ka gap
     PAPER_MAX_CLOSED = 500       # itne purane band trades yaad rakhe jaate hain
 
@@ -2571,6 +2569,10 @@ class AIArbitrageEngine:
         store = self._paper_store()
         trade = next((t for t in store["open"] if t["pair_key"] == row["pair_key"]), None)
         changed = self._paper_manage(trade, row) if trade else self._paper_maybe_open(row)
+        # Claude wali paper trade (agar khuli ho) bhi isi tick par sambhalo
+        c_trade = next((t for t in store["open"] if t["pair_key"] == self._claude_paper_key(row["pair_key"])), None)
+        if c_trade:
+            changed |= self._paper_manage(c_trade, row)
         if changed or (store["open"] and time.time() - self._paper_last_save > 60):
             self._paper_save()
 
@@ -2584,11 +2586,50 @@ class AIArbitrageEngine:
         decision, reason = self._evaluate_pair(row)
         if decision not in ("Expansion", "Contraction"):
             return False
+        self._paper_open(row, decision, reason, "Rule")
+        return True
 
+    @staticmethod
+    def _claude_paper_key(pair_key: str) -> str:
+        """Claude ki paper trade ka alag key, taaki usi month me rule wali aur Claude wali trade dono saath chal sakein."""
+        return f"claude:{pair_key}"
+
+    def paper_open_claude(self, pick: dict, p_sym: str, m_sym: str) -> str:
+        """Claude ne BUY/SELL bola -> usi waqt ke live depth spread par kaagaz par wahi ladder (1,2,2 | 35 | 110 | 140 stop).
+        Returns: kya hua (UI me dikhane ke liye)."""
+        action = pick.get("action")
+        if action not in ("BUY_SPREAD", "SELL_SPREAD"):
+            return ""
+        if not self._is_live_feed() or get_market_session_status() != "OPEN":
+            return "Not taken on paper: market is not open."
+        row = self.build_pair_row(p_sym, m_sym)
+        if row["depth_buy_spread"] is None or row["depth_sell_spread"] is None:
+            return "Not taken on paper: no live order book for this month."
+        if row["days_to_expiry"] is not None and row["days_to_expiry"] <= self.EXPIRY_BLOCK_DAYS:
+            return "Not taken on paper: too close to expiry."
+        if row["depth_buy_spread"] - row["depth_sell_spread"] > self.MAX_DEPTH_GAP_PTS:
+            return "Not taken on paper: order book too thin (big buy/sell gap)."
+        store = self._paper_store()
+        key = self._claude_paper_key(row["pair_key"])
+        if any(t["pair_key"] == key for t in store["open"]):
+            return "Claude already has an open paper trade in this month."
+        if time.time() - store["last_close_ts"].get(key, 0) < self.PAPER_COOLDOWN_MIN * 60:
+            return f"Not taken on paper: a Claude trade in this month closed less than {self.PAPER_COOLDOWN_MIN} min ago."
+        decision = "Expansion" if action == "BUY_SPREAD" else "Contraction"
+        why = "; ".join(str(w) for w in (pick.get("why") or [])[:3])
+        reason = f"Claude ({pick.get('confidence', '--')} confidence): {why}" if why else "Claude suggestion"
+        trade = self._paper_open(row, decision, reason, "Claude")
+        self._paper_save()
+        return f"Taken on paper as #{trade['id']} at {trade['base']}."
+
+    def _paper_open(self, row: dict, decision: str, reason: str, source: str) -> dict:
+        store = self._paper_store()
         exp = decision == "Expansion"
         base = row["depth_buy_spread"] if exp else row["depth_sell_spread"]
         lo, hi = (row["depth_buy_low"], row["depth_buy_high"]) if exp else (row["depth_sell_low"], row["depth_sell_high"])
         pos = row["buy_pos_pct"] if exp else row["sell_pos_pct"]
+        # Stop exit-side se naapo (wahi side jis par position band hogi), warna buy/sell ka fark hi stop maar deta hai
+        exit_at_entry = row["depth_sell_spread"] if exp else row["depth_buy_spread"]
         step = self.DEFAULT_STEP_PTS
         levels = []
         for i, lots in enumerate(self._paper_lots_list()):
@@ -2601,7 +2642,9 @@ class AIArbitrageEngine:
         store["seq"] += 1
         trade = {
             "id": store["seq"],
-            "pair": row["label"], "pair_key": row["pair_key"],
+            "source": source,
+            "pair": row["label"],
+            "pair_key": self._claude_paper_key(row["pair_key"]) if source == "Claude" else row["pair_key"],
             "petal_symbol": row["petal_symbol"], "mini_symbol": row["mini_symbol"],
             "direction": decision,
             "status": "OPEN",
@@ -2609,7 +2652,8 @@ class AIArbitrageEngine:
             "closed_at": None, "closed_ts": None,
             "base": base,
             "target_pts": self.DEFAULT_TARGET_PTS, "step": step,
-            "stop_spread": round(base - self.PAPER_STOP_PTS if exp else base + self.PAPER_STOP_PTS, 2),
+            "stop_spread": round(exit_at_entry - self.PAPER_STOP_PTS if exp else exit_at_entry + self.PAPER_STOP_PTS, 2),
+            "exit_at_entry": exit_at_entry,
             "entry_why": reason,
             "entry_ctx": {"pos_pct": pos, "low": lo, "high": hi,
                           "range": round(hi - lo, 1) if lo is not None and hi is not None else None,
@@ -2624,8 +2668,8 @@ class AIArbitrageEngine:
         self._paper_fill_levels(trade, base)
         store["open"].append(trade)
         label = "BUY SPREAD" if exp else "SELL SPREAD"
-        self.state.log(f"[AI PAPER] #{trade['id']} {row['label']}: {label} @ {base} (on paper, {levels[0]['lots']} lot)")
-        return True
+        self.state.log(f"[AI PAPER] #{trade['id']} {row['label']}: {label} @ {base} (on paper, {levels[0]['lots']} lot, by {source})")
+        return trade
 
     def _paper_fill_levels(self, trade: dict, entry_side: float) -> bool:
         exp = trade["direction"] == "Expansion"
@@ -2744,7 +2788,8 @@ class AIArbitrageEngine:
 
         # LOSS
         if t["close_code"] == "STOP":
-            r.append(f"Stop loss hit: spread moved {self.PAPER_STOP_PTS:.0f} pts against the first entry ({t['base']}) (stop {t['stop_spread']}).")
+            ref = t.get("exit_at_entry", t["base"])
+            r.append(f"Stop loss hit: exit-side spread moved {self.PAPER_STOP_PTS:.0f} pts against its value at entry ({ref}) (stop {t['stop_spread']}).")
         elif t["close_code"] == "EXPIRY":
             r.append(f"Expiry came close ({row.get('days_to_expiry')} days left), so the position was closed before the target was reached.")
         if len(filled) == len(t["levels"]) and len(filled) > 1:
@@ -2777,9 +2822,11 @@ class AIArbitrageEngine:
             self._paper_save()
         return changed
 
-    def get_paper_report(self) -> dict:
+    def get_paper_report(self, source: str = "Rule") -> dict:
+        """source = "Rule" (local rule ki paper trades) ya "Claude" (Claude ki salah par li gayi paper trades)."""
         store = self._paper_store()
-        closed = store["closed"]
+        closed = [t for t in store["closed"] if t.get("source", "Rule") == source]
+        open_list = [t for t in store["open"] if t.get("source", "Rule") == source]
         wins = [t for t in closed if t["status"] == "PROFIT"]
         losses = [t for t in closed if t["status"] == "LOSS"]
 
@@ -2805,7 +2852,7 @@ class AIArbitrageEngine:
         }
 
         open_rows = []
-        for t in store["open"]:
+        for t in open_list:
             exp = t["direction"] == "Expansion"
             now = t.get("last_exit_side")
             filled = [lv for lv in t["levels"] if lv["entry"] is not None and lv["result"] is None]
@@ -2821,8 +2868,9 @@ class AIArbitrageEngine:
                 "net": round(sum(t["net"] for t in closed), 2),
                 "avg_profit": round(sum(t["net"] for t in wins) / len(wins), 2) if wins else None,
                 "avg_loss": round(sum(t["net"] for t in losses) / len(losses), 2) if losses else None,
-                "open": len(store["open"])
+                "open": len(open_list)
             },
+            "source": source,
             "close_reasons": close_reasons,
             "by_pair": {k: bucket(v) for k, v in by_pair.items()},
             "by_direction": {k: bucket(v) for k, v in by_dir.items()},
@@ -2830,10 +2878,13 @@ class AIArbitrageEngine:
             "closed_trades": closed[:200],
             "live_feed": self._is_live_feed(),
             "rules": (
-                f"Entry: same rule as Suggestions (Depth Buy in the bottom {self.ZONE_PCT:.0f}% of today's range = BUY spread; "
-                f"Depth Sell in the top {self.ZONE_PCT:.0f}% = SELL spread). Averaging: every {self.DEFAULT_STEP_PTS:.0f} pts, lots {self.DEFAULT_LOTS}. "
+                (f"Entry: whenever you press 'Get Claude suggestion' and Claude says BUY / SELL for a month, it is taken on paper "
+                 f"right then at the live Depth spread (one open Claude trade per month). " if source == "Claude" else
+                 f"Entry: same rule as Suggestions (Depth Buy in the bottom {self.ZONE_PCT:.0f}% of today's range = BUY spread; "
+                 f"Depth Sell in the top {self.ZONE_PCT:.0f}% = SELL spread). ") +
+                f"Averaging: every {self.DEFAULT_STEP_PTS:.0f} pts, lots {self.DEFAULT_LOTS}. "
                 f"Profit: each lot closes {self.DEFAULT_TARGET_PTS:.0f} pts from its own entry (like the Lots Bot). "
-                f"Loss: spread moves {self.PAPER_STOP_PTS:.0f} pts against the first entry, or {self.EXPIRY_BLOCK_DAYS} days to expiry remain. "
+                f"Loss: exit-side spread moves {self.PAPER_STOP_PTS:.0f} pts against its value at entry, or {self.EXPIRY_BLOCK_DAYS} days to expiry remain. "
                 f"After a close, no new entry in the same month for {self.PAPER_COOLDOWN_MIN} min. "
                 f"Never an expired month. Only on the live broker feed during market OPEN time. Net is after charges + slippage."
             )
@@ -2966,6 +3017,14 @@ class AIArbitrageEngine:
             return "WAIT", "No live price for this pair yet."
         if row["depth_buy_spread"] is None or row["depth_sell_spread"] is None:
             return "WAIT", "No real order book (depth) from the broker for this month, so the real entry spread is unknown."
+
+        # Thin order book: buy aur sell spread me bahut fark ho to entry lete hi utna loss dikhta hai
+        gap = row["depth_buy_spread"] - row["depth_sell_spread"]
+        if gap > self.MAX_DEPTH_GAP_PTS:
+            return "WAIT", (
+                f"Order book is too thin: Depth Buy {row['depth_buy_spread']} vs Depth Sell {row['depth_sell_spread']} "
+                f"is a {gap:.0f} pts gap (max {self.MAX_DEPTH_GAP_PTS:.0f}). An entry would start {gap:.0f} pts in loss."
+            )
 
         bp = row["buy_pos_pct"]
         sp = row["sell_pos_pct"]
@@ -3177,6 +3236,194 @@ class AIArbitrageEngine:
 
         self._last_ai_analysis = result
         self._last_ai_analysis_time = time.time()
+        return result
+
+    # ----------------- 4b. Claude ka apna suggestion (live data + strategy + news) -----------------
+    def _spread_history_summary(self, days: int = 5) -> dict:
+        """Claude ke liye: aaj ka trend (har 30 min ka ek point) + pichhle din ka High/Low, har pair ka. Sirf saved snapshots se."""
+        out = {}
+        try:
+            files = sorted(f for f in os.listdir(self.HISTORY_DIR) if f.endswith(".jsonl"))[-days:]
+        except Exception:
+            return out
+        today_file = f"{get_ist_time_str('%Y-%m-%d')}.jsonl"
+        for fname in files:
+            day = fname[:-6]
+            try:
+                with open(os.path.join(self.HISTORY_DIR, fname), "r", encoding="utf-8") as f:
+                    for line in f:
+                        try:
+                            s = json.loads(line)
+                        except Exception:
+                            continue
+                        p = out.setdefault(f"{s['p']} / {s['m']}", {"past_days": {}, "today_every_30min": []})
+                        d = p["past_days"].setdefault(day, {"buy_low": s["b"], "buy_high": s["b"], "sell_low": s["s"], "sell_high": s["s"]})
+                        d["buy_low"], d["buy_high"] = min(d["buy_low"], s["b"]), max(d["buy_high"], s["b"])
+                        d["sell_low"], d["sell_high"] = min(d["sell_low"], s["s"]), max(d["sell_high"], s["s"])
+                        today = p["today_every_30min"]
+                        if fname == today_file and (not today or s["ts"] - today[-1]["ts"] >= 1800):
+                            today.append({"ts": s["ts"], "time": s["t"], "depth_buy": s["b"], "depth_sell": s["s"]})
+            except Exception:
+                continue
+        for p in out.values():
+            for pt in p["today_every_30min"]:
+                pt.pop("ts", None)
+        return out
+
+    async def generate_claude_suggestion(self) -> dict:
+        """Claude khud BUY/SELL/WAIT batata hai: live spreads + aaj ka trend + strategy + web search se gold ki news/events.
+        Ye sirf salah hai - koi order nahi jaata. Local rule wala suggestion alag se waisa hi rehta hai."""
+        result = {"time": get_ist_time_str("%H:%M:%S"), "ok": False, "error": "", "model": "",
+                  "summary": "", "news": [], "events": [], "pairs": [], "sources": []}
+        api_key = self.get_api_key()
+        if not api_key:
+            result["error"] = "Claude API key is not set. Set it with '🔑 Claude API Key'."
+            return result
+        if not self._is_live_feed():
+            result["error"] = "Not connected to a live broker feed. Claude's suggestion needs real market data."
+            return result
+
+        suggestions = self.build_suggestions()
+        context = {
+            "time_ist": get_ist_time_str(),
+            "market_session": get_market_session_status(),
+            "market_close_ist": MARKET_CLOSE_STR,
+            "what_is_the_spread": (
+                "Each pair is MCX Gold Petal (1 g) of one month vs MCX Gold Mini (100 g) of another month. "
+                "Spread = Petal price scaled to 10 g minus Mini price per 10 g. "
+                "Depth Buy spread = what you pay to BUY the spread now (Expansion: profit if spread goes UP). "
+                "Depth Sell spread = what you get to SELL the spread now (Contraction: profit if spread goes DOWN). "
+                "Exit is always on the opposite depth side."
+            ),
+            "strategy": {
+                "lots_ladder": self.DEFAULT_LOTS, "averaging_step_pts": self.DEFAULT_STEP_PTS,
+                "target_pts_per_lot": self.DEFAULT_TARGET_PTS, "paper_stop_pts": self.PAPER_STOP_PTS,
+                "no_entry_days_before_expiry": self.EXPIRY_BLOCK_DAYS,
+                "max_depth_gap_pts": self.MAX_DEPTH_GAP_PTS,
+                "local_rule": f"BUY spread when Depth Buy is in the bottom {self.ZONE_PCT:.0f}% of today's range, "
+                              f"SELL spread when Depth Sell is in the top {self.ZONE_PCT:.0f}%, else WAIT."
+            },
+            "pairs_now": [
+                {k: s[k] for k in ("pair", "decision", "reason", "depth_buy_spread", "depth_buy_low", "depth_buy_high",
+                                   "buy_pos_pct", "depth_sell_spread", "depth_sell_low", "depth_sell_high", "sell_pos_pct",
+                                   "expiry_date", "days_to_expiry", "plan")}
+                for s in suggestions
+            ],
+            "spread_history": self._spread_history_summary(),
+            "open_trades": self.get_open_trades_monitor()["trades"],
+            "paper_trader_results_rule": {k: v for k, v in self.get_paper_report().items() if k in ("summary", "by_pair", "by_direction")},
+            # Claude ki apni pichhli salah ka kaagazi hisaab - isse seekh kar agli salah de
+            "your_own_past_paper_results": {k: v for k, v in self.get_paper_report("Claude").items()
+                                            if k in ("summary", "close_reasons", "by_pair", "by_direction")}
+        }
+        system_prompt = (
+            "You are a careful MCX Gold calendar-spread trading assistant for an Indian trader. "
+            "First use web search to check TODAY's gold news and scheduled events that can move gold or the MCX spread "
+            "(US Fed / CPI / NFP / jobs data, dollar index, Indian import duty, war/geopolitics, MCX notices, rupee). "
+            "Then, for each pair in DATA.pairs_now, decide BUY_SPREAD, SELL_SPREAD or WAIT using the live spreads, "
+            "today's range and trend, past days' ranges, expiry, the trader's strategy, open trades and the news.\n"
+            "Rules:\n"
+            "1. Use only numbers from DATA and facts you found by search. Never invent prices, news or probabilities.\n"
+            "2. If a big event is due before market close, say so and prefer WAIT or fewer lots.\n"
+            "3. Never suggest a pair with no live data, a depth gap above strategy.max_depth_gap_pts, or within the expiry block.\n"
+            "4. Entry/target/stop must be spread values consistent with the depth side (BUY at Depth Buy, SELL at Depth Sell).\n"
+            "5. This is advice only; the trader decides.\n"
+            "6. Every BUY_SPREAD / SELL_SPREAD you give is traded on paper at the live depth spread with the trader's ladder "
+            "and tracked against the local rule. Learn from DATA.your_own_past_paper_results and only call a trade you would take.\n"
+            "Reply with ONLY one JSON object, no markdown, in this shape:\n"
+            '{"summary": "2-3 lines, simple English", '
+            '"news": [{"headline": "...", "impact": "how it can move gold / the spread", "source": "site name"}], '
+            '"events": [{"time_ist": "HH:MM or empty", "event": "...", "risk": "LOW|MEDIUM|HIGH"}], '
+            '"pairs": [{"pair": "exact pair from DATA", "action": "BUY_SPREAD|SELL_SPREAD|WAIT", '
+            '"confidence": "LOW|MEDIUM|HIGH", "entry_spread": number or null, "target_spread": number or null, '
+            '"stop_spread": number or null, "lots": "e.g. 1, 2, 2 or 1 only", '
+            '"agrees_with_rule": true/false, "why": ["short reason", "..."], "risk": "main risk in one line"}]}'
+        )
+        user_message = f"DATA:\n{json.dumps(context, indent=1, default=str)}"
+        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+
+        models = []
+        env_model = os.getenv("CLAUDE_MODEL", "").strip()
+        if env_model:
+            models.append(env_model)
+        models += [m for m in self.CLAUDE_MODELS if m not in models]
+
+        last_err = "No reply from Claude"
+        try:
+            async with aiohttp.ClientSession() as session:
+                for model in models:
+                    messages = [{"role": "user", "content": user_message}]
+                    content = []
+                    model_missing = False
+                    # Web search lamba chale to API "pause_turn" deta hai - wahi bhej kar aage chalate hain
+                    for _ in range(3):
+                        payload = {
+                            "model": model, "max_tokens": 4000, "system": system_prompt, "messages": messages,
+                            "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}]
+                        }
+                        async with session.post(self.claude_api_url, headers=headers, json=payload,
+                                                timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                            if resp.status != 200:
+                                err_text = await resp.text()
+                                try:
+                                    last_err = json.loads(err_text).get("error", {}).get("message", f"HTTP {resp.status}")
+                                except Exception:
+                                    last_err = err_text[:200] or f"HTTP {resp.status}"
+                                if resp.status == 401:
+                                    result["error"] = "API key is invalid (rejected by Anthropic)."
+                                    return result
+                                model_missing = resp.status == 404
+                                content = []
+                                break
+                            data = await resp.json()
+                        content = data.get("content", [])
+                        if data.get("stop_reason") != "pause_turn":
+                            break
+                        messages = [messages[0], {"role": "assistant", "content": content}]
+                    if not content:
+                        if model_missing:
+                            logger.info(f"[CLAUDE API] Model '{model}' not available, trying the next one.")
+                            continue
+                        result["error"] = last_err
+                        return result
+
+                    sources = []
+                    for b in content:
+                        for c in (b.get("citations") or []):
+                            if c.get("url") and c["url"] not in [s["url"] for s in sources]:
+                                sources.append({"url": c["url"], "title": c.get("title") or c["url"]})
+                    text = "".join(b.get("text", "") for b in content if b.get("type") == "text").strip()
+                    start, end = text.find("{"), text.rfind("}")
+                    try:
+                        parsed = json.loads(text[start:end + 1])
+                    except Exception:
+                        result["error"] = "Claude's reply could not be read. Try again."
+                        result["summary"] = text[:1500]
+                        result["model"] = model
+                        return result
+                    result.update({
+                        "ok": True, "model": model, "sources": sources[:10],
+                        "summary": str(parsed.get("summary", "")),
+                        "news": parsed.get("news") or [], "events": parsed.get("events") or [],
+                        "pairs": parsed.get("pairs") or []
+                    })
+                    # Claude ke BUY/SELL ko kaagaz par lo, taaki rule vs Claude ka asli hisaab ban sake
+                    sym_by_pair = {s["pair"]: (s["petal_symbol"], s["mini_symbol"]) for s in suggestions}
+                    for pick in result["pairs"]:
+                        syms = sym_by_pair.get(pick.get("pair"))
+                        if isinstance(pick, dict) and syms:
+                            try:
+                                pick["paper_note"] = self.paper_open_claude(pick, *syms)
+                            except Exception as e:
+                                logger.error(f"[AI PAPER] Claude open failed for {pick.get('pair')}: {e}")
+                    self.state.log(f"[AI CLAUDE] Suggestion ready ({model}): " +
+                                   ", ".join(f"{p.get('pair')}={p.get('action')}" for p in result["pairs"]))
+                    return result
+        except asyncio.TimeoutError:
+            last_err = "Claude took too long (timeout). Try again."
+        except Exception as e:
+            last_err = f"Network error: {e}"
+        result["error"] = last_err
         return result
 
     # ----------------- 5. Risk check (form bharne se pehle) -----------------
@@ -5037,8 +5284,8 @@ def update_daily_high_low_stats(p_sym: str, m_sym: str, spread_val: float, p_ltp
             rec["open_spread_905"] = cur_spread
             h_changed = True
 
-        # Capture 23:27 Close Spread
-        if now_ist.hour == 23 and now_ist.minute >= 26 and rec.get("close_spread_2327") is None:
+        # Capture Close Spread just before market close (23:54); key name kept as close_spread_2327 for old records
+        if now_ist.hour == MARKET_CLOSE_HOUR and now_ist.minute >= MARKET_CLOSE_MINUTE - 1 and rec.get("close_spread_2327") is None:
             rec["close_spread_2327"] = cur_spread
             h_changed = True
 
@@ -5294,11 +5541,11 @@ async def process_market_data(data: dict):
         
     session_status = get_market_session_status()
     if session_status == "SUSPENDED":
-        # Check specifically for evening shutdown window (23:27 to 23:59)
+        # Check specifically for evening shutdown window (23:55 to 23:59)
         now = get_ist_time()
-        if now.hour == 23 and now.minute >= 27:
-            system_state.log("[EMERGENCY SHUTDOWN] Time is 23:27 or later. Shutting down server immediately.")
-            print("[EMERGENCY SHUTDOWN] Time is 23:27 or later. Shutting down server immediately.")
+        if now.hour == MARKET_CLOSE_HOUR and now.minute >= MARKET_CLOSE_MINUTE:
+            system_state.log(f"[EMERGENCY SHUTDOWN] Time is {MARKET_CLOSE_STR} or later. Shutting down server immediately.")
+            print(f"[EMERGENCY SHUTDOWN] Time is {MARKET_CLOSE_STR} or later. Shutting down server immediately.")
             os._exit(0)
 
     # If the session is HOLD or SUSPENDED, skip all trade execution and automated checks.
@@ -5373,15 +5620,7 @@ async def process_market_data(data: dict):
             expected_exit_spread = system_state.depth_sell_spread if system_state.position_direction == "Expansion" else system_state.depth_buy_spread
             asyncio.create_task(run_auto_exit("Auto-SL", expected_exit_spread))
             
-        # 3. Market close time square-off
-        elif system_state.auto_square_off_enabled:
-            current_time = get_ist_time_str("%H:%M")
-            if current_time >= system_state.auto_square_off_time:
-                system_state.log(f"Market Auto Square-Off time reached ({current_time} >= {system_state.auto_square_off_time})")
-                expected_exit_spread = system_state.depth_sell_spread if system_state.position_direction == "Expansion" else system_state.depth_buy_spread
-                asyncio.create_task(run_auto_exit("Auto-Time-Close", expected_exit_spread))
-                
-        # 4. Spread-Based Auto Exit
+        # 3. Spread-Based Auto Exit (market close par koi auto square-off nahi hota)
         elif system_state.auto_spread_exit_enabled:
             direction = system_state.position_direction
             buffer = system_state.spread_buffer
@@ -6134,8 +6373,6 @@ async def live_data_endpoint(websocket: WebSocket):
             "auto_target_val": system_state.auto_target_val,
             "auto_sl_enabled": system_state.auto_sl_enabled,
             "auto_sl_val": system_state.auto_sl_val,
-            "auto_square_off_enabled": system_state.auto_square_off_enabled,
-            "auto_square_off_time": system_state.auto_square_off_time,
             "spread_buffer": system_state.spread_buffer,
             "auto_contraction_enabled": system_state.auto_contraction_enabled,
             "auto_spread_exit_enabled": system_state.auto_spread_exit_enabled,
@@ -6252,7 +6489,7 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
     if session_status == "HOLD":
         raise HTTPException(status_code=400, detail="Trading is suspended during market hold window.")
     elif session_status == "SUSPENDED":
-        raise HTTPException(status_code=400, detail="Trading is suspended after market close (23:27 - 09:00).")
+        raise HTTPException(status_code=400, detail="Trading is suspended after market close (23:55 - 09:00).")
 
     if system_state.system_status == "Halted":
         raise HTTPException(status_code=400, detail="Terminal is Halted due to Kill Switch or Stop Loss.")
@@ -6740,8 +6977,6 @@ class UpdateParamsPayload(BaseModel):
     auto_target_val: float
     auto_sl_enabled: bool = False
     auto_sl_val: float = -3000.0
-    auto_square_off_enabled: bool = False
-    auto_square_off_time: str = "23:30"
     auto_trading_enabled: bool
     spread_buffer: float
     auto_contraction_enabled: bool
@@ -6989,7 +7224,7 @@ async def api_post_ta_config(payload: TAConfigPayload, token: str = None, author
     if session_status == "SUSPENDED":
         has_enabled = any(c.dict().get("enabled") for c in payload.configs)
         if has_enabled:
-            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation configs after market close (23:27 - 09:00).")
+            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation configs after market close (23:55 - 09:00).")
 
     system_state.ta_configs = [c.dict() for c in payload.configs]
     system_state.save_ta_configs()
@@ -7211,7 +7446,7 @@ async def api_post_ta_lots_config(payload: TALotsConfigPayload, token: str = Non
     if session_status == "SUSPENDED":
         has_enabled = any(c.dict().get("enabled") for c in payload.configs)
         if has_enabled:
-            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation with Lots configs after market close (23:27 - 09:00).")
+            raise HTTPException(status_code=400, detail="Cannot enable Trade Automation with Lots configs after market close (23:55 - 09:00).")
 
     configs_list = []
     old_configs = getattr(system_state, "ta_lots_configs", [])
@@ -7333,7 +7568,7 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     session_status = get_market_session_status()
     if session_status == "SUSPENDED":
         if payload.auto_trading_enabled:
-            raise HTTPException(status_code=400, detail="Cannot enable Auto Trading after market close (23:27 - 09:00).")
+            raise HTTPException(status_code=400, detail="Cannot enable Auto Trading after market close (23:55 - 09:00).")
 
     system_state.entry_threshold = payload.entry_threshold
     system_state.target_threshold = payload.target_threshold
@@ -7352,8 +7587,6 @@ async def api_update_rules(payload: UpdateParamsPayload, token: str = None, auth
     system_state.auto_sl_enabled = payload.auto_sl_enabled
     system_state.auto_sl_val = payload.auto_sl_val
     
-    system_state.auto_square_off_enabled = payload.auto_square_off_enabled
-    system_state.auto_square_off_time = payload.auto_square_off_time
     
     # Save broker fields
     system_state.broker = payload.broker
@@ -7571,7 +7804,7 @@ def generate_spread_price_high_low_csv() -> StringIO:
         "Mini Price Low",
         "Current Mini Price",
         "Open Spread (09:05)",
-        "Close Spread (23:27)"
+        f"Close Spread ({MARKET_CLOSE_HOUR:02d}:{MARKET_CLOSE_MINUTE - 1:02d})"
     ])
 
     all_dates = sorted(system_state.daily_spread_stats.keys(), reverse=True)
@@ -7847,6 +8080,7 @@ async def api_get_ai_dashboard_data(token: str = None, authorization: str = Head
     return {
         "status": "SUCCESS",
         "paper": ai_arbitrage_engine.get_paper_report(),
+        "paper_claude": ai_arbitrage_engine.get_paper_report("Claude"),
         "has_claude_api_key": bool(ai_arbitrage_engine.get_api_key())
     }
 
@@ -7942,6 +8176,12 @@ async def api_analyze_claude(payload: AnalyzeClaudePayload = None, token: str = 
         "status": "SUCCESS",
         "advisory": advisory
     }
+
+@app.post("/api/ai/claude-suggest")
+async def api_claude_suggest(token: str = None, authorization: str = Header(None)):
+    """Claude ka apna BUY/SELL/WAIT (news ke saath). Sirf button dabane par - har call ka API kharcha lagta hai."""
+    verify_token(token, authorization)
+    return {"status": "SUCCESS", "claude": await ai_arbitrage_engine.generate_claude_suggestion()}
 
 @app.post("/api/ai/paper-reset")
 async def api_ai_paper_reset(token: str = None, authorization: str = Header(None)):

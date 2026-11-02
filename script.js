@@ -1930,8 +1930,6 @@ function saveParameters() {
     const autoTargetVal = (inputAutoTargetVal && inputAutoTargetVal.value !== "") ? parseFloat(inputAutoTargetVal.value) : ((window.latestDataPayload && window.latestDataPayload.auto_target_val) || 5000.0);
     const autoSlEnabled = (window.latestDataPayload && window.latestDataPayload.auto_sl_enabled) || false;
     const autoSlVal = (window.latestDataPayload && window.latestDataPayload.auto_sl_val) || -3000.0;
-    const autoSquareOffEnabled = (window.latestDataPayload && window.latestDataPayload.auto_square_off_enabled) || false;
-    const autoSquareOffTime = (window.latestDataPayload && window.latestDataPayload.auto_square_off_time) || "23:30";
     const autoTradingEnabled = autoTradingInput ? autoTradingInput.checked : ((window.latestDataPayload && window.latestDataPayload.auto_trading_enabled) || false);
     const spreadBuffer = (inputSpreadBuffer && inputSpreadBuffer.value !== "") ? parseFloat(inputSpreadBuffer.value) : ((window.latestDataPayload && window.latestDataPayload.spread_buffer) || 0.0);
     const autoContractionEnabled = checkboxContractionEntry ? checkboxContractionEntry.checked : ((window.latestDataPayload && window.latestDataPayload.auto_contraction_enabled) || false);
@@ -1949,8 +1947,6 @@ function saveParameters() {
         auto_target_val: autoTargetVal,
         auto_sl_enabled: autoSlEnabled,
         auto_sl_val: autoSlVal,
-        auto_square_off_enabled: autoSquareOffEnabled,
-        auto_square_off_time: autoSquareOffTime,
         auto_trading_enabled: autoTradingEnabled,
         spread_buffer: spreadBuffer,
         auto_contraction_enabled: autoContractionEnabled,
@@ -4299,7 +4295,8 @@ function fetchAIHubData() {
         .then(data => {
             if (!data || data.status !== "SUCCESS") return;
             window._hasClaudeApiKey = !!data.has_claude_api_key;
-            if (data.paper) renderAIPaper(data.paper);
+            window._aiPaperBooks = { Rule: data.paper, Claude: data.paper_claude };
+            renderAIPaperBook();
         })
         .catch(err => console.error("Error fetching AI dashboard data:", err))
         .finally(() => {
@@ -4641,6 +4638,72 @@ function renderClaudeAdvisory(adv, userQuery = "") {
     }
 }
 
+// ---------- Claude ka apna suggestion (news ke saath) ----------
+const AI_CLAUDE_ACTION = {
+    "BUY_SPREAD": ["🟢 BUY SPREAD", "#16A34A", "#FFFFFF"],
+    "SELL_SPREAD": ["🔴 SELL SPREAD", "#DC2626", "#FFFFFF"],
+    "WAIT": ["⏸ WAIT", "#F1F5F9", "#334155"]
+};
+const AI_RISK_COLOR = { "LOW": "#15803D", "MEDIUM": "#C2410C", "HIGH": "#B91C1C" };
+const AI_CONFIDENCE_COLOR = { "HIGH": "#15803D", "MEDIUM": "#C2410C", "LOW": "#B91C1C" };
+
+function fetchClaudeSuggestion() {
+    const box = document.getElementById("ai-claude-suggest-box");
+    const btn = document.getElementById("btn-claude-suggest");
+    if (!box) return;
+    box.innerHTML = `<p class="ai-muted">⏳ Claude is reading the market and today's news... (30-60 sec)</p>`;
+    if (btn) btn.disabled = true;
+    postAction("ai/claude-suggest").then(res => {
+        renderClaudeSuggestion((res && res.claude) || { error: "No reply from server." });
+    }).catch(err => {
+        renderClaudeSuggestion({ error: String(err.message || err) });
+    }).finally(() => {
+        if (btn) btn.disabled = false;
+    });
+}
+window.fetchClaudeSuggestion = fetchClaudeSuggestion;
+
+function renderClaudeSuggestion(c) {
+    const box = document.getElementById("ai-claude-suggest-box");
+    if (!box) return;
+    if (!c.ok) {
+        box.innerHTML = `<p style="color: #B91C1C; font-size: 0.82rem;">⚠️ ${aiEsc(c.error || "No reply from Claude.")}</p>` +
+            (c.summary ? `<pre style="white-space: pre-wrap; font-size: 0.76rem; color: #334155;">${aiEsc(c.summary)}</pre>` : "");
+        return;
+    }
+    const pairs = (c.pairs || []).map(p => {
+        const st = AI_CLAUDE_ACTION[p.action] || AI_CLAUDE_ACTION.WAIT;
+        const levels = p.action === "WAIT" ? "" :
+            `<div style="font-size: 0.78rem; color: #334155; margin-top: 0.25rem;">Entry <strong>${aiEsc(p.entry_spread)}</strong> → Target <strong>${aiEsc(p.target_spread)}</strong> · Stop <strong>${aiEsc(p.stop_spread)}</strong> · Lots ${aiEsc(p.lots)}</div>`;
+        const why = (p.why || []).map(w => `<li>${aiEsc(w)}</li>`).join("");
+        return `<div style="border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 0.6rem 0.75rem; margin-top: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <strong style="font-size: 0.84rem;">${aiEsc(p.pair)}</strong>
+                <span style="background: ${st[1]}; color: ${st[2]}; padding: 0.15rem 0.5rem; border-radius: 5px; font-size: 0.74rem; font-weight: 800;">${st[0]}</span>
+                <span style="font-size: 0.74rem; color: #64748B;">Confidence: <strong style="color: ${AI_CONFIDENCE_COLOR[p.confidence] || '#334155'};">${aiEsc(p.confidence)}</strong></span>
+                <span style="font-size: 0.72rem; color: #64748B;">${p.agrees_with_rule ? "✓ same as the rule" : "≠ differs from the rule"}</span>
+            </div>
+            ${levels}
+            ${why ? `<ul style="margin: 0.35rem 0 0 1.1rem; padding: 0; font-size: 0.78rem; color: #334155; line-height: 1.5;">${why}</ul>` : ""}
+            ${p.risk ? `<div style="font-size: 0.76rem; color: #B91C1C; margin-top: 0.25rem;">Risk: ${aiEsc(p.risk)}</div>` : ""}
+            ${p.paper_note ? `<div style="font-size: 0.74rem; color: #4F46E5; margin-top: 0.25rem;">📝 ${aiEsc(p.paper_note)}</div>` : ""}
+        </div>`;
+    }).join("");
+    const events = (c.events || []).map(e =>
+        `<li><strong>${aiEsc(e.time_ist || "Today")}</strong> ${aiEsc(e.event)} <span style="color: ${AI_RISK_COLOR[e.risk] || '#334155'}; font-weight: 700;">(${aiEsc(e.risk)})</span></li>`).join("");
+    const news = (c.news || []).map(n =>
+        `<li><strong>${aiEsc(n.headline)}</strong>: ${aiEsc(n.impact)} <span style="color: #64748B;">(${aiEsc(n.source)})</span></li>`).join("");
+    const sources = (c.sources || []).map(s =>
+        `<a href="${aiEsc(s.url)}" target="_blank" rel="noopener noreferrer" style="color: #4F46E5;">${aiEsc(s.title)}</a>`).join(" · ");
+    box.innerHTML = `
+        <p style="font-size: 0.84rem; color: #0F172A; line-height: 1.5; margin: 0.4rem 0;">${aiEsc(c.summary)}</p>
+        ${pairs}
+        ${events ? `<div style="margin-top: 0.7rem;"><strong style="font-size: 0.8rem;">📅 Today's events</strong><ul style="margin: 0.25rem 0 0 1.1rem; padding: 0; font-size: 0.78rem; line-height: 1.5;">${events}</ul></div>` : ""}
+        ${news ? `<div style="margin-top: 0.6rem;"><strong style="font-size: 0.8rem;">📰 News</strong><ul style="margin: 0.25rem 0 0 1.1rem; padding: 0; font-size: 0.78rem; line-height: 1.5;">${news}</ul></div>` : ""}
+        ${sources ? `<p class="ai-muted" style="font-size: 0.7rem; margin-top: 0.5rem;">Sources: ${sources}</p>` : ""}
+        <p class="ai-muted" style="font-size: 0.7rem; margin-top: 0.4rem;">Claude (${aiEsc(c.model)}) at ${aiEsc(c.time)}. Advice only, the final decision is yours.</p>`;
+}
+
 function askAIAssistant(qText) {
     const input = document.getElementById("ai-assistant-query-input");
     if (input) input.value = qText;
@@ -4775,14 +4838,39 @@ function aiPaperStory(t) {
     return `<ul style="margin: 0.35rem 0 0 0; padding-left: 1.1rem; line-height: 1.6;">${steps.join("")}</ul>`;
 }
 
+// Paper Trades tab: "Rule" ya "Claude" ki kitaab, aur dono ka ek line me muqabla
+window._aiPaperSource = "Rule";
+
+function setAIPaperSource(src) {
+    window._aiPaperSource = src;
+    renderAIPaperBook();
+}
+window.setAIPaperSource = setAIPaperSource;
+
+function renderAIPaperBook() {
+    const books = window._aiPaperBooks || {};
+    document.querySelectorAll(".ai-paper-source").forEach(b => b.classList.toggle("active", b.dataset.src === window._aiPaperSource));
+    const badge = document.getElementById("ai-paper-badge");
+    const openTotal = ["Rule", "Claude"].reduce((n, k) => n + ((books[k] && books[k].summary.open) || 0), 0);
+    if (badge) {
+        badge.innerText = openTotal;
+        badge.style.display = openTotal > 0 ? "inline" : "none";
+    }
+    const cmp = document.getElementById("ai-paper-compare");
+    if (cmp) {
+        cmp.innerHTML = ["Rule", "Claude"].filter(k => books[k]).map(k => {
+            const s = books[k].summary;
+            const wr = s.win_rate_percent === null ? "--" : `${s.win_rate_percent}%`;
+            return `<strong>${k === "Rule" ? "📏 Rule" : "🤖 Claude"}:</strong> ${s.trades} closed · win rate ${wr} · net <strong style="color: ${aiMoneyColor(s.net)};">${aiMoney(s.net)}</strong>`;
+        }).join(" &nbsp;|&nbsp; ");
+    }
+    const p = books[window._aiPaperSource];
+    if (p) renderAIPaper(p);
+}
+
 function renderAIPaper(p) {
     window._aiPaper = p;
     const s = p.summary;
-    const badge = document.getElementById("ai-paper-badge");
-    if (badge) {
-        badge.innerText = s.open;
-        badge.style.display = s.open > 0 ? "inline" : "none";
-    }
     const note = document.getElementById("ai-paper-livenote");
     if (note) {
         note.innerHTML = p.live_feed ? "" : `<div style="margin: 0.4rem 0; padding: 0.5rem 0.7rem; border-radius: 6px; background: #FFFBEB; color: #92400E; font-size: 0.78rem; font-weight: 600;">⚠️ The paper trader runs only on the real (live) broker feed. It does not trade on simulation data, so results are never fake.</div>`;
@@ -4835,7 +4923,7 @@ function renderAIPaper(p) {
                 <div style="color: #64748B; font-size: 0.74rem;">Opened: ${aiTimeOnly(t.opened_at)} · Stop loss ${aiNum(t.stop_spread)} · Why: ${aiEsc(t.entry_why)}</div>
                 ${aiPaperStory(t)}
             </div>`;
-        }).join("") : `<div class="ai-empty">No open paper trades.</div>`;
+        }).join("") : `<div class="ai-empty">${p.source === "Claude" ? "No open Claude paper trades. Press 'Get Claude suggestion' on the 'What to do now' tab." : "No open paper trades."}</div>`;
     }
 
     const rulesEl = document.getElementById("ai-paper-rules");

@@ -1503,6 +1503,16 @@
                         <p id="ai-rules-text" style="margin: 0.35rem 0 0 0;"></p>
                     </details>
                 </div>
+
+                <!-- Claude ka apna suggestion: live data + strategy + aaj ki news (sirf button dabane par) -->
+                <div class="ai-card" style="margin-top: 1rem; border-left: 4px solid #4F46E5;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <strong class="ai-card-title">🤖 Claude's suggestion (with today's news)</strong>
+                        <button type="button" id="btn-claude-suggest" onclick="fetchClaudeSuggestion()" style="padding: 0.4rem 0.9rem; font-size: 0.8rem; font-weight: 800; background: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer;">Get Claude suggestion</button>
+                    </div>
+                    <p class="ai-muted" style="font-size: 0.74rem;">Claude reads the live spreads, today's trend, your strategy (1, 2, 2 lots · 35 step · 110 target) and searches today's gold news and events, then says BUY / SELL / WAIT for each month. Advice only: no order is placed. Each click costs Claude API credits (takes about 30-60 sec).</p>
+                    <div id="ai-claude-suggest-box"></div>
+                </div>
             </div>
 
             <!-- TAB: Open trade monitor -->
@@ -1619,7 +1629,12 @@
             <div class="ai-tab-panel" id="ai-tab-paper" style="display: none;">
                 <div class="ai-card">
                     <strong class="ai-card-title">📝 Paper Trader: AI takes trades on paper, exactly like your system</strong>
-                    <p class="ai-muted">No real order is sent. When "What to do now" shows BUY/SELL, the AI takes the same trade on paper (like the Lots Bot: 1, 2, 2 lots, averaging every 35 pts, each lot books profit at 110 pts). See here how many times it booked a profit or a loss, and why.</p>
+                    <p class="ai-muted">No real order is sent. When "What to do now" shows BUY/SELL, the AI takes the same trade on paper (like the Lots Bot: 1, 2, 2 lots, averaging every 35 pts, each lot books profit at 110 pts). Claude's suggestions are traded on paper the same way, in a separate book. See here how many times each booked a profit or a loss, and why.</p>
+                    <div style="display: flex; gap: 0.4rem; margin: 0.4rem 0;">
+                        <button type="button" class="ai-chip ai-paper-source" data-src="Rule" onclick="setAIPaperSource('Rule')">📏 Rule's trades</button>
+                        <button type="button" class="ai-chip ai-paper-source" data-src="Claude" onclick="setAIPaperSource('Claude')">🤖 Claude's trades</button>
+                    </div>
+                    <div id="ai-paper-compare" style="font-size: 0.78rem; color: #334155; margin-bottom: 0.4rem;"></div>
                     <div id="ai-paper-livenote"></div>
                     <div id="ai-paper-kpis" class="ai-kpis"></div>
                 </div>
