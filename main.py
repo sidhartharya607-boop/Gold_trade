@@ -2615,14 +2615,50 @@ class AIArbitrageEngine:
             return "Claude already has an open paper trade in this month."
         if time.time() - store["last_close_ts"].get(key, 0) < self.PAPER_COOLDOWN_MIN * 60:
             return f"Not taken on paper: a Claude trade in this month closed less than {self.PAPER_COOLDOWN_MIN} min ago."
+        plan, err = self._claude_plan(pick)
+        if err:
+            return f"Not taken on paper: {err}"
         decision = "Expansion" if action == "BUY_SPREAD" else "Contraction"
         why = "; ".join(str(w) for w in (pick.get("why") or [])[:3])
-        reason = f"Claude ({pick.get('confidence', '--')} confidence): {why}" if why else "Claude suggestion"
-        trade = self._paper_open(row, decision, reason, "Claude")
+        name = f"{plan['name']} · " if plan["name"] else ""
+        reason = f"Claude {name}({pick.get('confidence', '--')} confidence): {why}" if why else f"Claude {name}suggestion"
+        trade = self._paper_open(row, decision, reason, "Claude", plan)
         self._paper_save()
-        return f"Taken on paper as #{trade['id']} at {trade['base']}."
+        step_txt = f"step {plan['step']:.0f}" if len(plan["lots"]) > 1 else "no averaging"
+        return (f"Taken on paper as #{trade['id']} at {trade['base']}: lots {', '.join(map(str, plan['lots']))}, "
+                f"{step_txt}, target {plan['target']:.0f}, stop {plan['stop']:.0f} pts.")
 
-    def _paper_open(self, row: dict, decision: str, reason: str, source: str) -> dict:
+    @staticmethod
+    def _claude_plan(pick: dict) -> tuple:
+        """Claude ke numbers ko check karo (hard limits). Returns (plan, error)."""
+        def num(key, lo, hi):
+            try:
+                v = float(pick.get(key))
+            except (TypeError, ValueError):
+                return None
+            return v if lo <= v <= hi else None
+
+        target = num("target_pts", 10, 500)
+        stop = num("stop_pts", 20, 600)
+        if target is None or stop is None:
+            return None, "Claude's target / stop is missing or outside the allowed range."
+        raw_lots = pick.get("lots")
+        if isinstance(raw_lots, str):
+            raw_lots = [x for x in raw_lots.replace(" ", "").split(",") if x]
+        try:
+            lots = [int(x) for x in (raw_lots or [1])][:5]
+        except (TypeError, ValueError):
+            return None, "Claude's lots are not readable."
+        if not lots or any(x < 1 or x > 5 for x in lots) or sum(lots) > AIArbitrageEngine.MAX_OPEN_LOTS_PER_PAIR:
+            return None, "Claude's lots are outside the allowed range."
+        step = num("averaging_step_pts", 10, 300)
+        if len(lots) > 1 and step is None:
+            lots = lots[:1]     # averaging step nahi diya -> sirf pehla level
+        return {"step": step or 0.0, "lots": lots, "target": target, "stop": stop,
+                "name": str(pick.get("strategy_name") or "")[:60]}, ""
+
+    def _paper_open(self, row: dict, decision: str, reason: str, source: str, plan: dict = None) -> dict:
+        """plan (Claude ki apni strategy): {"step", "lots": [..], "target", "stop", "name"}. None = default ladder."""
         store = self._paper_store()
         exp = decision == "Expansion"
         base = row["depth_buy_spread"] if exp else row["depth_sell_spread"]
@@ -2630,9 +2666,12 @@ class AIArbitrageEngine:
         pos = row["buy_pos_pct"] if exp else row["sell_pos_pct"]
         # Stop exit-side se naapo (wahi side jis par position band hogi), warna buy/sell ka fark hi stop maar deta hai
         exit_at_entry = row["depth_sell_spread"] if exp else row["depth_buy_spread"]
-        step = self.DEFAULT_STEP_PTS
+        plan = plan or {}
+        step = plan.get("step") or self.DEFAULT_STEP_PTS
+        target_pts = plan.get("target") or self.DEFAULT_TARGET_PTS
+        stop_pts = plan.get("stop") or self.PAPER_STOP_PTS
         levels = []
-        for i, lots in enumerate(self._paper_lots_list()):
+        for i, lots in enumerate(plan.get("lots") or self._paper_lots_list()):
             levels.append({
                 "level": i + 1, "lots": lots,
                 "trigger": round(base - i * step if exp else base + i * step, 2),
@@ -2651,8 +2690,9 @@ class AIArbitrageEngine:
             "opened_at": get_ist_time_str("%Y-%m-%d %H:%M:%S"), "opened_ts": time.time(),
             "closed_at": None, "closed_ts": None,
             "base": base,
-            "target_pts": self.DEFAULT_TARGET_PTS, "step": step,
-            "stop_spread": round(exit_at_entry - self.PAPER_STOP_PTS if exp else exit_at_entry + self.PAPER_STOP_PTS, 2),
+            "target_pts": target_pts, "step": step, "stop_pts": stop_pts,
+            "strategy_name": plan.get("name") or "",
+            "stop_spread": round(exit_at_entry - stop_pts if exp else exit_at_entry + stop_pts, 2),
             "exit_at_entry": exit_at_entry,
             "entry_why": reason,
             "entry_ctx": {"pos_pct": pos, "low": lo, "high": hi,
@@ -2789,7 +2829,7 @@ class AIArbitrageEngine:
         # LOSS
         if t["close_code"] == "STOP":
             ref = t.get("exit_at_entry", t["base"])
-            r.append(f"Stop loss hit: exit-side spread moved {self.PAPER_STOP_PTS:.0f} pts against its value at entry ({ref}) (stop {t['stop_spread']}).")
+            r.append(f"Stop loss hit: exit-side spread moved {t.get('stop_pts', self.PAPER_STOP_PTS):.0f} pts against its value at entry ({ref}) (stop {t['stop_spread']}).")
         elif t["close_code"] == "EXPIRY":
             r.append(f"Expiry came close ({row.get('days_to_expiry')} days left), so the position was closed before the target was reached.")
         if len(filled) == len(t["levels"]) and len(filled) > 1:
@@ -2879,12 +2919,15 @@ class AIArbitrageEngine:
             "live_feed": self._is_live_feed(),
             "rules": (
                 (f"Entry: whenever you press 'Get Claude suggestion' and Claude says BUY / SELL for a month, it is taken on paper "
-                 f"right then at the live Depth spread (one open Claude trade per month). " if source == "Claude" else
+                 f"right then at the live Depth spread (one open Claude trade per month), using Claude's OWN plan for that trade: "
+                 f"its lots, averaging step, target and stop (shown on each trade). Each lot closes at the target from its own entry; "
+                 f"stop = exit-side spread moves Claude's stop pts against its value at entry, or {self.EXPIRY_BLOCK_DAYS} days to expiry remain. "
+                 if source == "Claude" else
                  f"Entry: same rule as Suggestions (Depth Buy in the bottom {self.ZONE_PCT:.0f}% of today's range = BUY spread; "
-                 f"Depth Sell in the top {self.ZONE_PCT:.0f}% = SELL spread). ") +
-                f"Averaging: every {self.DEFAULT_STEP_PTS:.0f} pts, lots {self.DEFAULT_LOTS}. "
-                f"Profit: each lot closes {self.DEFAULT_TARGET_PTS:.0f} pts from its own entry (like the Lots Bot). "
-                f"Loss: exit-side spread moves {self.PAPER_STOP_PTS:.0f} pts against its value at entry, or {self.EXPIRY_BLOCK_DAYS} days to expiry remain. "
+                 f"Depth Sell in the top {self.ZONE_PCT:.0f}% = SELL spread). "
+                 f"Averaging: every {self.DEFAULT_STEP_PTS:.0f} pts, lots {self.DEFAULT_LOTS}. "
+                 f"Profit: each lot closes {self.DEFAULT_TARGET_PTS:.0f} pts from its own entry (like the Lots Bot). "
+                 f"Loss: exit-side spread moves {self.PAPER_STOP_PTS:.0f} pts against its value at entry, or {self.EXPIRY_BLOCK_DAYS} days to expiry remain. ") +
                 f"After a close, no new entry in the same month for {self.PAPER_COOLDOWN_MIN} min. "
                 f"Never an expired month. Only on the live broker feed during market OPEN time. Net is after charges + slippage."
             )
@@ -3284,6 +3327,31 @@ class AIArbitrageEngine:
             return result
 
         suggestions = self.build_suggestions()
+        history = self._spread_history_summary()
+        # Har pair ka "kitna hilta hai" + kharcha: Claude isi se apna step / target / stop chunta hai
+        pair_math = {}
+        for s in suggestions:
+            past = [d for day, d in history.get(s["pair"], {}).get("past_days", {}).items()
+                    if day != get_ist_time_str("%Y-%m-%d")]
+            ranges = [round(d["buy_high"] - d["buy_low"], 1) for d in past]
+            try:
+                ch = calculate_trade_pair_charges(s["petal_symbol"], s["mini_symbol"],
+                                                  self.state.symbol_ltps.get(s["mini_symbol"], 0.0) or 72000.0)
+                breakeven = round((ch["total_charges"] + ch["slippage_cushion"]) / ch["multiplier_10g_scale"], 1)
+                rs_per_pt = ch["multiplier_10g_scale"]
+            except Exception:
+                breakeven, rs_per_pt = None, None
+            gap = (round(s["depth_buy_spread"] - s["depth_sell_spread"], 1)
+                   if s["depth_buy_spread"] is not None and s["depth_sell_spread"] is not None else None)
+            pair_math[s["pair"]] = {
+                "depth_gap_pts_now": gap,
+                "today_range_pts": (round(s["depth_buy_high"] - s["depth_buy_low"], 1)
+                                    if s["depth_buy_high"] is not None and s["depth_buy_low"] is not None else None),
+                "past_daily_ranges_pts": ranges,
+                "avg_daily_range_pts": round(sum(ranges) / len(ranges), 1) if ranges else None,
+                "breakeven_pts_per_lot": breakeven,      # charges + slippage ko cover karne ke liye kam se kam itne pts
+                "rupees_per_pt_per_lot": rs_per_pt
+            }
         context = {
             "time_ist": get_ist_time_str(),
             "market_session": get_market_session_status(),
@@ -3295,21 +3363,28 @@ class AIArbitrageEngine:
                 "Depth Sell spread = what you get to SELL the spread now (Contraction: profit if spread goes DOWN). "
                 "Exit is always on the opposite depth side."
             ),
-            "strategy": {
+            "trader_current_setup_for_reference_only": {
                 "lots_ladder": self.DEFAULT_LOTS, "averaging_step_pts": self.DEFAULT_STEP_PTS,
-                "target_pts_per_lot": self.DEFAULT_TARGET_PTS, "paper_stop_pts": self.PAPER_STOP_PTS,
-                "no_entry_days_before_expiry": self.EXPIRY_BLOCK_DAYS,
-                "max_depth_gap_pts": self.MAX_DEPTH_GAP_PTS,
+                "target_pts_per_lot": self.DEFAULT_TARGET_PTS,
                 "local_rule": f"BUY spread when Depth Buy is in the bottom {self.ZONE_PCT:.0f}% of today's range, "
                               f"SELL spread when Depth Sell is in the top {self.ZONE_PCT:.0f}%, else WAIT."
             },
+            "hard_limits": {
+                "no_entry_days_before_expiry": self.EXPIRY_BLOCK_DAYS,
+                "max_depth_gap_pts": self.MAX_DEPTH_GAP_PTS,
+                "max_total_lots_per_pair": self.MAX_OPEN_LOTS_PER_PAIR,
+                "margin_per_lot_inr": self.MARGIN_PER_LOT,
+                "allowed_ranges": {"averaging_step_pts": [10, 300], "target_pts": [10, 500], "stop_pts": [20, 600],
+                                   "levels": [1, 5], "lots_per_level": [1, 5]}
+            },
+            "pair_math": pair_math,
             "pairs_now": [
                 {k: s[k] for k in ("pair", "decision", "reason", "depth_buy_spread", "depth_buy_low", "depth_buy_high",
                                    "buy_pos_pct", "depth_sell_spread", "depth_sell_low", "depth_sell_high", "sell_pos_pct",
                                    "expiry_date", "days_to_expiry", "plan")}
                 for s in suggestions
             ],
-            "spread_history": self._spread_history_summary(),
+            "spread_history": history,
             "open_trades": self.get_open_trades_monitor()["trades"],
             "paper_trader_results_rule": {k: v for k, v in self.get_paper_report().items() if k in ("summary", "by_pair", "by_direction")},
             # Claude ki apni pichhli salah ka kaagazi hisaab - isse seekh kar agli salah de
@@ -3320,23 +3395,40 @@ class AIArbitrageEngine:
             "You are a careful MCX Gold calendar-spread trading assistant for an Indian trader. "
             "First use web search to check TODAY's gold news and scheduled events that can move gold or the MCX spread "
             "(US Fed / CPI / NFP / jobs data, dollar index, Indian import duty, war/geopolitics, MCX notices, rupee). "
-            "Then, for each pair in DATA.pairs_now, decide BUY_SPREAD, SELL_SPREAD or WAIT using the live spreads, "
-            "today's range and trend, past days' ranges, expiry, the trader's strategy, open trades and the news.\n"
+            "Then, for each pair in DATA.pairs_now, decide BUY_SPREAD, SELL_SPREAD or WAIT AND design the strategy for it "
+            "yourself. The trader's own 35-step / 110-target / 1,2,2 setup is only a reference: do NOT copy it. "
+            "Pick what fits THIS pair today, for example: mean reversion inside the range, a breakout of today's High/Low, "
+            "a quick scalp with a small target, or a single entry with no averaging. Size the numbers from DATA.pair_math "
+            "(avg_daily_range_pts, today_range_pts, depth_gap_pts_now, breakeven_pts_per_lot).\n"
+            "How to set the trade (plan it BEFORE the entry, like a professional):\n"
+            "a. Stop = where the idea is proven wrong (beyond today's High/Low, or about 1-1.5x the average daily range), "
+            "not a random number. Never so tight that depth_gap + breakeven would hit it on normal noise.\n"
+            "b. Target = a realistic move for this pair (compare with avg_daily_range_pts) and at least 1.5x the risk to the "
+            "first entry where possible (reward:risk). A target below 3x breakeven_pts_per_lot is not worth it.\n"
+            "c. Averaging only if it makes sense for the idea (mean reversion yes, breakout no). Step = a real distance in "
+            "this pair's range, total lots within hard_limits.\n"
+            "d. Give the max loss in rupees if the stop is hit with all levels filled (pts x rupees_per_pt_per_lot x lots + charges).\n"
             "Rules:\n"
             "1. Use only numbers from DATA and facts you found by search. Never invent prices, news or probabilities.\n"
             "2. If a big event is due before market close, say so and prefer WAIT or fewer lots.\n"
-            "3. Never suggest a pair with no live data, a depth gap above strategy.max_depth_gap_pts, or within the expiry block.\n"
-            "4. Entry/target/stop must be spread values consistent with the depth side (BUY at Depth Buy, SELL at Depth Sell).\n"
-            "5. This is advice only; the trader decides.\n"
-            "6. Every BUY_SPREAD / SELL_SPREAD you give is traded on paper at the live depth spread with the trader's ladder "
-            "and tracked against the local rule. Learn from DATA.your_own_past_paper_results and only call a trade you would take.\n"
+            "3. Never suggest a pair with no live data, a depth gap above hard_limits.max_depth_gap_pts, or within the expiry block.\n"
+            "4. BUY_SPREAD / SELL_SPREAD means ENTER NOW at the live depth (BUY at Depth Buy, SELL at Depth Sell). "
+            "If a better level is needed, say WAIT and put that level in wait_for.\n"
+            "5. All pts values must be inside hard_limits.allowed_ranges.\n"
+            "6. This is advice only; the trader decides.\n"
+            "7. Every BUY_SPREAD / SELL_SPREAD is traded on paper with YOUR step, target, stop and lots, and compared with the "
+            "local rule. Learn from DATA.your_own_past_paper_results and only call a trade you would take.\n"
             "Reply with ONLY one JSON object, no markdown, in this shape:\n"
             '{"summary": "2-3 lines, simple English", '
             '"news": [{"headline": "...", "impact": "how it can move gold / the spread", "source": "site name"}], '
             '"events": [{"time_ist": "HH:MM or empty", "event": "...", "risk": "LOW|MEDIUM|HIGH"}], '
             '"pairs": [{"pair": "exact pair from DATA", "action": "BUY_SPREAD|SELL_SPREAD|WAIT", '
-            '"confidence": "LOW|MEDIUM|HIGH", "entry_spread": number or null, "target_spread": number or null, '
-            '"stop_spread": number or null, "lots": "e.g. 1, 2, 2 or 1 only", '
+            '"confidence": "LOW|MEDIUM|HIGH", "strategy_name": "short name, e.g. Range mean reversion", '
+            '"strategy": "1-2 lines: the idea and when it fails", '
+            '"entry_spread": number or null, "averaging_step_pts": number or null (null = no averaging), '
+            '"lots": [1, 2] (lots per level, first level = entry now), "target_pts": number or null, '
+            '"stop_pts": number or null, "target_spread": number or null, "stop_spread": number or null, '
+            '"reward_risk": number or null, "max_loss_inr": number or null, "wait_for": "level or condition, or empty", '
             '"agrees_with_rule": true/false, "why": ["short reason", "..."], "risk": "main risk in one line"}]}'
         )
         user_message = f"DATA:\n{json.dumps(context, indent=1, default=str)}"
@@ -7849,6 +7941,36 @@ def generate_spread_price_high_low_csv() -> StringIO:
     csv_buffer.seek(0)
     return csv_buffer
 
+def depth_history_rows(date_str: str) -> list:
+    """Ek din ke har month pair ka Depth Buy / Depth Sell Low-High (kis time par) - CSV aur screen wali table dono isi se."""
+    def rng(lo, hi):
+        return round(hi - lo, 2) if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) else None
+
+    rows = []
+    for pair_key, rec in system_state.daily_spread_stats.get(date_str, {}).items():
+        b_lo, b_hi = rec.get("low_depth_buy_spread"), rec.get("high_depth_buy_spread")
+        s_lo, s_hi = rec.get("low_depth_sell_spread"), rec.get("high_depth_sell_spread")
+        if b_lo is None and s_lo is None:
+            continue  # purana record - depth data nahi tha
+        key_parts = pair_key.split("_", 1) + [""]
+        p_sym = rec.get("petal_symbol") or key_parts[0]
+        m_sym = rec.get("mini_symbol") or key_parts[1]
+        expiries = [x for x in (get_contract_expiry_date(p_sym), get_contract_expiry_date(m_sym)) if x]
+        rows.append({
+            "date": rec.get("date", date_str),
+            "month": rec.get("month") or extract_month_from_symbol(p_sym),
+            "petal_symbol": p_sym, "mini_symbol": m_sym,
+            "expiry": min(expiries).strftime("%d-%b-%Y") if expiries else "",
+            "buy_low": b_lo, "buy_low_time": rec.get("low_depth_buy_time", ""),
+            "buy_high": b_hi, "buy_high_time": rec.get("high_depth_buy_time", ""), "buy_range": rng(b_lo, b_hi),
+            "sell_low": s_lo, "sell_low_time": rec.get("low_depth_sell_time", ""),
+            "sell_high": s_hi, "sell_high_time": rec.get("high_depth_sell_time", ""), "sell_range": rng(s_lo, s_hi),
+            "last_buy": rec.get("last_depth_buy_spread"), "last_sell": rec.get("last_depth_sell_spread"),
+            "last_updated": rec.get("last_updated", "")
+        })
+    rows.sort(key=lambda r: (datetime.strptime(r["expiry"], "%d-%b-%Y") if r["expiry"] else datetime.max, r["petal_symbol"]))
+    return rows
+
 def generate_depth_history_csv() -> str:
     """
     Depth History (naya format): har din, har month pair ki ek line -
@@ -7857,9 +7979,6 @@ def generate_depth_history_csv() -> str:
     """
     def num(v):
         return f"{v:.2f}" if isinstance(v, (int, float)) else ""
-
-    def rng(lo, hi):
-        return f"{hi - lo:.2f}" if isinstance(lo, (int, float)) and isinstance(hi, (int, float)) else ""
 
     buf = StringIO()
     writer = csv.writer(buf)
@@ -7870,29 +7989,23 @@ def generate_depth_history_csv() -> str:
         "Last Depth Buy", "Last Depth Sell", "Last Updated"
     ])
     for d in sorted(system_state.daily_spread_stats.keys(), reverse=True):
-        rows = []
-        for pair_key, rec in system_state.daily_spread_stats[d].items():
-            b_lo, b_hi = rec.get("low_depth_buy_spread"), rec.get("high_depth_buy_spread")
-            s_lo, s_hi = rec.get("low_depth_sell_spread"), rec.get("high_depth_sell_spread")
-            if b_lo is None and s_lo is None:
-                continue  # purana record - depth data nahi tha
-            key_parts = pair_key.split("_", 1) + [""]
-            p_sym = rec.get("petal_symbol") or key_parts[0]
-            m_sym = rec.get("mini_symbol") or key_parts[1]
-            expiries = [x for x in (get_contract_expiry_date(p_sym), get_contract_expiry_date(m_sym)) if x]
-            rows.append([
-                rec.get("date", d),
-                rec.get("month") or extract_month_from_symbol(p_sym),
-                p_sym, m_sym,
-                min(expiries).strftime("%d-%b-%Y") if expiries else "",
-                num(b_lo), rec.get("low_depth_buy_time", ""), num(b_hi), rec.get("high_depth_buy_time", ""), rng(b_lo, b_hi),
-                num(s_lo), rec.get("low_depth_sell_time", ""), num(s_hi), rec.get("high_depth_sell_time", ""), rng(s_lo, s_hi),
-                num(rec.get("last_depth_buy_spread")), num(rec.get("last_depth_sell_spread")),
-                rec.get("last_updated", "")
+        for r in depth_history_rows(d):
+            writer.writerow([
+                r["date"], r["month"], r["petal_symbol"], r["mini_symbol"], r["expiry"],
+                num(r["buy_low"]), r["buy_low_time"], num(r["buy_high"]), r["buy_high_time"], num(r["buy_range"]),
+                num(r["sell_low"]), r["sell_low_time"], num(r["sell_high"]), r["sell_high_time"], num(r["sell_range"]),
+                num(r["last_buy"]), num(r["last_sell"]), r["last_updated"]
             ])
-        rows.sort(key=lambda r: (datetime.strptime(r[4], "%d-%b-%Y") if r[4] else datetime.max, r[2]))
-        writer.writerows(rows)
     return buf.getvalue()
+
+# Screen par Depth High/Low table (CSV download ke bina): ek din ke saare pairs
+@app.get("/api/depth-history")
+async def api_depth_history(date: str = None, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    dates = sorted((d for d in system_state.daily_spread_stats.keys() if depth_history_rows(d)), reverse=True)
+    date_str = date or (dates[0] if dates else get_ist_time_str("%Y-%m-%d"))
+    return {"status": "SUCCESS", "date": date_str, "dates": dates[:60],
+            "today": get_ist_time_str("%Y-%m-%d"), "rows": depth_history_rows(date_str)}
 
 # REST CSV Depth History exporter endpoint (har month ka Depth Buy / Depth Sell Low-High)
 @app.get("/api/export-depth-spread")

@@ -1192,6 +1192,9 @@
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                 Depth History: Month-wise Depth Buy / Sell Low–High (CSV)
                             </button>
+                            <button type="button" onclick="openDepthTable()" class="csv-export-button" style="background-color: #4F46E5; color: white; width: 100%; justify-content: center; padding: 0.5rem; font-weight: 700;">
+                                📊 View Depth Buy / Sell High–Low table (no download)
+                            </button>
                             <button id="export-csv-btn" class="csv-export-button" style="width: 100%; justify-content: center; padding: 0.5rem; font-weight: 700;">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="btn-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                                 Export Auto CSV
@@ -1467,6 +1470,7 @@
             <button type="button" class="ai-tab-btn" data-ai-tab="suggest" onclick="switchAITab('suggest')">💡 What to do now</button>
             <button type="button" class="ai-tab-btn" data-ai-tab="paper" onclick="switchAITab('paper')">📝 Paper Trades <span id="ai-paper-badge" class="ai-tab-badge" style="display: none;">0</span></button>
             <button type="button" class="ai-tab-btn" data-ai-tab="monitor" onclick="switchAITab('monitor')">📈 My Positions <span id="ai-monitor-badge" class="ai-tab-badge" style="display: none;">0</span></button>
+            <button type="button" class="ai-tab-btn" data-ai-tab="depth" onclick="switchAITab('depth')">📊 Depth High/Low</button>
             <button type="button" class="ai-tab-btn" data-ai-tab="journal" onclick="switchAITab('journal')">📒 Journal</button>
             <button type="button" class="ai-tab-btn" data-ai-tab="backtest" onclick="switchAITab('backtest')">🧪 Backtest</button>
             <button type="button" class="ai-tab-btn" data-ai-tab="claude" onclick="switchAITab('claude')">💬 Ask Claude</button>
@@ -1478,6 +1482,16 @@
 
             <!-- TAB: Suggestions -->
             <div class="ai-tab-panel" id="ai-tab-suggest">
+                <!-- Claude ka apna suggestion: live data + strategy + aaj ki news (sirf button dabane par) -->
+                <div class="ai-card" style="margin-bottom: 1rem; border-left: 4px solid #4F46E5;">
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <strong class="ai-card-title">🤖 Claude's suggestion (with today's news)</strong>
+                        <button type="button" id="btn-claude-suggest" onclick="fetchClaudeSuggestion()" style="padding: 0.4rem 0.9rem; font-size: 0.8rem; font-weight: 800; background: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer;">Get Claude suggestion</button>
+                    </div>
+                    <p class="ai-muted" style="font-size: 0.74rem;">Claude reads the live spreads, today's and past days' ranges, the costs per lot and today's gold news and events, then builds its OWN strategy for each month: BUY / SELL / WAIT, how many lots, averaging step (or none), target, stop, reward:risk and max loss. Advice only: no order is placed. Each click costs Claude API credits (takes about 30-60 sec).</p>
+                    <div id="ai-claude-suggest-box"></div>
+                </div>
+
                 <div class="ai-card">
                     <strong class="ai-card-title">Every month: what to do now?</strong>
                     <p id="ai-suggestions-summary" class="ai-muted">Loading...</p>
@@ -1502,16 +1516,6 @@
                         <summary style="cursor: pointer; font-weight: 700;">What is the rule?</summary>
                         <p id="ai-rules-text" style="margin: 0.35rem 0 0 0;"></p>
                     </details>
-                </div>
-
-                <!-- Claude ka apna suggestion: live data + strategy + aaj ki news (sirf button dabane par) -->
-                <div class="ai-card" style="margin-top: 1rem; border-left: 4px solid #4F46E5;">
-                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                        <strong class="ai-card-title">🤖 Claude's suggestion (with today's news)</strong>
-                        <button type="button" id="btn-claude-suggest" onclick="fetchClaudeSuggestion()" style="padding: 0.4rem 0.9rem; font-size: 0.8rem; font-weight: 800; background: #4F46E5; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer;">Get Claude suggestion</button>
-                    </div>
-                    <p class="ai-muted" style="font-size: 0.74rem;">Claude reads the live spreads, today's trend, your strategy (1, 2, 2 lots · 35 step · 110 target) and searches today's gold news and events, then says BUY / SELL / WAIT for each month. Advice only: no order is placed. Each click costs Claude API credits (takes about 30-60 sec).</p>
-                    <div id="ai-claude-suggest-box"></div>
                 </div>
             </div>
 
@@ -1538,6 +1542,37 @@
                         </table>
                     </div>
                     <p id="ai-monitor-rules" class="ai-muted" style="font-size: 0.72rem; margin-top: 0.6rem;"></p>
+                </div>
+            </div>
+
+            <!-- TAB: Depth High/Low - har pair ka Depth Buy / Sell Low-High ek table me (CSV download ke bina) -->
+            <div class="ai-tab-panel" id="ai-tab-depth" style="display: none;">
+                <div class="ai-card">
+                    <div style="display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                        <strong class="ai-card-title">📊 Depth Buy / Sell: today's High &amp; Low, every pair</strong>
+                        <select id="ai-depth-date" onchange="fetchDepthTable(this.value)" style="padding: 0.3rem 0.5rem; border: 1.5px solid #CBD5E1; border-radius: 6px; font-size: 0.8rem;"></select>
+                        <button type="button" onclick="fetchDepthTable(document.getElementById('ai-depth-date').value)" style="padding: 0.35rem 0.9rem; font-size: 0.8rem; font-weight: 800; background: #1E293B; color: #FFFFFF; border: none; border-radius: 6px; cursor: pointer;">🔄 Refresh</button>
+                    </div>
+                    <p id="ai-depth-note" class="ai-muted" style="font-size: 0.74rem;">Depth Buy = what you pay to BUY the spread. Depth Sell = what you get to SELL it. Same data as the Depth History CSV.</p>
+                    <div style="overflow-x: auto;">
+                        <table class="ai-table">
+                            <thead>
+                                <tr>
+                                    <th>Month (Pair)</th>
+                                    <th>Expiry</th>
+                                    <th style="color: #15803D;">Buy LOW</th>
+                                    <th style="color: #15803D;">Buy HIGH</th>
+                                    <th>Buy range</th>
+                                    <th style="color: #B91C1C;">Sell LOW</th>
+                                    <th style="color: #B91C1C;">Sell HIGH</th>
+                                    <th>Sell range</th>
+                                    <th>Now Buy / Sell</th>
+                                    <th>Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ai-depth-tbody"><tr><td colspan="10" class="ai-empty">Loading...</td></tr></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -1706,6 +1741,6 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"></polyline></svg>
     </button>
     
-    <script src="script.js?v=4.1"></script>
+    <script src="script.js?v=4.3"></script>
 </body>
 </html>

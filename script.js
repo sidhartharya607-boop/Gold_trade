@@ -4243,6 +4243,7 @@ function switchAITab(name) {
         b.classList.toggle("active", b.dataset.aiTab === name);
     });
     if (name === "journal") fetchAIJournal();
+    if (name === "depth") fetchDepthTable();
     if (name === "alerts") {
         window._aiAlertsUnseen = 0;
         updateAIAlertBadge();
@@ -4257,6 +4258,46 @@ function aiGet(path) {
     const tokenParam = getAuthTokenParam().replace(/^\?/, "");
     return fetch(`${httpProtocol}//${host}/api/${path}${tokenParam ? sep + tokenParam : ""}`).then(r => r.json());
 }
+
+// ---------- Depth High/Low table (CSV download ke bina) ----------
+function openDepthTable() {
+    window._aiActiveTab = "depth";
+    openAIHubModal();
+}
+window.openDepthTable = openDepthTable;
+
+function fetchDepthTable(dateStr) {
+    const tbody = document.getElementById("ai-depth-tbody");
+    if (!tbody) return;
+    aiGet(`depth-history${dateStr ? "?date=" + encodeURIComponent(dateStr) : ""}`).then(res => {
+        if (!res || res.status !== "SUCCESS") {
+            tbody.innerHTML = `<tr><td colspan="10" class="ai-empty">Could not load the table.</td></tr>`;
+            return;
+        }
+        const sel = document.getElementById("ai-depth-date");
+        if (sel) {
+            const dates = res.dates.length ? res.dates : [res.date];
+            sel.innerHTML = dates.map(d => `<option value="${aiEsc(d)}"${d === res.date ? " selected" : ""}>${aiEsc(d)}${d === res.today ? " (today)" : ""}</option>`).join("");
+        }
+        const time = (v, t) => v === null || v === undefined ? "--"
+            : `<strong>${aiNum(v)}</strong>${t ? `<div style="font-size: 0.68rem; color: #64748B;">${aiEsc(t)}</div>` : ""}`;
+        tbody.innerHTML = res.rows.length ? res.rows.map(r => `<tr>
+            <td style="font-weight: 700;">${aiEsc(r.month)}<div style="font-size: 0.68rem; color: #64748B; font-weight: 400;">${aiEsc(r.petal_symbol)} / ${aiEsc(r.mini_symbol)}</div></td>
+            <td>${aiEsc(r.expiry)}</td>
+            <td style="color: #15803D;">${time(r.buy_low, r.buy_low_time)}</td>
+            <td style="color: #15803D;">${time(r.buy_high, r.buy_high_time)}</td>
+            <td>${aiNum(r.buy_range)}</td>
+            <td style="color: #B91C1C;">${time(r.sell_low, r.sell_low_time)}</td>
+            <td style="color: #B91C1C;">${time(r.sell_high, r.sell_high_time)}</td>
+            <td>${aiNum(r.sell_range)}</td>
+            <td style="font-family: monospace;">${aiNum(r.last_buy)} / ${aiNum(r.last_sell)}</td>
+            <td style="font-size: 0.72rem; color: #64748B;">${aiEsc(r.last_updated || "--")}</td>
+        </tr>`).join("") : `<tr><td colspan="10" class="ai-empty">No Depth Buy / Sell data recorded for ${aiEsc(res.date)}.</td></tr>`;
+    }).catch(() => {
+        tbody.innerHTML = `<tr><td colspan="10" class="ai-empty">Network error.</td></tr>`;
+    });
+}
+window.fetchDepthTable = fetchDepthTable;
 
 function aiMoney(v) {
     if (v === null || v === undefined) return "--";
@@ -4673,8 +4714,16 @@ function renderClaudeSuggestion(c) {
     }
     const pairs = (c.pairs || []).map(p => {
         const st = AI_CLAUDE_ACTION[p.action] || AI_CLAUDE_ACTION.WAIT;
-        const levels = p.action === "WAIT" ? "" :
-            `<div style="font-size: 0.78rem; color: #334155; margin-top: 0.25rem;">Entry <strong>${aiEsc(p.entry_spread)}</strong> → Target <strong>${aiEsc(p.target_spread)}</strong> · Stop <strong>${aiEsc(p.stop_spread)}</strong> · Lots ${aiEsc(p.lots)}</div>`;
+        const lotsTxt = Array.isArray(p.lots) ? p.lots.join(", ") : p.lots;
+        const stepTxt = (Array.isArray(p.lots) && p.lots.length > 1 && p.averaging_step_pts) ? `every ${aiEsc(p.averaging_step_pts)} pts` : "no averaging";
+        const strategy = p.strategy_name || p.strategy
+            ? `<div style="font-size: 0.78rem; color: #4F46E5; margin-top: 0.25rem;"><strong>🧭 ${aiEsc(p.strategy_name || "Strategy")}</strong>${p.strategy ? ": " + aiEsc(p.strategy) : ""}</div>` : "";
+        const levels = p.action === "WAIT"
+            ? (p.wait_for ? `<div style="font-size: 0.78rem; color: #334155; margin-top: 0.25rem;">⏳ Wait for: <strong>${aiEsc(p.wait_for)}</strong></div>` : "")
+            : `<div style="font-size: 0.78rem; color: #334155; margin-top: 0.25rem; line-height: 1.6;">
+                Entry <strong>${aiEsc(p.entry_spread)}</strong> → Target <strong>${aiEsc(p.target_spread)}</strong> (${aiEsc(p.target_pts)} pts) · Stop <strong>${aiEsc(p.stop_spread)}</strong> (${aiEsc(p.stop_pts)} pts)<br>
+                Lots <strong>${aiEsc(lotsTxt)}</strong> · Averaging ${stepTxt} · Reward:risk <strong>${aiEsc(p.reward_risk)}</strong> · Max loss <strong style="color: #B91C1C;">${p.max_loss_inr != null ? "₹" + Math.round(p.max_loss_inr).toLocaleString() : "--"}</strong>
+            </div>`;
         const why = (p.why || []).map(w => `<li>${aiEsc(w)}</li>`).join("");
         return `<div style="border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 0.6rem 0.75rem; margin-top: 0.5rem;">
             <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
@@ -4683,6 +4732,7 @@ function renderClaudeSuggestion(c) {
                 <span style="font-size: 0.74rem; color: #64748B;">Confidence: <strong style="color: ${AI_CONFIDENCE_COLOR[p.confidence] || '#334155'};">${aiEsc(p.confidence)}</strong></span>
                 <span style="font-size: 0.72rem; color: #64748B;">${p.agrees_with_rule ? "✓ same as the rule" : "≠ differs from the rule"}</span>
             </div>
+            ${strategy}
             ${levels}
             ${why ? `<ul style="margin: 0.35rem 0 0 1.1rem; padding: 0; font-size: 0.78rem; color: #334155; line-height: 1.5;">${why}</ul>` : ""}
             ${p.risk ? `<div style="font-size: 0.76rem; color: #B91C1C; margin-top: 0.25rem;">Risk: ${aiEsc(p.risk)}</div>` : ""}
@@ -4920,7 +4970,7 @@ function renderAIPaper(p) {
                     <span><strong>#${t.id} ${aiEsc(aiShortPair(t.pair))}</strong> · ${label}</span>
                     <span style="font-family: monospace; font-weight: 800; color: ${aiMoneyColor(pts)};">${pts === null ? "--" : (pts > 0 ? "+" : "") + pts + " pts (" + t.open_lots + " lot)"}</span>
                 </div>
-                <div style="color: #64748B; font-size: 0.74rem;">Opened: ${aiTimeOnly(t.opened_at)} · Stop loss ${aiNum(t.stop_spread)} · Why: ${aiEsc(t.entry_why)}</div>
+                <div style="color: #64748B; font-size: 0.74rem;">Opened: ${aiTimeOnly(t.opened_at)} · Target ${aiNum(t.target_pts)} pts/lot · Stop loss ${aiNum(t.stop_spread)} · Why: ${aiEsc(t.entry_why)}</div>
                 ${aiPaperStory(t)}
             </div>`;
         }).join("") : `<div class="ai-empty">${p.source === "Claude" ? "No open Claude paper trades. Press 'Get Claude suggestion' on the 'What to do now' tab." : "No open paper trades."}</div>`;
