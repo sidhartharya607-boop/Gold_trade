@@ -1111,7 +1111,11 @@ window.toggleTaLotsAccordion = function(talotscardId) {
             let statusBadge = "";
             const status = trade.status || "Open";
             if (status === "Open") {
-                statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
+                if (trade.is_paused) {
+                    statusBadge = `<span class="badge-paused" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.3);">PAUSED</span>`;
+                } else {
+                    statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
+                }
             } else if (status === "Closed" || status === "Completed") {
                 statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
             } else {
@@ -1135,10 +1139,11 @@ window.toggleTaLotsAccordion = function(talotscardId) {
 
             if (status === "Open") {
                 const targetExitSpread = parseFloat(trade.entry_spread) + (trade.direction === "Expansion" ? currentExitGap : -currentExitGap);
+                const gapColor = currentExitGap < 0 ? '#f87171' : '#60a5fa';
                 spreadDisplay = `
                     <div style="font-size: 0.72rem; line-height: 1.4;">
                         <div>Ent: <strong class="font-mono">${entrySpreadVal}</strong></div>
-                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono">${targetExitSpread.toFixed(2)}</span> <small style="color: #60a5fa; font-size: 0.65rem;">(Gap: ${currentExitGap})</small></div>
+                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono" style="color: ${currentExitGap < 0 ? '#f87171' : 'inherit'}; font-weight: 600;">${targetExitSpread.toFixed(2)}</span> <small style="color: ${gapColor}; font-size: 0.65rem;">(Gap: ${currentExitGap})</small></div>
                     </div>
                 `;
             } else {
@@ -1185,11 +1190,16 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                 pnlContent = `<div style="font-size:0.7rem;line-height:1.45;"><div style="color:var(--text-muted);font-size:0.62rem;">ENTRY</div><div style="color:var(--text-secondary);font-family:var(--font-mono);">${taEntryDate} ${taEntryTime}</div><div style="color:var(--text-muted);font-size:0.62rem;margin-top:0.15rem;">EXIT</div><div style="color:#94a3b8;font-family:var(--font-mono);">${taExitDate} ${taExitTime}</div></div>`;
             }
             
-            // Point 1: Remove accidental exit button on Open trades; preserve Target Editing
+            // Point 1: Remove accidental exit button on Open trades; preserve Target Editing & Play/Stop
             let actionBtn = "";
             if (status === "Open") {
+                const isPaused = !!trade.is_paused;
+                const playStopBtn = isPaused
+                    ? `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is STOPPED. Click to Play">⏸️ Stop</button>`
+                    : `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is PLAYING. Click to Stop">▶️ Play</button>`;
                 actionBtn = `
-                    <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
+                    <div style="display: flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
+                        ${playStopBtn}
                         <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${currentExitGap}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}', 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap / Target Spread for this trade">✏️ Edit Tgt</button>
                     </div>
                 `;
@@ -1307,7 +1317,11 @@ window.toggleTaLotsAccordion = function(talotscardId) {
             let statusBadge = "";
             const status = trade.status || "Open";
             if (status === "Open") {
-                statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
+                if (trade.is_paused) {
+                    statusBadge = `<span class="badge-paused" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.3);">PAUSED</span>`;
+                } else {
+                    statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
+                }
             } else if (status === "Closed" || status === "Completed") {
                 statusBadge = `<span class="badge-closed" style="background-color: rgba(148,163,184,0.15); color: #94a3b8; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(148,163,184,0.25);">CLOSED</span>`;
             } else {
@@ -1320,10 +1334,11 @@ window.toggleTaLotsAccordion = function(talotscardId) {
 
             if (status === "Open") {
                 const targetExitSpread = parseFloat(trade.entry_spread) + (trade.direction === "Expansion" ? currentExitGap : -currentExitGap);
+                const gapColor = currentExitGap < 0 ? '#f87171' : '#60a5fa';
                 spreadDisplay = `
                     <div style="font-size: 0.72rem; line-height: 1.4;">
                         <div>Ent: <strong class="font-mono">${entrySpreadVal}</strong></div>
-                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono">${targetExitSpread.toFixed(2)}</span> <small style="color: #60a5fa; font-size: 0.65rem;">(Gap: ${currentExitGap})</small></div>
+                        <div style="color: var(--text-muted);">Tgt: <span class="font-mono" style="color: ${currentExitGap < 0 ? '#f87171' : 'inherit'}; font-weight: 600;">${targetExitSpread.toFixed(2)}</span> <small style="color: ${gapColor}; font-size: 0.65rem;">(Gap: ${currentExitGap})</small></div>
                     </div>
                 `;
             } else {
@@ -1373,8 +1388,13 @@ window.toggleTaLotsAccordion = function(talotscardId) {
             let actionBtn = "";
             if (status === "Open") {
                 const lotsExitGapVal = trade.exit_gap !== undefined ? parseFloat(trade.exit_gap) : 100.0;
+                const isPaused = !!trade.is_paused;
+                const playStopBtn = isPaused
+                    ? `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is STOPPED. Click to Play">⏸️ Stop</button>`
+                    : `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is PLAYING. Click to Stop">▶️ Play</button>`;
                 actionBtn = `
-                    <div style="display: flex; gap: 0.35rem; justify-content: flex-end;">
+                    <div style="display: flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
+                        ${playStopBtn}
                         <button class="metallic-button" onclick="openEditTaTradeModal(${trade.id}, ${lotsExitGapVal}, ${parseFloat(trade.entry_spread || 0)}, '${trade.direction}', 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(56,189,248,0.12); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); border-radius: 4px; cursor: pointer; font-weight: 600;" title="Edit Target Gap for this Lots trade">✏️ Edit Tgt</button>
                     </div>
                 `;
@@ -3395,11 +3415,41 @@ const taEditTradeId = document.getElementById("ta-edit-trade-id");
 const taEditTradeDirection = document.getElementById("ta-edit-trade-direction");
 const taEditTradeEntrySpread = document.getElementById("ta-edit-trade-entry-spread");
 const taEditTradeType = document.getElementById("ta-edit-trade-type");
+const taEditTradePaused = document.getElementById("ta-edit-trade-paused");
 const taEditDispDirection = document.getElementById("ta-edit-disp-direction");
 const taEditDispEntrySpread = document.getElementById("ta-edit-disp-entry-spread");
 const taEditInputGap = document.getElementById("ta-edit-input-gap");
 const taEditInputTargetSpread = document.getElementById("ta-edit-input-target-spread");
+const taEditBtnPlay = document.getElementById("ta-edit-btn-play");
+const taEditBtnStop = document.getElementById("ta-edit-btn-stop");
+const taEditStatusDesc = document.getElementById("ta-edit-status-desc");
 const taEditSaveBtn = document.getElementById("ta-edit-save-btn");
+
+function updateTaEditPlayStopUI(isPaused) {
+    if (!taEditBtnPlay || !taEditBtnStop) return;
+    if (isPaused) {
+        taEditBtnPlay.style.background = "rgba(255,255,255,0.05)";
+        taEditBtnPlay.style.border = "1px solid var(--border-color)";
+        taEditBtnPlay.style.color = "var(--text-muted)";
+        taEditBtnStop.style.background = "rgba(239,68,68,0.25)";
+        taEditBtnStop.style.border = "1px solid #ef4444";
+        taEditBtnStop.style.color = "#f87171";
+        if (taEditStatusDesc) taEditStatusDesc.innerHTML = "⏸️ <strong>Stopped:</strong> Auto-exit is PAUSED (Bot will NOT exit automatically)";
+    } else {
+        taEditBtnPlay.style.background = "rgba(52,211,153,0.25)";
+        taEditBtnPlay.style.border = "1px solid #10b981";
+        taEditBtnPlay.style.color = "#34d399";
+        taEditBtnStop.style.background = "rgba(255,255,255,0.05)";
+        taEditBtnStop.style.border = "1px solid var(--border-color)";
+        taEditBtnStop.style.color = "var(--text-muted)";
+        if (taEditStatusDesc) taEditStatusDesc.innerHTML = "▶️ <strong>Play:</strong> Auto-exit is ACTIVE (Bot will exit when target spread met)";
+    }
+}
+
+window.setTaEditTradePaused = function(paused) {
+    if (taEditTradePaused) taEditTradePaused.value = paused ? "true" : "false";
+    updateTaEditPlayStopUI(paused);
+};
 
 window.openEditTaTradeModal = function(tradeId, currentGap, entrySpread, direction, tradeType = 'lots') {
     if (!taEditModal) return;
@@ -3414,7 +3464,18 @@ window.openEditTaTradeModal = function(tradeId, currentGap, entrySpread, directi
     if (taEditDispDirection) taEditDispDirection.innerText = direction;
     if (taEditDispEntrySpread) taEditDispEntrySpread.innerText = Number(entrySpread).toFixed(2);
     
-    const gap = parseFloat(currentGap) || 100.0;
+    // Find current trade's pause state
+    let isPaused = false;
+    const tradesList = tradeType === 'ta' ? (window.latestDataPayload?.ta_trades || []) : (window.latestDataPayload?.ta_lots_trades || []);
+    const matchingTrade = tradesList.find(t => String(t.id) === String(tradeId));
+    if (matchingTrade && matchingTrade.is_paused) {
+        isPaused = true;
+    }
+    if (taEditTradePaused) taEditTradePaused.value = isPaused ? "true" : "false";
+    updateTaEditPlayStopUI(isPaused);
+    
+    const parsedGap = parseFloat(currentGap);
+    const gap = isNaN(parsedGap) ? 100.0 : parsedGap;
     taEditInputGap.value = gap;
     
     const targetSpread = direction === "Expansion" ? (entrySpread + gap) : (entrySpread - gap);
@@ -3459,9 +3520,10 @@ window.saveEditTaTrade = async function() {
     const tradeId = parseInt(taEditTradeId.value);
     const newGap = parseFloat(taEditInputGap.value);
     const tradeType = (taEditTradeType && taEditTradeType.value) ? taEditTradeType.value : "lots";
+    const isPaused = taEditTradePaused ? (taEditTradePaused.value === "true") : false;
     
-    if (isNaN(tradeId) || isNaN(newGap) || newGap <= 0) {
-        alert("Please enter a valid target gap greater than 0.");
+    if (isNaN(tradeId) || isNaN(newGap)) {
+        alert("Please enter a valid numeric target gap.");
         return;
     }
     
@@ -3474,11 +3536,13 @@ window.saveEditTaTrade = async function() {
         const result = await postAction("ta-edit-trade", {
             trade_id: tradeId,
             exit_gap: newGap,
-            trade_type: tradeType
+            trade_type: tradeType,
+            is_paused: isPaused
         });
         
         if (result && result.status === "SUCCESS") {
-            logLocalMessage(`[SYSTEM] Target for ${tradeType === 'ta' ? 'Trade' : 'Lots Trade'} #${tradeId} updated to Gap: ${newGap} (Target Spread: ${result.target_spread})`);
+            const pauseMsg = isPaused ? " [STOPPED/PAUSED]" : " [PLAYING/ACTIVE]";
+            logLocalMessage(`[SYSTEM] Target for ${tradeType === 'ta' ? 'Trade' : 'Lots Trade'} #${tradeId} updated to Gap: ${newGap} (Target Spread: ${result.target_spread})${pauseMsg}`);
             closeEditTaTradeModal();
         } else {
             alert((result && result.message) ? result.message : "Failed to update target. Please check terminal logs.");
@@ -3490,6 +3554,17 @@ window.saveEditTaTrade = async function() {
             taEditSaveBtn.disabled = false;
             taEditSaveBtn.innerText = "💾 Save Target";
         }
+    }
+};
+
+window.toggleTaTradePause = async function(tradeId, tradeType = 'lots') {
+    try {
+        const res = await postAction("ta-toggle-trade-pause", { trade_id: tradeId, trade_type: tradeType });
+        if (res && res.status === "SUCCESS") {
+            logLocalMessage(`[SYSTEM] ${tradeType === 'ta' ? 'Trade' : 'Lots Trade'} #${tradeId} auto-exit ${res.is_paused ? 'STOPPED (Paused)' : 'PLAYING (Active)'}.`);
+        }
+    } catch (err) {
+        alert(`Error toggling trade status: ${err.message}`);
     }
 };
 

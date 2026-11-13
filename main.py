@@ -3418,6 +3418,9 @@ class AIArbitrageEngine:
             "6. This is advice only; the trader decides.\n"
             "7. Every BUY_SPREAD / SELL_SPREAD is traded on paper with YOUR step, target, stop and lots, and compared with the "
             "local rule. Learn from DATA.your_own_past_paper_results and only call a trade you would take.\n"
+            "8. Keep the reply SHORT so it is never cut off: at most 3 news items and 4 events, each one sentence; "
+            "at most 3 short 'why' items per pair. For a WAIT pair give only pair, action, confidence, why (1 item), "
+            "wait_for and agrees_with_rule - leave every other field null.\n"
             "Reply with ONLY one JSON object, no markdown, in this shape:\n"
             '{"summary": "2-3 lines, simple English", '
             '"news": [{"headline": "...", "impact": "how it can move gold / the spread", "source": "site name"}], '
@@ -3450,11 +3453,11 @@ class AIArbitrageEngine:
                     # Web search lamba chale to API "pause_turn" deta hai - wahi bhej kar aage chalate hain
                     for _ in range(3):
                         payload = {
-                            "model": model, "max_tokens": 4000, "system": system_prompt, "messages": messages,
+                            "model": model, "max_tokens": 8000, "system": system_prompt, "messages": messages,
                             "tools": [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}]
                         }
                         async with session.post(self.claude_api_url, headers=headers, json=payload,
-                                                timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                                                timeout=aiohttp.ClientTimeout(total=180)) as resp:
                             if resp.status != 200:
                                 err_text = await resp.text()
                                 try:
@@ -3489,7 +3492,10 @@ class AIArbitrageEngine:
                     try:
                         parsed = json.loads(text[start:end + 1])
                     except Exception:
-                        result["error"] = "Claude's reply could not be read. Try again."
+                        # max_tokens = jawab beech me kat gaya (bahut lamba), warna JSON hi galat tha
+                        result["error"] = ("Claude's reply was too long and got cut off. Try again."
+                                           if data.get("stop_reason") == "max_tokens"
+                                           else "Claude's reply could not be read. Try again.")
                         result["summary"] = text[:1500]
                         result["model"] = model
                         return result
@@ -4268,13 +4274,26 @@ async def run_trade_automation_checks():
         entry_spread = float(trade.get("entry_spread", 0.0))
         t_exit_gap = float(trade.get("exit_gap", 100.0))
         
+        # Check if trade auto-exit is paused/stopped by user
+        if trade.get("is_paused", False) or trade.get("stopped", False):
+            continue
+
+        target_spread = (entry_spread + t_exit_gap) if direction == "Expansion" else (entry_spread - t_exit_gap)
         exit_triggered = False
         if direction == "Expansion":
-            if sell_spread >= entry_spread + t_exit_gap:
-                exit_triggered = True
+            if t_exit_gap >= 0:
+                if sell_spread >= target_spread:
+                    exit_triggered = True
+            else:
+                if sell_spread <= target_spread:
+                    exit_triggered = True
         elif direction == "Contraction":
-            if buy_spread <= entry_spread - t_exit_gap:
-                exit_triggered = True
+            if t_exit_gap >= 0:
+                if buy_spread <= target_spread:
+                    exit_triggered = True
+            else:
+                if buy_spread >= target_spread:
+                    exit_triggered = True
                 
         if exit_triggered:
             # Enforce 10-second time gap between ANY order execution globally to protect against slippage and API rate limits
@@ -4592,13 +4611,26 @@ async def run_trade_automation_lots_checks():
         entry_spread = float(trade.get("entry_spread", 0.0))
         t_exit_gap = float(trade.get("exit_gap", 100.0))
         
+        # Check if trade auto-exit is paused/stopped by user
+        if trade.get("is_paused", False) or trade.get("stopped", False):
+            continue
+
+        target_spread = (entry_spread + t_exit_gap) if direction == "Expansion" else (entry_spread - t_exit_gap)
         exit_triggered = False
         if direction == "Expansion":
-            if sell_spread >= entry_spread + t_exit_gap:
-                exit_triggered = True
+            if t_exit_gap >= 0:
+                if sell_spread >= target_spread:
+                    exit_triggered = True
+            else:
+                if sell_spread <= target_spread:
+                    exit_triggered = True
         elif direction == "Contraction":
-            if buy_spread <= entry_spread - t_exit_gap:
-                exit_triggered = True
+            if t_exit_gap >= 0:
+                if buy_spread <= target_spread:
+                    exit_triggered = True
+            else:
+                if buy_spread >= target_spread:
+                    exit_triggered = True
                 
         if exit_triggered:
             # Enforce 10-second time gap between ANY order execution globally to avoid slippage and rate limits
@@ -7398,6 +7430,7 @@ class TAEditTradePayload(BaseModel):
     exit_gap: Optional[float] = None
     target_spread: Optional[float] = None
     trade_type: Optional[str] = None
+    is_paused: Optional[bool] = None
 
 @app.post("/api/ta-edit-trade")
 async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, authorization: str = Header(None)):
@@ -7481,6 +7514,9 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
     entry_spread = float(trade.get("entry_spread", 0.0))
     old_gap = float(trade.get("exit_gap", 100.0))
     
+    if payload.is_paused is not None:
+        trade["is_paused"] = bool(payload.is_paused)
+
     if payload.exit_gap is not None and str(payload.exit_gap).strip() != "":
         new_gap = float(payload.exit_gap)
     elif payload.target_spread is not None and str(payload.target_spread).strip() != "":
@@ -7490,10 +7526,7 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
         else:
             new_gap = entry_spread - target_spread
     else:
-        raise HTTPException(status_code=400, detail="Either exit_gap or target_spread must be provided.")
-        
-    if new_gap <= 0:
-        raise HTTPException(status_code=400, detail=f"Target gap must be greater than 0 (got {new_gap:.2f}).")
+        new_gap = old_gap
         
     trade["exit_gap"] = round(new_gap, 2)
     if is_lots:
@@ -7502,15 +7535,62 @@ async def api_ta_edit_trade(payload: TAEditTradePayload, token: str = None, auth
         system_state.save_ta_trades()
     
     target_val = (entry_spread + new_gap) if direction == "Expansion" else (entry_spread - new_gap)
-    system_state.log(f"[TA EDIT] {'[LOTS] ' if is_lots else ''}Trade ID {trade['id']} target updated: Gap {old_gap:.2f} -> {new_gap:.2f} (Target Spread: {target_val:.2f})")
+    state_str = " [STOPPED/PAUSED]" if trade.get("is_paused") else " [PLAYING/ACTIVE]"
+    system_state.log(f"[TA EDIT] {'[LOTS] ' if is_lots else ''}Trade ID {trade['id']} target updated: Gap {old_gap:.2f} -> {new_gap:.2f} (Target Spread: {target_val:.2f}){state_str}")
     
     await broadcast_system_state()
     return {
         "status": "SUCCESS", 
         "message": f"Trade ID {trade['id']} target updated successfully.", 
         "exit_gap": round(new_gap, 2), 
-        "target_spread": round(target_val, 2)
+        "target_spread": round(target_val, 2),
+        "is_paused": trade.get("is_paused", False)
     }
+
+class TAToggleTradePausePayload(BaseModel):
+    trade_id: Union[int, str]
+    trade_type: Optional[str] = "lots"
+    is_paused: Optional[bool] = None
+
+@app.post("/api/ta-toggle-trade-pause")
+async def api_ta_toggle_trade_pause(payload: TAToggleTradePausePayload, token: str = None, authorization: str = Header(None)):
+    verify_token(token, authorization)
+    target_id_str = str(payload.trade_id).strip()
+    req_type = (payload.trade_type or "lots").strip().lower()
+    
+    trade = None
+    is_lots = (req_type == "lots")
+    trade_list = getattr(system_state, "ta_lots_trades", []) if is_lots else system_state.ta_trades
+    for t in trade_list:
+        if str(t.get("id", "")).strip() == target_id_str and str(t.get("status", "")).strip().lower() in ["open", "active"]:
+            trade = t
+            break
+            
+    if not trade:
+        other_list = system_state.ta_trades if is_lots else getattr(system_state, "ta_lots_trades", [])
+        for t in other_list:
+            if str(t.get("id", "")).strip() == target_id_str and str(t.get("status", "")).strip().lower() in ["open", "active"]:
+                trade = t
+                is_lots = not is_lots
+                break
+
+    if not trade:
+        raise HTTPException(status_code=404, detail=f"Open trade #{target_id_str} not found.")
+
+    if payload.is_paused is not None:
+        trade["is_paused"] = bool(payload.is_paused)
+    else:
+        trade["is_paused"] = not trade.get("is_paused", False)
+
+    if is_lots:
+        system_state.save_ta_lots_trades()
+    else:
+        system_state.save_ta_trades()
+
+    state_str = "STOPPED (Paused)" if trade["is_paused"] else "PLAYING (Active)"
+    system_state.log(f"[TA PAUSE/PLAY] {'[LOTS] ' if is_lots else ''}Trade ID {trade['id']} auto-exit set to {state_str}.")
+    await broadcast_system_state()
+    return {"status": "SUCCESS", "is_paused": trade["is_paused"], "message": f"Trade ID {trade['id']} auto-exit set to {state_str}."}
 
 # ----------------- Trade Automation with Lots REST Endpoints -----------------
 class TALotsConfigItem(BaseModel):
