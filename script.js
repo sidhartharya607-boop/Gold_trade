@@ -1112,7 +1112,7 @@ window.toggleTaLotsAccordion = function(talotscardId) {
             const status = trade.status || "Open";
             if (status === "Open") {
                 if (trade.is_paused) {
-                    statusBadge = `<span class="badge-paused" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.3);">PAUSED</span>`;
+                    statusBadge = `<span class="badge-paused" style="background-color: rgba(239,68,68,0.15); color: #f87171; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.3);">STOPPED</span>`;
                 } else {
                     statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
                 }
@@ -1195,8 +1195,8 @@ window.toggleTaLotsAccordion = function(talotscardId) {
             if (status === "Open") {
                 const isPaused = !!trade.is_paused;
                 const playStopBtn = isPaused
-                    ? `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is STOPPED. Click to Play">⏸️ Stop</button>`
-                    : `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is PLAYING. Click to Stop">▶️ Play</button>`;
+                    ? `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is currently STOPPED. Click to Play (Resume)">▶️ Play</button>`
+                    : `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'ta')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is currently ACTIVE. Click to Stop">⏸️ Stop</button>`;
                 actionBtn = `
                     <div style="display: flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
                         ${playStopBtn}
@@ -1318,7 +1318,7 @@ window.toggleTaLotsAccordion = function(talotscardId) {
             const status = trade.status || "Open";
             if (status === "Open") {
                 if (trade.is_paused) {
-                    statusBadge = `<span class="badge-paused" style="background-color: rgba(245,158,11,0.15); color: #f59e0b; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(245,158,11,0.3);">PAUSED</span>`;
+                    statusBadge = `<span class="badge-paused" style="background-color: rgba(239,68,68,0.15); color: #f87171; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(239,68,68,0.3);">STOPPED</span>`;
                 } else {
                     statusBadge = `<span class="badge-open" style="background-color: rgba(52,211,153,0.15); color: #34d399; padding: 2px 6px; border-radius: 4px; font-size: 0.65rem; font-weight: 700; border: 1px solid rgba(52,211,153,0.25);">OPEN</span>`;
                 }
@@ -1390,8 +1390,8 @@ window.toggleTaLotsAccordion = function(talotscardId) {
                 const lotsExitGapVal = trade.exit_gap !== undefined ? parseFloat(trade.exit_gap) : 100.0;
                 const isPaused = !!trade.is_paused;
                 const playStopBtn = isPaused
-                    ? `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is STOPPED. Click to Play">⏸️ Stop</button>`
-                    : `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(52,211,153,0.12); color: #34d399; border: 1px solid rgba(52,211,153,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is PLAYING. Click to Stop">▶️ Play</button>`;
+                    ? `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is currently STOPPED. Click to Play (Resume)">▶️ Play</button>`
+                    : `<button class="metallic-button" onclick="toggleTaTradePause(${trade.id}, 'lots')" style="padding: 0.25rem 0.5rem; font-size: 0.68rem; min-height: unset; margin: 0; background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="Auto-exit is currently ACTIVE. Click to Stop">⏸️ Stop</button>`;
                 actionBtn = `
                     <div style="display: flex; gap: 0.35rem; justify-content: flex-end; align-items: center;">
                         ${playStopBtn}
