@@ -79,6 +79,16 @@ MARKET_CLOSE_HOUR = 23
 MARKET_CLOSE_MINUTE = 55
 MARKET_CLOSE_STR = f"{MARKET_CLOSE_HOUR:02d}:{MARKET_CLOSE_MINUTE:02d}"
 
+# Raat 23:45 ke baad koi bhi order execute nahi hoga (API connected ho tab bhi). Subah 09:00 se normal.
+ORDER_CUTOFF_HOUR = 23
+ORDER_CUTOFF_MINUTE = 45
+ORDER_CUTOFF_STR = f"{ORDER_CUTOFF_HOUR:02d}:{ORDER_CUTOFF_MINUTE:02d}"
+
+def is_order_cutoff_time() -> bool:
+    """True from 23:45:00 till 08:59:59 IST - is time me koi order nahi jayega."""
+    now = get_ist_time()
+    return (now.hour == ORDER_CUTOFF_HOUR and now.minute >= ORDER_CUTOFF_MINUTE) or now.hour < 9
+
 def get_market_session_status() -> str:
     """
     Returns:
@@ -1850,6 +1860,12 @@ async def execute_trade(petal_action: str, mini_action: str, check_liquidity: bo
                         alt_petal_symbol: str = None, alt_petal_token: str = None,
                         alt_mini_symbol: str = None, alt_mini_token: str = None,
                         paper_mode_override: bool = None) -> dict:
+    # Night cutoff: 23:45 ke baad koi order nahi (subah 09:00 se normal)
+    if is_order_cutoff_time():
+        msg = f"Orders are blocked after {ORDER_CUTOFF_STR} till 09:00."
+        system_state.log(f"[ORDER CUTOFF] Trade skipped: {msg}")
+        return {"success": False, "status": "FAILED", "reason": msg}
+
     # Resolve target symbols and tokens
     target_petal_symbol = alt_petal_symbol if alt_petal_symbol is not None else system_state.petal_symbol
     target_petal_token = alt_petal_token if alt_petal_token is not None else system_state.petal_token
@@ -5673,7 +5689,7 @@ async def process_market_data(data: dict):
             os._exit(0)
 
     # If the session is HOLD or SUSPENDED, skip all trade execution and automated checks.
-    if session_status in ["HOLD", "SUSPENDED"]:
+    if session_status in ["HOLD", "SUSPENDED"] or is_order_cutoff_time():
         await broadcast_system_state()
         return
 
@@ -6614,6 +6630,8 @@ async def api_entry(payload: EntryPayload, token: str = None, authorization: str
         raise HTTPException(status_code=400, detail="Trading is suspended during market hold window.")
     elif session_status == "SUSPENDED":
         raise HTTPException(status_code=400, detail="Trading is suspended after market close (23:55 - 09:00).")
+    if is_order_cutoff_time():
+        raise HTTPException(status_code=400, detail=f"Orders are blocked after {ORDER_CUTOFF_STR} till 09:00.")
 
     if system_state.system_status == "Halted":
         raise HTTPException(status_code=400, detail="Terminal is Halted due to Kill Switch or Stop Loss.")
